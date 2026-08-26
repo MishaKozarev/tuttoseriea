@@ -232,6 +232,28 @@ CI runs the checks required by the repository for the affected change.
 
 Required CI must pass before merge to `main`.
 
+### Current CI checks
+
+The current GitHub Actions workflow is `.github/workflows/ci.yml`.
+
+For the existing `web/` foundation, CI runs one job:
+
+- `Web` on `ubuntu-latest` with Node.js `24` and pnpm `11.23.0`.
+
+The `Web` job uses the committed `web/pnpm-lock.yaml` and runs:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run lint
+pnpm run build
+```
+
+These commands run with `web/` as the working directory.
+
+No unit, component, integration, E2E or smoke test suites are run yet because the
+corresponding repository tooling and feature surfaces do not exist yet. Add those checks
+when concrete implemented behavior requires them.
+
 Do not:
 
 - bypass required CI;
@@ -260,9 +282,9 @@ Prefer stable behavior and contract assertions.
 
 The following details remain open until concrete repository tooling and features establish them:
 
-- exact test commands;
+- exact test commands beyond the current `web/` lint and build checks;
 - exact test database strategy and lifecycle;
-- exact CI test matrix;
+- future expanded CI test matrix beyond the current `web` job on Node.js 24;
 - initial set of critical Playwright flows;
 - exact production smoke-test implementation;
 - coverage reporting/thresholds, if any are ever demonstrated to be useful.

@@ -113,6 +113,26 @@ The exact checks depend on the repository configuration and the affected change.
 
 Testing requirements are defined in `testing/overview.md`.
 
+### Current GitHub Actions CI
+
+The current repository CI workflow is `.github/workflows/ci.yml`.
+
+It runs on:
+
+- `pull_request` targeting `main`;
+- `push` to `main`.
+
+The current workflow name is `CI`.
+
+The current required job for the existing repository state is:
+
+- `Web` — installs `web/` dependencies from `web/pnpm-lock.yaml`, runs `pnpm run lint`
+  and `pnpm run build` in `web/`.
+
+This is the minimal CI for the existing Next.js foundation. It does not run FastAPI,
+database, Docker Compose, E2E, smoke or deployment checks because the corresponding
+repository tooling does not exist yet.
+
 If a required check:
 
 - does not exist yet;
@@ -246,7 +266,6 @@ Root `AGENTS.md` remains the control plane for mandatory Codex rules and routing
 The following details depend on the actual repository/platform configuration and remain open until implemented:
 
 - exact branch protection configuration;
-- exact required GitHub Actions checks;
 - exact merge strategy;
 - exact PR template/content requirements;
 - automated staging deployment trigger mechanics.
