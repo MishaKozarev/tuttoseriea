@@ -70,6 +70,36 @@ Required repository protections and required CI must not be bypassed merely to m
 
 Do not treat merge to `main` as authorization for production deployment.
 
+### Current branch protection
+
+GitHub branch protection is configured for the exact branch `main`.
+
+Enabled protections:
+
+- require a Pull Request before merging;
+- required approving reviews: `0`;
+- require status checks to pass before merging;
+- required status check: `Web`;
+- expected status check source: GitHub Actions;
+- administrators are included in the configured protections;
+- force pushes are disabled;
+- branch deletion is disabled.
+
+The required status check does not require branches to be up to date before merging.
+
+The current protection does not configure:
+
+- repository rulesets;
+- push restrictions;
+- required deployments;
+- signed commits;
+- linear history;
+- merge queue;
+- conversation resolution;
+- code owner review;
+- stale review dismissal;
+- last-push approval.
+
 ## Commits
 
 Commits should represent understandable units of work.
@@ -265,7 +295,6 @@ Root `AGENTS.md` remains the control plane for mandatory Codex rules and routing
 
 The following details depend on the actual repository/platform configuration and remain open until implemented:
 
-- exact branch protection configuration;
 - exact merge strategy;
 - exact PR template/content requirements;
 - automated staging deployment trigger mechanics.
