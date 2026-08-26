@@ -2,6 +2,11 @@
 
 Minimal Next.js foundation for the `web/` application.
 
+## Prerequisites
+
+- Node.js `24.x`;
+- `pnpm` `11.23.0`.
+
 ## Getting Started
 
 Install dependencies when they are not already installed:
@@ -17,6 +22,13 @@ pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+Optionally run an already built application locally:
+
+```bash
+pnpm build
+pnpm start
+```
 
 ## Checks
 

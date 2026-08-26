@@ -10,7 +10,13 @@ For testing rules, see `../testing/overview.md`.
 
 ## Development model
 
-Daily LOCAL development uses a hybrid environment:
+The current runnable repository state is a minimal Next.js foundation in `web/`.
+
+Current LOCAL development runs:
+
+- Next.js natively on Windows.
+
+Future full-stack LOCAL development uses the agreed hybrid environment:
 
 - Next.js runs natively on Windows;
 - FastAPI runs natively on Windows;
@@ -18,16 +24,27 @@ Daily LOCAL development uses a hybrid environment:
 
 Developers do not need to run the entire application stack in containers for normal daily development.
 
-At the same time, the project must maintain a production-like Docker Compose stack that can verify that the services work correctly together in containers before staging.
+Once the production-like Docker Compose stack exists, it must verify that the
+services work correctly together in containers before staging.
 
 ## Tooling
 
-The project uses:
+The current runnable `web/` foundation requires:
 
-- `pnpm` for Node.js dependency management;
+- Node.js `24.x`;
+- `pnpm` `11.23.0` for Node.js dependency management;
+- Git;
+- GitHub CLI (`gh`) for Codex/operator GitHub workflow tasks such as Pull Request
+  and required check inspection.
+
+The planned full-stack project also uses:
+
 - `uv` for Python dependency management;
 - Drizzle for PostgreSQL schema and migrations;
 - Docker for PostgreSQL + pgvector in normal LOCAL development and for the production-like containerized stack.
+
+Do not pin exact Python, `uv`, Git, GitHub CLI, WSL2, Docker Desktop, Docker Engine
+or Docker Compose versions until repository tooling establishes a project requirement.
 
 Do not introduce alternative package managers or migration systems without an explicit decision.
 
@@ -39,7 +56,10 @@ Never invent a command merely because it would be conventional for the stack.
 
 Configuration is service-specific.
 
-`web/` and `ai-service/` maintain their own environment configuration and `.env.example` files.
+The current runnable `web/` foundation does not require LOCAL environment files.
+
+When service environment configuration exists, `web/` and `ai-service/` maintain
+their own environment configuration and `.env.example` files.
 
 A shared root `.env.example` is not used as a general configuration layer.
 
@@ -57,7 +77,9 @@ Detailed security rules are documented in `../security/overview.md`.
 
 ## Database setup
 
-PostgreSQL + pgvector run in Docker during normal LOCAL development.
+Database setup is not implemented in the current runnable `web/` foundation.
+
+Future PostgreSQL + pgvector setup runs in Docker during normal LOCAL development.
 
 Database schema changes use Drizzle migrations.
 
@@ -65,7 +87,7 @@ Drizzle is the only migration authority for the entire database, including AI/ve
 
 Do not introduce Alembic or another independent migration history for `ai-service/`.
 
-Normal database initialization follows:
+Future database initialization follows:
 
 `migrate → seed`
 
@@ -119,7 +141,10 @@ AI-provider architecture is documented in `../architecture/ai-service.md`.
 
 ## Production-like Docker verification
 
-The repository must maintain a production-like Docker Compose configuration for integration verification.
+Production-like Docker verification is not implemented in the current runnable
+foundation.
+
+The repository must maintain a production-like Docker Compose configuration for integration verification after the full-stack Docker workflow exists.
 
 Its purpose is to detect problems that native LOCAL development may not expose, such as:
 
@@ -149,6 +174,14 @@ Depending on the change, these may include:
 - production-like Docker Compose verification.
 
 Detailed test requirements are defined in `../testing/overview.md`.
+
+For the current `web/` foundation, the available checks are:
+
+```bash
+cd web
+pnpm lint
+pnpm build
+```
 
 Do not claim that a check passed if:
 
@@ -191,11 +224,11 @@ Do not document commands that are merely planned or assumed.
 
 The following development details remain open until the repository implementation establishes them:
 
-- exact LOCAL bootstrap commands;
+- exact full-stack LOCAL bootstrap commands beyond the current `web/` foundation;
 - exact Drizzle migration commands;
 - exact seed command;
-- exact service start commands;
+- exact service start commands beyond the current Next.js development server;
 - exact production-like Docker Compose verification command;
-- exact environment variable sets for each service.
+- exact environment variable sets for services that require LOCAL environment configuration.
 
 These must be documented from real repository tooling rather than invented in advance.

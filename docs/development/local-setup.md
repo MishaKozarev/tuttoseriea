@@ -14,35 +14,38 @@ For testing rules, see `../testing/overview.md`.
 
 ## Prerequisites
 
-The LOCAL environment requires:
+The current runnable `web/` foundation requires:
 
-- supported Node.js version;
-- `pnpm`;
-- supported Python version;
-- `uv`;
-- Docker / Docker Compose;
 - Git.
+- Node.js `24.x`.
+- `pnpm` `11.23.0`.
+- GitHub CLI (`gh`) authenticated to GitHub for Codex/operator GitHub workflow
+  tasks such as Pull Request and required check inspection.
 
-The exact supported Node.js and Python versions must match the real project configuration.
+Do not pin a specific LOCAL Node.js patch version in project documentation.
 
-Do not guess or document versions that are not yet established in repository tooling.
+The pnpm version is a project requirement because it is pinned in `web/package.json`
+and used by GitHub Actions CI.
+
+Python, `uv`, WSL2, Docker Desktop, Docker Engine and Docker Compose are part of
+the planned full-stack development environment, but their exact project versions
+are not pinned yet. Do not turn observed versions from one developer machine into
+project requirements until the corresponding repository tooling exists.
 
 ## Repository bootstrap
 
-The general bootstrap sequence is:
+The current repository contains a runnable `web/` foundation only.
+
+Current bootstrap sequence:
 
 1. clone the repository;
 2. install Node.js dependencies for `web/`;
-3. install Python dependencies for `ai-service/`;
-4. create LOCAL environment configuration from service-specific `.env.example` files;
-5. start PostgreSQL + pgvector in Docker;
-6. apply Drizzle migrations;
-7. run seed;
-8. start Next.js;
-9. start FastAPI;
-10. run the relevant LOCAL checks.
+3. start the Next.js development server;
+4. run the current `web/` checks when verifying changes.
 
-Concrete commands are added only after the corresponding scripts/tooling exist.
+Future full-stack bootstrap will add `ai-service`, service environment files,
+PostgreSQL + pgvector in Docker, Drizzle migrations, seed and FastAPI startup
+after the corresponding repository tooling exists.
 
 ### Current `web/` commands
 
@@ -67,16 +70,24 @@ project state requires it.
 `pnpm dev` starts the Next.js development server. The default LOCAL URL is
 `http://localhost:3000` unless the port is already occupied.
 
+`pnpm start` is available for optional local execution of an already built Next.js
+application after `pnpm build`. It is not a CI check and is not a mandatory LOCAL
+verification command.
+
 ## Environment files
 
-Service-specific LOCAL configuration is based on:
+The current runnable `web/` foundation does not require LOCAL environment files
+and does not include a `web/.env.example`.
+
+Future service-specific LOCAL configuration will be based on:
 
 - `web/.env.example`;
 - `ai-service/.env.example`.
 
 A root `.env.example` is not used as the shared configuration source.
 
-Create real LOCAL `.env` files from the corresponding examples.
+Create real LOCAL `.env` files from the corresponding examples after those
+examples exist.
 
 Never commit real `.env` files or credentials.
 
@@ -86,7 +97,9 @@ Do not introduce a hidden shared ENV/config layer only to remove duplication.
 
 ## PostgreSQL + pgvector
 
-Normal LOCAL development runs PostgreSQL + pgvector in Docker.
+PostgreSQL + pgvector are not part of the current runnable `web` foundation yet.
+
+Future normal LOCAL development will run PostgreSQL + pgvector in Docker.
 
 The Docker configuration must provide the database required by both `web/` and `ai-service/`.
 
@@ -100,9 +113,14 @@ The normal database preparation order is:
 
 `migrate → seed`
 
+The exact Docker Compose command must be documented here after the real Docker
+Compose workflow exists.
+
 ## Migrations
 
-Every schema change follows the project migration workflow:
+No Drizzle schema or migration commands exist in the current runnable foundation.
+
+Every future schema change follows the project migration workflow:
 
 1. modify Drizzle schema;
 2. generate the migration using the actual project command;
@@ -116,7 +134,9 @@ Do not modify production or LOCAL schema manually as a substitute for creating t
 
 ## Seed
 
-Seed must provide a minimal useful LOCAL dataset.
+No seed command exists in the current runnable foundation.
+
+Future seed must provide a minimal useful LOCAL dataset.
 
 It should be safe to run repeatedly and must not continuously create duplicate logical records.
 
@@ -154,7 +174,9 @@ The exact reset command must not be added here until the project deliberately im
 
 ## Starting services
 
-Daily LOCAL development uses the hybrid model:
+The current runnable service is Next.js.
+
+Future daily LOCAL development uses the hybrid model:
 
 - PostgreSQL + pgvector in Docker;
 - Next.js natively on Windows;
@@ -167,6 +189,14 @@ The current Next.js start command exists:
 ```bash
 cd web
 pnpm dev
+```
+
+Optional local execution of the built Next.js app:
+
+```bash
+cd web
+pnpm build
+pnpm start
 ```
 
 Do not replace the agreed LOCAL model with an all-container workflow unless the architecture is explicitly changed.
@@ -195,7 +225,11 @@ Starting LOCAL or running ordinary automated checks must not silently consume re
 
 ## Production-like Docker verification
 
-Separate from daily LOCAL development, the project maintains a full production-like Docker Compose stack.
+Production-like Docker verification is not implemented in the current runnable
+foundation.
+
+Separate from daily LOCAL development, the project will maintain a full
+production-like Docker Compose stack.
 
 Its purpose is to verify:
 
@@ -235,16 +269,26 @@ pnpm lint
 pnpm build
 ```
 
+No unit, component, integration, E2E, smoke or Docker Compose verification
+commands exist yet.
+
 For mandatory testing rules, see `../testing/overview.md`.
 
 ## First-run verification
 
-After successful bootstrap, verify at minimum that:
+After successful current `web` bootstrap, verify at minimum that:
+
+- Next.js starts successfully with `pnpm dev`;
+- the default Next.js page is reachable at `http://localhost:3000` unless the port
+  is already occupied;
+- `pnpm lint` succeeds;
+- `pnpm build` succeeds.
+
+Future full-stack verification will add checks that:
 
 - PostgreSQL is running and reachable;
 - required migrations are applied;
 - seed completes successfully;
-- Next.js starts successfully;
 - FastAPI starts successfully;
 - the defined service boundary is reachable where required;
 - relevant health/check endpoints work once they exist.
@@ -270,7 +314,6 @@ Do not update this document with hypothetical commands or planned tooling.
 
 The following details must be filled from the real repository after bootstrap:
 
-- exact supported Node.js version;
 - exact supported Python version;
 - exact Python dependency installation commands;
 - exact PostgreSQL/Docker Compose command;
