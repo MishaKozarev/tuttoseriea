@@ -215,6 +215,9 @@ Do not merge unrelated additional changes merely because they are already presen
 
 The commit/version that progresses through staging must remain identifiable.
 
+After merge, synchronize local repository state before starting another task.
+The mandatory Codex post-merge alignment rule is defined in root `AGENTS.md`.
+
 ## Staging
 
 Staging validates the version produced by the approved Git/CI process.

@@ -165,6 +165,21 @@ These rules are mandatory and take precedence over convenience or speed.
 
 `task → analyze → plan → ПЛАН ОДОБРЕН → implement → automated checks → manual LOCAL check → LOCAL OK → commit → push → PR → CI → main → staging → manual STAGING check → STAGING OK → wait → DEPLOY PRODUCTION → production`
 
+### After merge to main
+
+After a PR is successfully merged to `main`, Codex must verify repository alignment before starting the next task:
+
+- synchronize local `main` with `origin/main`;
+- verify local `main` points to the same commit as `origin/main`;
+- verify the working tree is clean;
+- start the next task from the up-to-date local `main`, not from the merged task branch.
+
+Starting from `main` means creating the next task branch from the up-to-date `main`; development itself must not continue directly on `main`.
+
+If synchronization cannot be completed safely, stop and report the exact repository state.
+
+Do not use reset, rebase, force operations or other destructive operations merely to perform normal post-merge synchronization.
+
 ### Planning
 
 Before implementation Codex must:
