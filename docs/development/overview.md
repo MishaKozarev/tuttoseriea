@@ -24,8 +24,13 @@ Future full-stack LOCAL development uses the agreed hybrid environment:
 
 Developers do not need to run the entire application stack in containers for normal daily development.
 
-Once the production-like Docker Compose stack exists, it must verify that the
-services work correctly together in containers before staging.
+The current `web/` application has a production container image definition in
+`web/Dockerfile`. This supports container delivery verification separately from
+daily native LOCAL development.
+
+Once the repository production-like Docker Compose verification workflow exists,
+it must verify that the services work correctly together in containers before
+staging.
 
 ## Tooling
 
@@ -33,6 +38,7 @@ The current runnable `web/` foundation requires:
 
 - Node.js `24.x`;
 - `pnpm` `11.23.0` for Node.js dependency management;
+- Docker Engine for `web/` production container build and smoke verification;
 - Git;
 - GitHub CLI (`gh`) for Codex/operator GitHub workflow tasks such as Pull Request
   and required check inspection.
@@ -41,7 +47,8 @@ The planned full-stack project also uses:
 
 - `uv` for Python dependency management;
 - Drizzle for PostgreSQL schema and migrations;
-- Docker for PostgreSQL + pgvector in normal LOCAL development and for the production-like containerized stack.
+- Docker Compose for PostgreSQL + pgvector in normal LOCAL development and for the
+  production-like containerized stack.
 
 Do not pin exact Python, `uv`, Git, GitHub CLI, WSL2, Docker Desktop, Docker Engine
 or Docker Compose versions until repository tooling establishes a project requirement.
@@ -139,12 +146,29 @@ Provider-specific integration architecture is documented in `../architecture/int
 
 AI-provider architecture is documented in `../architecture/ai-service.md`.
 
-## Production-like Docker verification
+## Container verification
 
-Production-like Docker verification is not implemented in the current runnable
-foundation.
+The current repository implements production container build and smoke verification
+for the `web/` application.
 
-The repository must maintain a production-like Docker Compose configuration for integration verification after the full-stack Docker workflow exists.
+Current `web/` container delivery:
+
+- `web/Dockerfile` builds a production Next.js standalone image;
+- `.github/workflows/ci.yml` builds and smoke-checks that image in the required
+  `Web` job;
+- on `push` to `main`, the same CI job publishes the image to GHCR as
+  `ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>`.
+
+STAGING and PRODUCTION infrastructure use the same immutable image digest from
+GHCR. The image is built once in CI and promoted by digest, not rebuilt per
+environment.
+
+Full-stack production-like Docker Compose verification is separate from the
+single-service `web/` image smoke check.
+
+The VDS infrastructure already has separate Docker Compose projects for STAGING
+and PRODUCTION. Repository commands for deploying a selected image digest through
+those projects are documented only after they are implemented and verified.
 
 Its purpose is to detect problems that native LOCAL development may not expose, such as:
 
@@ -156,7 +180,8 @@ Its purpose is to detect problems that native LOCAL development may not expose, 
 
 This containerized verification is a required pre-staging protection, not the default daily development environment.
 
-The exact command and CI implementation must reflect the actual repository tooling and are documented when they exist.
+The exact full-stack Compose verification command must reflect the actual
+repository tooling and be documented when it exists.
 
 ## Development checks
 
@@ -181,7 +206,12 @@ For the current `web/` foundation, the available checks are:
 cd web
 pnpm lint
 pnpm build
+cd ..
+docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
+
+Run the built `web` container and verify that the application responds when the
+change affects container delivery.
 
 Do not claim that a check passed if:
 
@@ -228,7 +258,7 @@ The following development details remain open until the repository implementatio
 - exact Drizzle migration commands;
 - exact seed command;
 - exact service start commands beyond the current Next.js development server;
-- exact production-like Docker Compose verification command;
+- exact full-stack production-like Docker Compose verification command;
 - exact environment variable sets for services that require LOCAL environment configuration.
 
 These must be documented from real repository tooling rather than invented in advance.

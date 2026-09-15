@@ -157,11 +157,21 @@ The current workflow name is `CI`.
 The current required job for the existing repository state is:
 
 - `Web` — installs `web/` dependencies from `web/pnpm-lock.yaml`, runs `pnpm run lint`
-  and `pnpm run build` in `web/`.
+  and `pnpm run build` in `web/`, builds the `web` production container image,
+  and smoke-checks that container over HTTP.
+
+On `push` to `main`, the same `Web` job publishes the successfully smoke-checked
+image to GHCR as:
+
+```text
+ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
+```
+
+Pull Request CI does not publish images.
 
 This is the minimal CI for the existing Next.js foundation. It does not run FastAPI,
-database, Docker Compose, E2E, smoke or deployment checks because the corresponding
-repository tooling does not exist yet.
+database, full-stack Docker Compose, E2E or staging/production deployment checks
+because the corresponding repository tooling does not exist yet.
 
 If a required check:
 

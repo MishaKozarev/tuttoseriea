@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   web:
@@ -41,3 +42,51 @@ jobs:
       - name: Build web
         working-directory: web
         run: pnpm run build
+
+      - name: Prepare web image metadata
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "WEB_IMAGE=ghcr.io/${repository}/web" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE_TAG=sha-${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Build web container image
+        run: |
+          docker build \
+            --build-arg COMMIT_SHA="${GITHUB_SHA}" \
+            --file web/Dockerfile \
+            --tag "${WEB_IMAGE}:${WEB_IMAGE_TAG}" \
+            web
+
+      - name: Smoke web container
+        shell: bash
+        run: |
+          container_id="$(docker run --rm -d -p 3000:3000 "${WEB_IMAGE}:${WEB_IMAGE_TAG}")"
+
+          cleanup() {
+            docker stop "$container_id" >/dev/null 2>&1 || true
+          }
+
+          trap cleanup EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs "$container_id" || true
+          exit 1
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login --username "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Push web container image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker push "${WEB_IMAGE}:${WEB_IMAGE_TAG}"
+
+      - name: Inspect published web image digest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker buildx imagetools inspect "${WEB_IMAGE}:${WEB_IMAGE_TAG}"
