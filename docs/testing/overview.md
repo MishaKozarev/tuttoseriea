@@ -262,9 +262,15 @@ ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
 
 Pull Request CI does not publish images.
 
-No unit, component, integration, E2E or deployed-environment smoke test suites are
-run yet because the corresponding repository tooling and feature surfaces do not
-exist yet. Add those checks when concrete implemented behavior requires them.
+Repository-side STAGING deployment is implemented by
+`.github/workflows/deploy-staging.yml`. After deploying through the documented VDS
+contract, it verifies that `https://staging.tuttoseriea.com/` is reachable over
+HTTP and returns a non-empty response body. This is the current
+deployed-environment STAGING smoke check.
+
+No unit, component, integration or E2E test suites are run yet because the
+corresponding repository tooling and feature surfaces do not exist yet. Add those
+checks when concrete implemented behavior requires them.
 
 Do not:
 
@@ -298,6 +304,7 @@ The following details remain open until concrete repository tooling and features
 - exact test database strategy and lifecycle;
 - future expanded CI test matrix beyond the current `web` job on Node.js 24;
 - initial set of critical Playwright flows;
+- expanded STAGING smoke coverage beyond the current public HTTP availability check;
 - exact production smoke-test implementation;
 - coverage reporting/thresholds, if any are ever demonstrated to be useful.
 

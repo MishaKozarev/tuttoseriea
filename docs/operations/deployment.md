@@ -179,8 +179,79 @@ The staging deployment process may include, as required by the implemented infra
 - running relevant smoke checks.
 
 The VDS-side deployment command contract and server-side entrypoints are defined
-in the VDS deployment contract above. The repository-side GitHub Actions staging
-deployment trigger and mechanics are not implemented yet.
+in the VDS deployment contract above.
+
+Repository-side STAGING deployment is implemented by:
+
+```text
+.github/workflows/deploy-staging.yml
+```
+
+The workflow is manually triggered with `workflow_dispatch` and must run from
+`main`.
+
+Required inputs:
+
+- `git_sha` - a full 40-character commit SHA;
+- `image_digest` - an immutable digest in `sha256:<64-hex>` format.
+
+The workflow accepts `git_sha` only when that commit is an ancestor of the current
+`origin/main`. The commit does not have to equal the current head of `main`; this
+allows redeploying an earlier version that genuinely passed through `main`.
+The checkout/fetch history must be complete enough for this ancestry check to be
+reliable.
+
+Before connecting to the VDS, the workflow verifies that:
+
+```text
+ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>
+```
+
+resolves to the exact `image_digest` passed as input.
+
+Only after the `git_sha` and image tag-to-digest checks succeed does the workflow
+invoke the documented VDS command contract over SSH:
+
+```text
+deploy <GIT_SHA> <IMAGE_DIGEST>
+```
+
+Required GitHub Actions environment:
+
+```text
+staging
+```
+
+Required `staging` environment secrets:
+
+- `STAGING_SSH_HOST` - SSH host for the VDS;
+- `STAGING_SSH_PRIVATE_KEY` - STAGING-specific private key for the `deploy` user;
+- `STAGING_SSH_KNOWN_HOSTS` - pinned SSH `known_hosts` entry for the VDS SSH
+  endpoint on port `56777`.
+
+The workflow uses the fixed VDS contract values documented above:
+
+- SSH user: `deploy`;
+- SSH port: `56777`;
+- staging URL: `https://staging.tuttoseriea.com/`.
+
+After the VDS deployment command succeeds, the workflow verifies that
+`https://staging.tuttoseriea.com/` is reachable over HTTP and that the response
+body is non-empty. This is the current deployed-environment STAGING smoke check.
+It does not define a dedicated health-check endpoint.
+
+The workflow writes a release summary containing the deployed Git SHA, image tag,
+image digest, staging URL, VDS command identity and smoke result. This summary is
+the current repository-side release verification record. The separate
+release-state/version tracking mechanism is not implemented yet.
+
+Example first-run command:
+
+```bash
+gh workflow run deploy-staging.yml --ref main \
+  -f git_sha=<main-ancestor-commit-sha> \
+  -f image_digest=<sha256-image-digest>
+```
 
 ## Staging verification
 
@@ -436,11 +507,11 @@ Remove obsolete procedures rather than leaving multiple ambiguous alternatives.
 
 The following details remain open until the real deployment infrastructure is implemented and verified:
 
-- repository-side GitHub Actions staging deployment trigger/mechanics;
 - repository-side GitHub Actions production deployment trigger/mechanics;
 - exact migration execution point;
 - exact health-check endpoints and contracts;
-- exact automated deployed-environment smoke implementation;
+- production deployed-environment smoke implementation and any expanded STAGING
+  smoke beyond the current public HTTP availability check;
 - exact release-state/version tracking mechanism, including `current-release`,
   `verified-release` and `previous-release`;
 - exact application rollback commands;

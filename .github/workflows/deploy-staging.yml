@@ -1,0 +1,55 @@
+name: Deploy Staging
+
+run-name: Deploy STAGING ${{ inputs.git_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_sha:
+        description: 40-character commit SHA that is an ancestor of origin/main
+        required: true
+        type: string
+      image_digest:
+        description: Immutable GHCR digest for ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+  packages: read
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.tuttoseriea.com/
+    env:
+      DEPLOY_GIT_SHA: ${{ inputs.git_sha }}
+      DEPLOY_IMAGE_DIGEST: ${{ inputs.image_digest }}
+      WEB_IMAGE: ghcr.io/mishakozarev/tuttoseriea/web
+      STAGING_URL: https://staging.tuttoseriea.com/
+      STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+      STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+      STAGING_SSH_PORT: "56777"
+      STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+      STAGING_SSH_USER: deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login --username "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Deploy and verify staging
+        shell: bash
+        run: bash scripts/deploy-staging.sh
