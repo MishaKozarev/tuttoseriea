@@ -19,6 +19,7 @@ The current runnable `web/` foundation requires:
 - Git.
 - Node.js `24.x`.
 - `pnpm` `11.23.0`.
+- Docker Engine for `web/` production container build and smoke verification.
 - GitHub CLI (`gh`) authenticated to GitHub for Codex/operator GitHub workflow
   tasks such as Pull Request and required check inspection.
 
@@ -27,10 +28,12 @@ Do not pin a specific LOCAL Node.js patch version in project documentation.
 The pnpm version is a project requirement because it is pinned in `web/package.json`
 and used by GitHub Actions CI.
 
-Python, `uv`, WSL2, Docker Desktop, Docker Engine and Docker Compose are part of
-the planned full-stack development environment, but their exact project versions
-are not pinned yet. Do not turn observed versions from one developer machine into
-project requirements until the corresponding repository tooling exists.
+Python, `uv`, WSL2 and Docker Compose are part of the planned full-stack
+development environment, but their exact project versions are not pinned yet.
+Do not turn observed versions from one developer machine into project requirements
+until the corresponding repository tooling exists. Do not pin a Docker Desktop,
+Docker Engine or Docker Compose patch version unless repository tooling establishes
+that requirement.
 
 ## Repository bootstrap
 
@@ -41,7 +44,9 @@ Current bootstrap sequence:
 1. clone the repository;
 2. install Node.js dependencies for `web/`;
 3. start the Next.js development server;
-4. run the current `web/` checks when verifying changes.
+4. run the current `web/` checks when verifying changes;
+5. build and smoke-check the `web/` production container when verifying container
+   delivery changes.
 
 Future full-stack bootstrap will add `ai-service`, service environment files,
 PostgreSQL + pgvector in Docker, Drizzle migrations, seed and FastAPI startup
@@ -72,7 +77,29 @@ project state requires it.
 
 `pnpm start` is available for optional local execution of an already built Next.js
 application after `pnpm build`. It is not a CI check and is not a mandatory LOCAL
-verification command.
+verification command. The production container build enables Next.js standalone
+output inside Docker and uses the generated standalone server, not `pnpm start`.
+
+### Current `web/` container commands
+
+The `web/` production image is built from `web/Dockerfile`.
+
+From repository root:
+
+```bash
+docker build -f web/Dockerfile -t tuttoseriea-web:local web
+docker run --rm -p 3000:3000 tuttoseriea-web:local
+```
+
+If host port `3000` is already occupied, map another host port to container port
+`3000`, for example:
+
+```bash
+docker run --rm -p 3001:3000 tuttoseriea-web:local
+```
+
+The container should serve the current `web/` application on the selected host
+port.
 
 ## Environment files
 
@@ -223,13 +250,29 @@ This applies especially to:
 
 Starting LOCAL or running ordinary automated checks must not silently consume real provider budget/quota.
 
-## Production-like Docker verification
+## Container verification
 
-Production-like Docker verification is not implemented in the current runnable
-foundation.
+The current repository implements production container build and smoke verification
+for the `web/` application.
 
-Separate from daily LOCAL development, the project will maintain a full
-production-like Docker Compose stack.
+Separate from daily LOCAL development, `web/Dockerfile` builds the production
+Next.js standalone image. The required GitHub Actions `Web` job builds and
+smoke-checks this image. On `push` to `main`, CI publishes the image to GHCR as:
+
+```text
+ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
+```
+
+The image digest published by CI is the immutable deployment identity used by
+both STAGING and PRODUCTION infrastructure.
+
+Full-stack production-like Docker Compose verification remains separate from the
+single-service `web/` container smoke check.
+
+The VDS infrastructure already has separate Docker Compose projects for STAGING
+and PRODUCTION. The repository must document the concrete commands for deploying
+a selected image digest through those projects after those commands are implemented
+and verified.
 
 Its purpose is to verify:
 
@@ -238,8 +281,6 @@ Its purpose is to verify:
 - runtime dependencies;
 - integration of the full stack;
 - environment/configuration assumptions.
-
-The exact command must be added after the real Docker Compose workflow exists.
 
 This verification is required before staging according to the project's CI/deployment workflow.
 
@@ -267,9 +308,14 @@ For the current `web/` foundation:
 cd web
 pnpm lint
 pnpm build
+cd ..
+docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
 
-No unit, component, integration, E2E, smoke or Docker Compose verification
+When the change affects container delivery, also run the built container and
+verify that the application responds on the mapped host port.
+
+No unit, component, integration, E2E or full-stack Docker Compose verification
 commands exist yet.
 
 For mandatory testing rules, see `../testing/overview.md`.
@@ -282,7 +328,9 @@ After successful current `web` bootstrap, verify at minimum that:
 - the default Next.js page is reachable at `http://localhost:3000` unless the port
   is already occupied;
 - `pnpm lint` succeeds;
-- `pnpm build` succeeds.
+- `pnpm build` succeeds;
+- `docker build -f web/Dockerfile -t tuttoseriea-web:local web` succeeds when
+  verifying container delivery.
 
 Future full-stack verification will add checks that:
 
@@ -322,4 +370,4 @@ The following details must be filled from the real repository after bootstrap:
 - exact FastAPI start command;
 - exact LOCAL ports beyond the default Next.js development URL;
 - exact health/check URLs beyond the default Next.js page;
-- exact production-like Docker verification command.
+- exact full-stack Docker Compose verification command.

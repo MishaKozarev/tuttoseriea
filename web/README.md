@@ -5,7 +5,8 @@ Minimal Next.js foundation for the `web/` application.
 ## Prerequisites
 
 - Node.js `24.x`;
-- `pnpm` `11.23.0`.
+- `pnpm` `11.23.0`;
+- Docker Engine for production container build/smoke verification.
 
 ## Getting Started
 
@@ -30,11 +31,33 @@ pnpm build
 pnpm start
 ```
 
+The production container build enables Next.js standalone output inside Docker and
+uses the generated standalone server rather than `pnpm start`.
+
+## Container Image
+
+From repository root:
+
+```bash
+docker build -f web/Dockerfile -t tuttoseriea-web:local web
+docker run --rm -p 3000:3000 tuttoseriea-web:local
+```
+
+If host port `3000` is occupied, map another host port to container port `3000`.
+
+CI publishes the `web` image to GHCR on `push` to `main` after the required checks
+and container smoke pass:
+
+```text
+ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
+```
+
 ## Checks
 
 ```bash
 pnpm lint
 pnpm build
+docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
 
 ## Foundation

@@ -70,6 +70,37 @@ If code changes after staging approval, the changed version requires the applica
 
 Do not deploy an ambiguous or locally modified version that cannot be traced back to the repository.
 
+## Container image delivery
+
+The `web/` application has a production Docker image defined by `web/Dockerfile`.
+
+Container delivery decisions currently in effect:
+
+- the `web` image is built in GitHub Actions CI;
+- the image is stored in GitHub Container Registry;
+- the image is built once for a repository commit;
+- STAGING and PRODUCTION use the same immutable image digest;
+- STAGING and PRODUCTION run as separate Docker Compose projects on the VDS.
+
+The current GHCR image name is:
+
+```text
+ghcr.io/mishakozarev/tuttoseriea/web
+```
+
+CI tags the image as:
+
+```text
+sha-<commit-sha>
+```
+
+Deployment must use the immutable digest for the image produced by CI, not rebuild
+a different image separately for each environment.
+
+The current repository workflow builds and smoke-checks the image for Pull Requests.
+On `push` to `main`, it publishes the smoke-checked image to GHCR. This is artifact
+delivery only; it does not deploy to STAGING or PRODUCTION.
+
 ## Staging deployment
 
 Staging receives the version produced by the approved Git/CI workflow.
@@ -78,9 +109,9 @@ Deployment should use the project's production-like containerized architecture r
 
 The staging deployment process may include, as required by the implemented infrastructure:
 
-- obtaining the approved repository version/artifact;
+- obtaining the approved GHCR image digest;
 - preparing server-side environment configuration;
-- building or obtaining required container images;
+- pulling required container images by digest;
 - applying required Drizzle migrations;
 - starting/updating application services;
 - verifying service health;
@@ -159,9 +190,9 @@ Before deployment, verify that the intended production version corresponds to th
 
 The production deployment procedure may include, according to the implemented infrastructure:
 
-- obtaining the approved version/artifact;
+- obtaining the STAGING-approved GHCR image digest;
 - validating required production configuration;
-- preparing/building/pulling container images;
+- pulling required container images by digest;
 - applying required Drizzle migrations;
 - updating application services;
 - verifying service/container health;
@@ -342,8 +373,6 @@ The following details remain open until the real deployment infrastructure is im
 
 - exact staging deployment trigger and commands;
 - exact production deployment trigger and commands;
-- whether container images are built on the server or in CI/registry;
-- exact Docker Compose production topology;
 - exact migration execution point;
 - exact health-check endpoints and contracts;
 - exact automated smoke-test implementation;

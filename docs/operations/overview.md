@@ -50,7 +50,12 @@ The production architecture is based on:
 
 FastAPI remains internal-only in staging and production and communicates with `web/` over the internal service/network boundary.
 
-The exact server topology, Docker Compose configuration, network configuration and deployment commands must be documented from the implemented infrastructure rather than invented in advance.
+The `web` container image is built in GitHub Actions CI, stored in GHCR and
+promoted to STAGING and PRODUCTION by immutable digest. STAGING and PRODUCTION
+use separate Docker Compose projects on the VDS.
+
+The exact deployment commands, network configuration and operational procedures
+must be documented from the implemented infrastructure rather than invented in advance.
 
 ## Operational responsibilities
 
@@ -229,8 +234,6 @@ Do not create these areas before the corresponding operational responsibility ac
 
 The following operational details remain open until the infrastructure is implemented and verified:
 
-- exact VDS/server topology;
-- exact Docker Compose production topology;
 - exact staging deployment mechanism;
 - exact production deployment mechanism;
 - exact health-check endpoints;
