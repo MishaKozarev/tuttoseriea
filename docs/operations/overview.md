@@ -60,7 +60,10 @@ and root-owned deployment scripts that operate the corresponding Docker Compose
 project.
 
 Repository-side GitHub Actions deployment workflows must use that documented
-contract once implemented.
+contract. The STAGING workflow is implemented by
+`.github/workflows/deploy-staging.yml`. It deploys a validated immutable GHCR
+image digest to the documented STAGING VDS entrypoint and verifies
+`https://staging.tuttoseriea.com/` after deployment.
 
 ## Operational responsibilities
 
@@ -239,7 +242,6 @@ Do not create these areas before the corresponding operational responsibility ac
 
 The following operational details remain open until the infrastructure is implemented and verified:
 
-- repository-side GitHub Actions staging deployment workflow/mechanics;
 - repository-side GitHub Actions production deployment workflow/mechanics;
 - exact health-check endpoints;
 - exact rollback procedure;

@@ -238,6 +238,20 @@ Staging validates the version produced by the approved Git/CI process.
 
 Staging is not an informal continuation of LOCAL development.
 
+The current repository-side STAGING deployment workflow is
+`.github/workflows/deploy-staging.yml`. It is manually triggered after a version
+has reached `main` and the required push-to-main CI has produced a GHCR image.
+
+The workflow accepts:
+
+- `git_sha` - a commit that must be an ancestor of current `origin/main`;
+- `image_digest` - the immutable GHCR digest that must match
+  `ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>`.
+
+After validation, the workflow deploys through the documented VDS SSH contract
+and runs the current STAGING HTTP smoke check. Deployment mechanics are documented
+in `operations/deployment.md`.
+
 If staging exposes a problem, fix it through the normal repository workflow rather than manually modifying the staging environment as an undocumented patch.
 
 Manual staging verification is controlled by root `AGENTS.md`.
@@ -312,7 +326,6 @@ Root `AGENTS.md` remains the control plane for mandatory Codex rules and routing
 
 The following details depend on the actual repository/platform configuration and remain open until implemented:
 
-- exact PR template/content requirements;
-- automated staging deployment trigger mechanics.
+- exact PR template/content requirements.
 
 These details must be documented from the real repository configuration rather than assumed in advance.
