@@ -215,6 +215,10 @@ Do not merge unrelated additional changes merely because they are already presen
 
 The commit/version that progresses through staging must remain identifiable.
 
+Ordinary Pull Requests are merged with GitHub's `Squash and merge` option.
+Using `Create a merge commit` or `Rebase and merge` for a specific Pull Request
+requires a separate explicit decision.
+
 After merge, synchronize local repository state before starting another task.
 The mandatory Codex post-merge alignment rule is defined in root `AGENTS.md`.
 
@@ -298,7 +302,6 @@ Root `AGENTS.md` remains the control plane for mandatory Codex rules and routing
 
 The following details depend on the actual repository/platform configuration and remain open until implemented:
 
-- exact merge strategy;
 - exact PR template/content requirements;
 - automated staging deployment trigger mechanics.
 
