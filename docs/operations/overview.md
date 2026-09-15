@@ -54,8 +54,13 @@ The `web` container image is built in GitHub Actions CI, stored in GHCR and
 promoted to STAGING and PRODUCTION by immutable digest. STAGING and PRODUCTION
 use separate Docker Compose projects on the VDS.
 
-The exact deployment commands, network configuration and operational procedures
-must be documented from the implemented infrastructure rather than invented in advance.
+The VDS deployment contract is documented in `deployment.md`. It uses SSH to the
+restricted `deploy` user, environment-specific forced commands, restricted `sudo`
+and root-owned deployment scripts that operate the corresponding Docker Compose
+project.
+
+Repository-side GitHub Actions deployment workflows must use that documented
+contract once implemented.
 
 ## Operational responsibilities
 
@@ -234,10 +239,12 @@ Do not create these areas before the corresponding operational responsibility ac
 
 The following operational details remain open until the infrastructure is implemented and verified:
 
-- exact staging deployment mechanism;
-- exact production deployment mechanism;
+- repository-side GitHub Actions staging deployment workflow/mechanics;
+- repository-side GitHub Actions production deployment workflow/mechanics;
 - exact health-check endpoints;
 - exact rollback procedure;
+- release-state/version tracking, including `current-release`, `verified-release`
+  and `previous-release`;
 - database backup/recovery strategy;
 - monitoring and alerting stack;
 - log storage/retention strategy;
