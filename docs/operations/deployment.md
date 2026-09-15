@@ -101,6 +101,67 @@ The current repository workflow builds and smoke-checks the image for Pull Reque
 On `push` to `main`, it publishes the smoke-checked image to GHCR. This is artifact
 delivery only; it does not deploy to STAGING or PRODUCTION.
 
+## VDS deployment contract
+
+The VDS deployment infrastructure already exists outside this repository. This
+section records the contract that repository-side deployment automation must use.
+Changing the server setup is a separate infrastructure task.
+
+There is one VDS. STAGING and PRODUCTION are logically isolated on that host.
+
+SSH deployment access uses:
+
+- SSH port: `56777`;
+- user: `deploy`;
+- separate SSH credentials for STAGING and PRODUCTION.
+
+The `deploy` user is intentionally restricted:
+
+- it is not a member of the `docker` group;
+- it has no direct access to the Docker socket;
+- it has no arbitrary `sudo`;
+- SSH access is restricted by environment-specific forced commands;
+- forced commands invoke the allowed root-owned deployment mechanism through
+  restricted `sudo`.
+
+Environment-specific server entrypoints:
+
+| Environment | Forced command | Root-owned deployment script |
+| --- | --- | --- |
+| STAGING | `/usr/local/sbin/tuttoseriea-ssh-staging` | `/usr/local/sbin/tuttoseriea-deploy-staging` |
+| PRODUCTION | `/usr/local/sbin/tuttoseriea-ssh-production` | `/usr/local/sbin/tuttoseriea-deploy-production` |
+
+The SSH-exposed deployment command contract is:
+
+```text
+deploy <GIT_SHA> <IMAGE_DIGEST>
+```
+
+`GIT_SHA` identifies the repository version being deployed. `IMAGE_DIGEST`
+identifies the immutable GHCR image digest to run.
+
+The root-owned deployment script is responsible for applying the requested
+version to the corresponding environment through Docker Compose and must use the
+provided immutable image digest rather than rebuilding an image on the VDS.
+
+The VDS root context already has authentication for pulling from GHCR.
+Repository-side automation must not commit GHCR credentials or pass credentials
+through logs.
+
+Environment-specific Compose contract:
+
+| Environment | Compose project | Config directory | Compose file | Runtime env file | Host port |
+| --- | --- | --- | --- | --- | --- |
+| STAGING | `tuttoseriea-staging` | `/srv/tuttoseriea/staging/config` | `/srv/tuttoseriea/staging/config/compose.yaml` | `/srv/tuttoseriea/staging/config/runtime.env` | `127.0.0.1:8898` |
+| PRODUCTION | `tuttoseriea-production` | `/srv/tuttoseriea/production/config` | `/srv/tuttoseriea/production/config/compose.yaml` | `/srv/tuttoseriea/production/config/runtime.env` | `127.0.0.1:8899` |
+
+STAGING and PRODUCTION must use the same image digest after `STAGING OK`.
+Production deployment is still authorized only by the separate `DEPLOY PRODUCTION`
+gate defined in root `AGENTS.md`.
+
+Release-state/version tracking files or records such as `current-release`,
+`verified-release` and `previous-release` are not implemented yet.
+
 ## Staging deployment
 
 Staging receives the version produced by the approved Git/CI workflow.
@@ -117,7 +178,9 @@ The staging deployment process may include, as required by the implemented infra
 - verifying service health;
 - running relevant smoke checks.
 
-The exact staging deployment mechanism and commands must be added here after they exist.
+The VDS-side deployment command contract and server-side entrypoints are defined
+in the VDS deployment contract above. The repository-side GitHub Actions staging
+deployment trigger and mechanics are not implemented yet.
 
 ## Staging verification
 
@@ -198,7 +261,9 @@ The production deployment procedure may include, according to the implemented in
 - verifying service/container health;
 - executing relevant production smoke checks.
 
-The exact commands must be added only after the real deployment implementation exists.
+The VDS-side deployment command contract and server-side entrypoints are defined
+in the VDS deployment contract above. The repository-side production deployment
+trigger and mechanics are not implemented yet.
 
 ## Database migrations
 
@@ -371,12 +436,13 @@ Remove obsolete procedures rather than leaving multiple ambiguous alternatives.
 
 The following details remain open until the real deployment infrastructure is implemented and verified:
 
-- exact staging deployment trigger and commands;
-- exact production deployment trigger and commands;
+- repository-side GitHub Actions staging deployment trigger/mechanics;
+- repository-side GitHub Actions production deployment trigger/mechanics;
 - exact migration execution point;
 - exact health-check endpoints and contracts;
-- exact automated smoke-test implementation;
-- exact last-known-good version tracking mechanism;
+- exact automated deployed-environment smoke implementation;
+- exact release-state/version tracking mechanism, including `current-release`,
+  `verified-release` and `previous-release`;
 - exact application rollback commands;
 - concrete database migration compatibility strategy;
 - concrete database backup/recovery procedure.
