@@ -266,7 +266,10 @@ Repository-side STAGING deployment is implemented by
 `.github/workflows/deploy-staging.yml`. After deploying through the documented VDS
 contract, it verifies that `https://staging.tuttoseriea.com/` is reachable over
 HTTP and returns a non-empty response body. This is the current
-deployed-environment STAGING smoke check.
+deployed-environment STAGING smoke check. It does not record STAGING
+`verified-release`; `.github/workflows/verify-staging.yml` records the verified
+STAGING release only after manual verification and the explicit `STAGING OK`
+gate.
 
 Repository-side PRODUCTION deployment is implemented by
 `.github/workflows/deploy-production.yml`. After deploying through the documented

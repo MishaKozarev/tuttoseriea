@@ -63,7 +63,10 @@ Repository-side GitHub Actions deployment workflows must use that documented
 contract. The STAGING workflow is implemented by
 `.github/workflows/deploy-staging.yml`. It deploys a validated immutable GHCR
 image digest to the documented STAGING VDS entrypoint and verifies
-`https://staging.tuttoseriea.com/` after deployment.
+`https://staging.tuttoseriea.com/` after deployment. After manual STAGING
+verification and the explicit `STAGING OK` gate, `.github/workflows/verify-staging.yml`
+records the approved pair as STAGING `verified-release` through the documented
+VDS contract.
 
 The PRODUCTION deployment workflow is implemented by
 `.github/workflows/deploy-production.yml`. It deploys the STAGING-approved
@@ -115,7 +118,8 @@ In particular:
 - successful CI does not authorize production;
 - merge to `main` does not authorize production;
 - successful staging deployment does not authorize production;
-- `STAGING OK` approves the verified staging version but does not deploy it;
+- `STAGING OK` approves the manually checked staging version but does not deploy it;
+- STAGING `verified-release` is recorded separately after `STAGING OK`;
 - production deployment requires the separate explicit `DEPLOY PRODUCTION` command.
 
 Deployment mechanics are documented in `deployment.md`.

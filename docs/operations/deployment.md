@@ -198,6 +198,16 @@ syncs the directory.
 Production deploy, verify, rollback and read-only release-state operations are
 serialized by the VDS production lock.
 
+Additional STAGING SSH command contract:
+
+```text
+verify <GIT_SHA> <IMAGE_DIGEST>
+```
+
+`verify` marks the current STAGING version as verified only after manual
+STAGING verification has passed and the explicit `STAGING OK` gate has been
+given.
+
 Additional PRODUCTION SSH command contract:
 
 ```text
@@ -300,10 +310,43 @@ The workflow uses the fixed VDS contract values documented above:
 After the VDS deployment command succeeds, the workflow verifies that
 `https://staging.tuttoseriea.com/` is reachable over HTTP and that the response
 body is non-empty. This is the current deployed-environment STAGING smoke check.
-It does not define a dedicated health-check endpoint.
+It does not define a dedicated health-check endpoint. The STAGING deployment
+workflow does not update STAGING `verified-release`.
 
 The workflow writes a release summary containing the deployed Git SHA, image tag,
 image digest, staging URL, VDS command identity and smoke result.
+
+Repository-side STAGING verification is implemented by:
+
+```text
+.github/workflows/verify-staging.yml
+```
+
+The workflow is manually triggered with `workflow_dispatch` after the user has
+completed manual STAGING verification and given the explicit `STAGING OK` gate.
+It must run from `main`.
+
+Required inputs:
+
+- `git_sha` - the full 40-character commit SHA approved through `STAGING OK`;
+- `image_digest` - the immutable GHCR digest in `sha256:<64-hex>` format.
+
+The workflow validates that:
+
+- `git_sha` is an ancestor of current `origin/main`;
+- the GHCR tag
+  `ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>` resolves to the exact
+  `image_digest` input.
+
+Only after repository-side validation succeeds does the workflow invoke the VDS
+STAGING command:
+
+```text
+verify <GIT_SHA> <IMAGE_DIGEST>
+```
+
+This records STAGING `verified-release` on the VDS. Production promotion is
+allowed only for the pair recorded as trusted STAGING `verified-release`.
 
 The VDS STAGING state mechanism is implemented. The current verified STAGING
 release is:
@@ -320,6 +363,14 @@ Example first-run command:
 ```bash
 gh workflow run deploy-staging.yml --ref main \
   -f git_sha=<main-ancestor-commit-sha> \
+  -f image_digest=<sha256-image-digest>
+```
+
+Example STAGING verification command after manual `STAGING OK`:
+
+```bash
+gh workflow run verify-staging.yml --ref main \
+  -f git_sha=<staging-ok-commit-sha> \
   -f image_digest=<sha256-image-digest>
 ```
 
