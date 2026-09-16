@@ -80,6 +80,11 @@ from VDS `previous-release`, invokes the restricted PRODUCTION rollback command,
 verifies `https://tuttoseriea.com/` and records the rollback target as verified
 only after that smoke check succeeds.
 
+Bootstrap 1.10 verified this delivery path end-to-end: immutable image promotion
+from STAGING to PRODUCTION, explicit STAGING verification after `STAGING OK`,
+PRODUCTION deploy/verify, PRODUCTION rollback through trusted
+`previous-release`, and final redeployment of the verified release.
+
 ## Operational responsibilities
 
 Operational documentation is divided into two primary areas.
