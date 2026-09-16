@@ -259,6 +259,11 @@ Manual staging verification is controlled by root `AGENTS.md`.
 
 `STAGING OK` applies to the specific version/commit that was actually verified.
 
+After `STAGING OK`, the separate `.github/workflows/verify-staging.yml` workflow
+records the approved Git SHA and immutable image digest as trusted STAGING
+`verified-release` through the documented VDS contract. This step does not deploy
+to production.
+
 A later code change invalidates that approval for the changed version.
 
 ## Production
