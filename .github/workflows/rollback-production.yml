@@ -1,0 +1,44 @@
+name: Rollback Production
+
+run-name: Rollback PRODUCTION
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+  packages: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  rollback-production:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://tuttoseriea.com/
+    env:
+      WEB_IMAGE: ghcr.io/mishakozarev/tuttoseriea/web
+      PRODUCTION_URL: https://tuttoseriea.com/
+      PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+      PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+      PRODUCTION_SSH_PORT: "56777"
+      PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+      PRODUCTION_SSH_USER: deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login --username "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Roll back and verify production
+        shell: bash
+        run: bash scripts/rollback-production.sh

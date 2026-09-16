@@ -268,6 +268,18 @@ contract, it verifies that `https://staging.tuttoseriea.com/` is reachable over
 HTTP and returns a non-empty response body. This is the current
 deployed-environment STAGING smoke check.
 
+Repository-side PRODUCTION deployment is implemented by
+`.github/workflows/deploy-production.yml`. After deploying through the documented
+VDS contract, it verifies that `https://tuttoseriea.com/` is reachable over HTTP
+and returns a non-empty response body. The workflow records PRODUCTION
+`verified-release` only after this smoke check succeeds.
+
+Repository-side PRODUCTION rollback is implemented by
+`.github/workflows/rollback-production.yml`. After rolling back through the
+documented VDS contract, it verifies that `https://tuttoseriea.com/` is reachable
+over HTTP and returns a non-empty response body before recording the rollback
+target as the verified release.
+
 No unit, component, integration or E2E test suites are run yet because the
 corresponding repository tooling and feature surfaces do not exist yet. Add those
 checks when concrete implemented behavior requires them.
@@ -304,8 +316,8 @@ The following details remain open until concrete repository tooling and features
 - exact test database strategy and lifecycle;
 - future expanded CI test matrix beyond the current `web` job on Node.js 24;
 - initial set of critical Playwright flows;
-- expanded STAGING smoke coverage beyond the current public HTTP availability check;
-- exact production smoke-test implementation;
+- expanded deployed-environment smoke coverage beyond the current public HTTP
+  availability checks;
 - coverage reporting/thresholds, if any are ever demonstrated to be useful.
 
 These details must be established from real project needs rather than by targeting arbitrary test metrics.

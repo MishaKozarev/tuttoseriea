@@ -170,8 +170,9 @@ ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
 Pull Request CI does not publish images.
 
 This is the minimal CI for the existing Next.js foundation. It does not run FastAPI,
-database, full-stack Docker Compose, E2E or staging/production deployment checks
-because the corresponding repository tooling does not exist yet.
+database, full-stack Docker Compose, E2E or staging/production deployments.
+Staging and production deployment are separate manually gated workflows, not
+automatic required CI checks.
 
 If a required check:
 
@@ -267,6 +268,17 @@ Production deployment is a separate explicitly authorized stage.
 Successful merge, CI or staging verification does not by itself authorize production deployment.
 
 Production deployment requires the explicit production control command defined in root `AGENTS.md`.
+
+The current repository-side PRODUCTION deployment workflow is
+`.github/workflows/deploy-production.yml`. It is manually triggered only after
+the explicit production gate and deploys the STAGING-approved Git SHA and
+immutable GHCR image digest without rebuilding the image.
+
+The current repository-side PRODUCTION rollback workflow is
+`.github/workflows/rollback-production.yml`. It is manually triggered as a
+recovery action, obtains the rollback target from trusted VDS
+`previous-release`, then rolls back and verifies PRODUCTION through the documented
+VDS contract.
 
 Deployment mechanics, rollback and health verification are documented in:
 

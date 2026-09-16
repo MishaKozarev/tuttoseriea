@@ -1,0 +1,55 @@
+name: Deploy Production
+
+run-name: Deploy PRODUCTION ${{ inputs.git_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_sha:
+        description: 40-character commit SHA approved through STAGING OK
+        required: true
+        type: string
+      image_digest:
+        description: Immutable GHCR digest for ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+  packages: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://tuttoseriea.com/
+    env:
+      DEPLOY_GIT_SHA: ${{ inputs.git_sha }}
+      DEPLOY_IMAGE_DIGEST: ${{ inputs.image_digest }}
+      WEB_IMAGE: ghcr.io/mishakozarev/tuttoseriea/web
+      PRODUCTION_URL: https://tuttoseriea.com/
+      PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+      PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+      PRODUCTION_SSH_PORT: "56777"
+      PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+      PRODUCTION_SSH_USER: deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login --username "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Deploy and verify production
+        shell: bash
+        run: bash scripts/deploy-production.sh
