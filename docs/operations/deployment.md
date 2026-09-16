@@ -38,11 +38,17 @@ The normal progression is:
         ↓
     main
         ↓
-    staging deployment
+    Deploy Staging
         ↓
-    staging verification
+    STAGING HTTP smoke
+        ↓
+    manual STAGING verification
         ↓
     STAGING OK
+        ↓
+    Verify Staging
+        ↓
+    STAGING verified-release
         ↓
     wait
         ↓
@@ -348,15 +354,49 @@ verify <GIT_SHA> <IMAGE_DIGEST>
 This records STAGING `verified-release` on the VDS. Production promotion is
 allowed only for the pair recorded as trusted STAGING `verified-release`.
 
-The VDS STAGING state mechanism is implemented. The current verified STAGING
-release is:
+For PRODUCTION promotion, the VDS-side production deployment script checks the
+requested pair against trusted STAGING `verified-release`.
+
+## Bootstrap 1.10 E2E verification record
+
+Bootstrap 1.10 verified the implemented repository and deployment chain
+end-to-end. This section records that bootstrap verification result; it is not a
+rolling current-release log.
+
+Release B:
+
+```text
+244b758e3d0edc03b639832b13090145b75aab7f sha256:04e25ec6bbcc5f5b00e2fed034ccd6256a7d4d8c11a361b70d782dfaf3a608bf
+```
+
+Previous production release A:
 
 ```text
 764b0c183b3ffbce5405dee91dfcd96459454aff sha256:0ab14a226dbe79688d518687fe995ce26b83c70d5fcc21a86444f9b026cc592d
 ```
 
-For PRODUCTION promotion, the VDS-side production deployment script checks the
-requested pair against trusted STAGING `verified-release`.
+The verified chain was:
+
+- STAGING deploy of release B succeeded;
+- STAGING HTTP smoke succeeded;
+- manual STAGING verification succeeded and `STAGING OK` was given;
+- `Verify Staging` recorded release B as STAGING `verified-release`;
+- PRODUCTION deploy of release B succeeded;
+- PRODUCTION HTTP smoke and VDS `verify` succeeded;
+- PRODUCTION rollback B -> A succeeded through trusted VDS `previous-release`;
+- rollback HTTP smoke and VDS `verify` succeeded;
+- final PRODUCTION deploy A -> B succeeded;
+- final PRODUCTION HTTP smoke and VDS `verify` succeeded;
+- final manual production verification confirmed `Bootstrap E2E marker` on
+  `https://tuttoseriea.com/`.
+
+Final production release-state after Bootstrap 1.10:
+
+```text
+current-release  = 244b758e3d0edc03b639832b13090145b75aab7f sha256:04e25ec6bbcc5f5b00e2fed034ccd6256a7d4d8c11a361b70d782dfaf3a608bf
+verified-release = 244b758e3d0edc03b639832b13090145b75aab7f sha256:04e25ec6bbcc5f5b00e2fed034ccd6256a7d4d8c11a361b70d782dfaf3a608bf
+previous-release = 764b0c183b3ffbce5405dee91dfcd96459454aff sha256:0ab14a226dbe79688d518687fe995ce26b83c70d5fcc21a86444f9b026cc592d
+```
 
 Example first-run command:
 

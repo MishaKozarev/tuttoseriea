@@ -283,6 +283,12 @@ documented VDS contract, it verifies that `https://tuttoseriea.com/` is reachabl
 over HTTP and returns a non-empty response body before recording the rollback
 target as the verified release.
 
+Bootstrap 1.10 was completed as a manual operational E2E validation of the
+delivery chain: repository change, PR CI, merge, GHCR image publication, STAGING
+deploy/smoke, manual `STAGING OK`, STAGING verification, PRODUCTION deploy/smoke,
+PRODUCTION verification, rollback and final redeploy. This was not an automated
+Playwright or browser E2E suite.
+
 No unit, component, integration or E2E test suites are run yet because the
 corresponding repository tooling and feature surfaces do not exist yet. Add those
 checks when concrete implemented behavior requires them.
