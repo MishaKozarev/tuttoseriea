@@ -65,6 +65,18 @@ contract. The STAGING workflow is implemented by
 image digest to the documented STAGING VDS entrypoint and verifies
 `https://staging.tuttoseriea.com/` after deployment.
 
+The PRODUCTION deployment workflow is implemented by
+`.github/workflows/deploy-production.yml`. It deploys the STAGING-approved
+immutable GHCR image digest to the documented PRODUCTION VDS entrypoint, verifies
+`https://tuttoseriea.com/` and records PRODUCTION `verified-release` only after
+that smoke check succeeds.
+
+The PRODUCTION rollback workflow is implemented by
+`.github/workflows/rollback-production.yml`. It reads the trusted rollback target
+from VDS `previous-release`, invokes the restricted PRODUCTION rollback command,
+verifies `https://tuttoseriea.com/` and records the rollback target as verified
+only after that smoke check succeeds.
+
 ## Operational responsibilities
 
 Operational documentation is divided into two primary areas.
@@ -135,7 +147,9 @@ Do not use direct server edits as the normal production change mechanism.
 
 Production configuration and secrets must remain outside Git according to the security policy.
 
-A production deployment should be followed by verification appropriate to the change.
+A production deployment is followed by the current automated public HTTP smoke
+check and should also be followed by any manual verification appropriate to the
+change.
 
 Successful deployment execution alone does not prove that the application is healthy.
 
@@ -240,13 +254,9 @@ Do not create these areas before the corresponding operational responsibility ac
 
 ## Open Questions
 
-The following operational details remain open until the infrastructure is implemented and verified:
+The deployment infrastructure is implemented. The following operational details remain open until they are separately implemented and verified:
 
-- repository-side GitHub Actions production deployment workflow/mechanics;
 - exact health-check endpoints;
-- exact rollback procedure;
-- release-state/version tracking, including `current-release`, `verified-release`
-  and `previous-release`;
 - database backup/recovery strategy;
 - monitoring and alerting stack;
 - log storage/retention strategy;

@@ -131,6 +131,11 @@ Environment-specific server entrypoints:
 | STAGING | `/usr/local/sbin/tuttoseriea-ssh-staging` | `/usr/local/sbin/tuttoseriea-deploy-staging` |
 | PRODUCTION | `/usr/local/sbin/tuttoseriea-ssh-production` | `/usr/local/sbin/tuttoseriea-deploy-production` |
 
+Additional root-owned PRODUCTION scripts implemented on the VDS:
+
+- `/usr/local/sbin/tuttoseriea-verify-production`;
+- `/usr/local/sbin/tuttoseriea-rollback-production`.
+
 The SSH-exposed deployment command contract is:
 
 ```text
@@ -159,8 +164,65 @@ STAGING and PRODUCTION must use the same image digest after `STAGING OK`.
 Production deployment is still authorized only by the separate `DEPLOY PRODUCTION`
 gate defined in root `AGENTS.md`.
 
-Release-state/version tracking files or records such as `current-release`,
-`verified-release` and `previous-release` are not implemented yet.
+Release-state/version tracking is implemented on the VDS.
+
+Release-state records use the format:
+
+```text
+<GIT_SHA> <IMAGE_DIGEST>
+```
+
+STAGING state:
+
+- `current-release` records the version currently applied to STAGING;
+- `verified-release` records the STAGING version that has passed the required
+  verification for promotion.
+
+PRODUCTION state:
+
+- `current-release` records the version currently applied to PRODUCTION;
+- `verified-release` records the last production version that passed
+  post-deployment verification;
+- `previous-release` records the previous known-good production version that is
+  allowed as the rollback target.
+
+Before the first PRODUCTION deployment, PRODUCTION `current-release`,
+`verified-release` and `previous-release` may be absent. In that state,
+application rollback is unavailable because there is no trusted previous release
+yet.
+
+State writes are atomic on the VDS. The server-side implementation writes a
+temporary file in the target state directory, syncs it, renames it into place and
+syncs the directory.
+
+Production deploy, verify, rollback and read-only release-state operations are
+serialized by the VDS production lock.
+
+Additional PRODUCTION SSH command contract:
+
+```text
+verify <GIT_SHA> <IMAGE_DIGEST>
+rollback <GIT_SHA> <IMAGE_DIGEST>
+previous-release
+```
+
+`verify` marks the current production version as verified only after
+post-deployment checks have passed.
+
+`rollback` keeps the existing safety boundary: the VDS independently verifies
+that the requested pair exactly matches trusted PRODUCTION `previous-release`.
+
+`previous-release` is a strictly limited read-only operation. It accepts no
+arguments, reads only trusted PRODUCTION `previous-release`, validates the record
+format before output and returns only:
+
+```text
+<GIT_SHA> <IMAGE_DIGEST>
+```
+
+If PRODUCTION `previous-release` is absent, `previous-release` exits non-zero.
+The `deploy` user still has no direct state-file read access, Docker socket
+access, arbitrary `sudo` or shell access.
 
 ## Staging deployment
 
@@ -241,9 +303,17 @@ body is non-empty. This is the current deployed-environment STAGING smoke check.
 It does not define a dedicated health-check endpoint.
 
 The workflow writes a release summary containing the deployed Git SHA, image tag,
-image digest, staging URL, VDS command identity and smoke result. This summary is
-the current repository-side release verification record. The separate
-release-state/version tracking mechanism is not implemented yet.
+image digest, staging URL, VDS command identity and smoke result.
+
+The VDS STAGING state mechanism is implemented. The current verified STAGING
+release is:
+
+```text
+764b0c183b3ffbce5405dee91dfcd96459454aff sha256:0ab14a226dbe79688d518687fe995ce26b83c70d5fcc21a86444f9b026cc592d
+```
+
+For PRODUCTION promotion, the VDS-side production deployment script checks the
+requested pair against trusted STAGING `verified-release`.
 
 Example first-run command:
 
@@ -333,8 +403,80 @@ The production deployment procedure may include, according to the implemented in
 - executing relevant production smoke checks.
 
 The VDS-side deployment command contract and server-side entrypoints are defined
-in the VDS deployment contract above. The repository-side production deployment
-trigger and mechanics are not implemented yet.
+in the VDS deployment contract above.
+
+Repository-side PRODUCTION deployment is implemented by:
+
+```text
+.github/workflows/deploy-production.yml
+```
+
+The workflow is manually triggered with `workflow_dispatch` and must run from
+`main`.
+
+Required inputs:
+
+- `git_sha` - the full 40-character commit SHA approved through STAGING;
+- `image_digest` - the immutable GHCR digest in `sha256:<64-hex>` format.
+
+The production workflow validates that:
+
+- `git_sha` is an ancestor of current `origin/main`;
+- the GHCR tag
+  `ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>` resolves to the exact
+  `image_digest` input.
+
+Only after repository-side validation succeeds does the workflow invoke the VDS
+production command:
+
+```text
+deploy <GIT_SHA> <IMAGE_DIGEST>
+```
+
+The VDS independently verifies that the requested pair matches trusted STAGING
+`verified-release` before applying it to PRODUCTION.
+
+Required GitHub Actions environment:
+
+```text
+production
+```
+
+Required `production` environment secrets:
+
+- `PRODUCTION_SSH_HOST` - SSH host for the VDS;
+- `PRODUCTION_SSH_PRIVATE_KEY` - PRODUCTION-specific private key for the
+  `deploy` user;
+- `PRODUCTION_SSH_KNOWN_HOSTS` - pinned SSH `known_hosts` entry for the VDS SSH
+  endpoint on port `56777`.
+
+The workflow uses the fixed VDS contract values documented above:
+
+- SSH user: `deploy`;
+- SSH port: `56777`;
+- production URL: `https://tuttoseriea.com/`.
+
+After the VDS deployment command succeeds, the workflow verifies that
+`https://tuttoseriea.com/` is reachable over HTTP and that the response body is
+non-empty. This is the current deployed-environment PRODUCTION smoke check. It
+does not define a dedicated health-check endpoint.
+
+Only after the production HTTP smoke check succeeds does the workflow invoke:
+
+```text
+verify <GIT_SHA> <IMAGE_DIGEST>
+```
+
+This records PRODUCTION `verified-release` on the VDS. If the HTTP smoke check
+fails, the workflow fails and does not call `verify`.
+
+Example first-run command:
+
+```bash
+gh workflow run deploy-production.yml --ref main \
+  -f git_sha=<staging-approved-commit-sha> \
+  -f image_digest=<sha256-image-digest>
+```
 
 ## Database migrations
 
@@ -406,9 +548,16 @@ Determine:
 
 Follow the production error workflow defined in root `AGENTS.md`.
 
+If repository-side PRODUCTION deployment succeeds but the HTTP smoke check fails,
+the workflow does not call the VDS `verify` operation. In that case
+PRODUCTION `verified-release` remains the previous known-good version, while
+`current-release` may point to the failed candidate. Rollback is not automatic
+and requires an explicit operator decision.
+
 ## Rollback principle
 
-Production must have a defined recovery path once the real deployment architecture exists.
+Production has a defined application rollback path through the repository-side
+rollback workflow and the VDS PRODUCTION `previous-release` contract.
 
 Rollback should restore the last known-good application version when that is the safest recovery action.
 
@@ -438,7 +587,46 @@ Destructive data/schema reversal requires explicit user approval.
 
 When practical, prefer deployment-compatible migration design that keeps the previous application version usable during the relevant deployment window.
 
-The exact migration/rollback strategy may evolve when the production deployment model is implemented.
+The exact database migration/rollback strategy may evolve when database
+migration tooling is implemented.
+
+## Application rollback
+
+Repository-side PRODUCTION rollback is implemented by:
+
+```text
+.github/workflows/rollback-production.yml
+```
+
+The workflow is manually triggered with `workflow_dispatch` and must run from
+`main`. It does not accept a Git SHA or image digest from the operator.
+
+Rollback target selection is authoritative on the VDS:
+
+```text
+previous-release
+```
+
+The workflow reads the trusted rollback pair through the restricted PRODUCTION
+SSH contract, validates the returned record format locally and then invokes:
+
+```text
+rollback <GIT_SHA> <IMAGE_DIGEST>
+```
+
+The VDS independently verifies that the requested pair exactly matches trusted
+PRODUCTION `previous-release`. If `previous-release` is absent, rollback fails
+without changing PRODUCTION.
+
+After rollback succeeds, the workflow verifies that `https://tuttoseriea.com/`
+is reachable over HTTP and that the response body is non-empty. Only after that
+smoke check succeeds does the workflow invoke:
+
+```text
+verify <GIT_SHA> <IMAGE_DIGEST>
+```
+
+This records the rollback target as the verified PRODUCTION release.
 
 ## Direct server changes
 
@@ -505,16 +693,12 @@ Remove obsolete procedures rather than leaving multiple ambiguous alternatives.
 
 ## Open Questions
 
-The following details remain open until the real deployment infrastructure is implemented and verified:
+The deployment infrastructure is implemented. The following operational details remain open until they are separately implemented and verified:
 
-- repository-side GitHub Actions production deployment trigger/mechanics;
 - exact migration execution point;
 - exact health-check endpoints and contracts;
-- production deployed-environment smoke implementation and any expanded STAGING
-  smoke beyond the current public HTTP availability check;
-- exact release-state/version tracking mechanism, including `current-release`,
-  `verified-release` and `previous-release`;
-- exact application rollback commands;
+- expanded deployed-environment smoke coverage beyond the current public HTTP
+  availability checks;
 - concrete database migration compatibility strategy;
 - concrete database backup/recovery procedure.
 
