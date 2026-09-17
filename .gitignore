@@ -1,2 +1,5 @@
 /AGENTS.md
 /docs/
+/.env
+/.env.local
+/.env.*.local
