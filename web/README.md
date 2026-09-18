@@ -34,6 +34,23 @@ pnpm start
 The production container build enables Next.js standalone output inside Docker and
 uses the generated standalone server rather than `pnpm start`.
 
+## Database
+
+The `web` application has a Drizzle ORM foundation for PostgreSQL.
+
+Create a local ignored environment file from the safe example when running
+database checks:
+
+```bash
+cp .env.example .env.local
+```
+
+Set `DATABASE_URL` to the LOCAL PostgreSQL connection string. `DATABASE_URL` is a
+server-side value and must not use a `NEXT_PUBLIC_` prefix.
+
+Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.2 intentionally
+does not create product tables, migrations, seed data or the `vector` extension.
+
 ## Container Image
 
 From repository root:
@@ -57,6 +74,7 @@ ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
 ```bash
 pnpm lint
 pnpm build
+pnpm db:check
 docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
 
@@ -68,9 +86,11 @@ This app was bootstrapped with:
 - TypeScript;
 - Tailwind CSS;
 - ESLint;
-- pnpm.
+- pnpm;
+- Drizzle ORM foundation.
 
-No product features, database access, Auth.js integration, FastAPI integration or service-specific domain logic are part of this foundation yet.
+No product features, migrations, seed, Auth.js integration, FastAPI integration
+or service-specific domain logic are part of this foundation yet.
 
 ## Next.js Resources
 
