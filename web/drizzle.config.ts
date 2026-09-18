@@ -4,10 +4,10 @@ import { defineConfig } from "drizzle-kit";
 config({ path: ".env.local", quiet: true });
 config({ path: ".env", quiet: true });
 
-const databaseUrl = process.env.DATABASE_URL;
+const migrationDatabaseUrl = process.env.MIGRATION_DATABASE_URL;
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for Drizzle tooling");
+if (!migrationDatabaseUrl) {
+  throw new Error("MIGRATION_DATABASE_URL is required for Drizzle tooling");
 }
 
 export default defineConfig({
@@ -15,7 +15,11 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: databaseUrl,
+    url: migrationDatabaseUrl,
+  },
+  migrations: {
+    schema: "drizzle",
+    table: "__drizzle_migrations",
   },
   strict: true,
   verbose: true,
