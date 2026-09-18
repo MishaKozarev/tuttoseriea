@@ -16,6 +16,20 @@ jobs:
   web:
     name: Web
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_DB: tuttoseriea_ci
+          POSTGRES_USER: tuttoseriea_ci
+          POSTGRES_PASSWORD: tuttoseriea_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tuttoseriea_ci -d tuttoseriea_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -42,6 +56,38 @@ jobs:
       - name: Build web
         working-directory: web
         run: pnpm run build
+
+      - name: Provision CI database runtime role
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+          DATABASE_APP_ROLE: tuttoseriea_ci_web
+          DATABASE_APP_PASSWORD: tuttoseriea_ci_web_password
+        run: pnpm run db:provision-role
+
+      - name: Apply CI database migrations
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:migrate
+
+      - name: Re-run CI database migrations
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:migrate
+
+      - name: Check CI database migration state
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:migrations:check
+
+      - name: Check CI runtime database access
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:check
 
       - name: Prepare web image metadata
         shell: bash

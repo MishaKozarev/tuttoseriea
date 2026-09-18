@@ -45,11 +45,37 @@ database checks:
 cp .env.example .env.local
 ```
 
-Set `DATABASE_URL` to the LOCAL PostgreSQL connection string. `DATABASE_URL` is a
-server-side value and must not use a `NEXT_PUBLIC_` prefix.
+Set:
 
-Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.2 intentionally
-does not create product tables, migrations, seed data or the `vector` extension.
+- `DATABASE_URL` to the restricted LOCAL runtime role connection string;
+- `MIGRATION_DATABASE_URL` to the privileged LOCAL migration/admin role
+  connection string;
+- `DATABASE_APP_ROLE` and `DATABASE_APP_PASSWORD` to provision the restricted
+  runtime role.
+
+`DATABASE_URL` is a server-side value and must not use a `NEXT_PUBLIC_` prefix.
+`MIGRATION_DATABASE_URL` is used only by migration/provisioning tooling and must
+not be supplied to the long-running web runtime.
+
+Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.3 adds migration
+tooling and the first technical migration for `CREATE EXTENSION IF NOT EXISTS
+vector`. It does not create product tables, seed data, Auth.js integration,
+FastAPI integration or Stage 3 domain schema.
+
+Current database commands:
+
+```bash
+pnpm db:generate
+pnpm db:generate:custom -- --name=<migration_name>
+pnpm db:provision-role
+pnpm db:migrate
+pnpm db:migrations:check
+pnpm db:check
+```
+
+The production image contains the migration runner and Drizzle migration
+artifacts, but the normal Next.js container process does not run migrations on
+startup.
 
 ## Container Image
 
@@ -74,6 +100,9 @@ ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
 ```bash
 pnpm lint
 pnpm build
+pnpm db:provision-role
+pnpm db:migrate
+pnpm db:migrations:check
 pnpm db:check
 docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
@@ -89,8 +118,8 @@ This app was bootstrapped with:
 - pnpm;
 - Drizzle ORM foundation.
 
-No product features, migrations, seed, Auth.js integration, FastAPI integration
-or service-specific domain logic are part of this foundation yet.
+No product features, seed, Auth.js integration, FastAPI integration or
+service-specific domain logic are part of this foundation yet.
 
 ## Next.js Resources
 
