@@ -57,22 +57,6 @@ jobs:
         working-directory: web
         run: pnpm run build
 
-      - name: Provision CI database runtime role
-        working-directory: web
-        env:
-          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
-          DATABASE_APP_ROLE: tuttoseriea_ci_web
-          DATABASE_APP_PASSWORD: tuttoseriea_ci_web_password
-        run: pnpm run db:provision-role
-
-      - name: Provision CI database seed role
-        working-directory: web
-        env:
-          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
-          DATABASE_SEED_ROLE: tuttoseriea_ci_seed
-          DATABASE_SEED_PASSWORD: tuttoseriea_ci_seed_password
-        run: pnpm run db:provision-seed-role
-
       - name: Apply CI database migrations
         working-directory: web
         env:
@@ -90,6 +74,34 @@ jobs:
         env:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:migrations:check
+
+      - name: Provision CI database runtime role
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+          DATABASE_APP_ROLE: tuttoseriea_ci_web
+          DATABASE_APP_PASSWORD: tuttoseriea_ci_web_password
+        run: pnpm run db:provision-role
+
+      - name: Check CI runtime database access
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:check
+
+      - name: Check CI Auth.js adapter lifecycle
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:auth:check
+
+      - name: Provision CI database seed role
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+          DATABASE_SEED_ROLE: tuttoseriea_ci_seed
+          DATABASE_SEED_PASSWORD: tuttoseriea_ci_seed_password
+        run: pnpm run db:provision-seed-role
 
       - name: Check CI seed role DDL denial
         working-directory: web
@@ -135,12 +147,6 @@ jobs:
         env:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:migrations:check
-
-      - name: Check CI runtime database access
-        working-directory: web
-        env:
-          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
-        run: pnpm run db:check
 
       - name: Prepare web image metadata
         shell: bash
