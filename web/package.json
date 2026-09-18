@@ -12,6 +12,10 @@
     "db:migrate": "node scripts/migrate-db.mjs",
     "db:migrations:check": "drizzle-kit check && node scripts/check-migration-state.mjs",
     "db:provision-role": "node scripts/provision-db-role.mjs",
+    "db:provision-seed-role": "node scripts/provision-seed-role.mjs",
+    "db:seed": "node scripts/seed-db.mjs",
+    "db:seed:check-ddl-denied": "node scripts/seed-db.mjs --check-ddl-denied",
+    "db:seed:schema-fingerprint": "node scripts/seed-db.mjs --schema-fingerprint",
     "db:check": "node --conditions react-server --import tsx scripts/check-db.ts"
   },
   "dependencies": {

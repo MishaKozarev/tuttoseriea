@@ -10,7 +10,7 @@ const appDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const provisionLockKeys = [910230201, 230000004];
+const provisionLockKeys = [910230201, 230000006];
 const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 async function loadLocalEnvFiles() {
@@ -41,10 +41,16 @@ function requireEnv(name) {
 }
 
 function parseSchemaList(value) {
-  return value
+  const schemas = value
     .split(",")
     .map((schema) => schema.trim())
     .filter(Boolean);
+
+  if (schemas.length === 0) {
+    throw new Error("At least one seed schema must be configured");
+  }
+
+  return schemas;
 }
 
 function assertIdentifier(value, label) {
@@ -85,14 +91,14 @@ async function main() {
   await loadLocalEnvFiles();
 
   const migrationDatabaseUrl = requireEnv("MIGRATION_DATABASE_URL");
-  const appRole = requireEnv("DATABASE_APP_ROLE");
-  const appPassword = requireEnv("DATABASE_APP_PASSWORD");
-  const appSchemas = parseSchemaList(process.env.DATABASE_APP_SCHEMAS ?? "public");
+  const seedRole = requireEnv("DATABASE_SEED_ROLE");
+  const seedPassword = requireEnv("DATABASE_SEED_PASSWORD");
+  const seedSchemas = parseSchemaList(process.env.DATABASE_SEED_SCHEMAS ?? "public");
 
-  assertIdentifier(appRole, "DATABASE_APP_ROLE");
+  assertIdentifier(seedRole, "DATABASE_SEED_ROLE");
 
-  for (const schema of appSchemas) {
-    assertIdentifier(schema, "DATABASE_APP_SCHEMAS entry");
+  for (const schema of seedSchemas) {
+    assertIdentifier(schema, "DATABASE_SEED_SCHEMAS entry");
   }
 
   const pool = new Pool({ connectionString: migrationDatabaseUrl, max: 1 });
@@ -109,7 +115,7 @@ async function main() {
     lockAcquired = lockResult.rows[0]?.locked === true;
 
     if (!lockAcquired) {
-      throw new Error("Another database role provisioning process is already running");
+      throw new Error("Another database seed role provisioning process is already running");
     }
 
     await client.query("begin");
@@ -126,14 +132,14 @@ async function main() {
     }
 
     const existingRole = await client.query("select 1 from pg_roles where rolname = $1", [
-      appRole,
+      seedRole,
     ]);
 
     if (existingRole.rowCount === 0) {
       const createRoleSql = await formatSql(
         client,
         "create role %I with login nosuperuser nocreatedb nocreaterole noreplication nobypassrls password %L",
-        [appRole, appPassword],
+        [seedRole, seedPassword],
       );
 
       await client.query(createRoleSql);
@@ -141,34 +147,34 @@ async function main() {
       const alterRoleSql = await formatSql(
         client,
         "alter role %I with login nosuperuser nocreatedb nocreaterole noreplication nobypassrls password %L",
-        [appRole, appPassword],
+        [seedRole, seedPassword],
       );
 
       await client.query(alterRoleSql);
     }
 
     await client.query(
-      `grant connect on database ${quoteIdentifier(databaseName)} to ${quoteIdentifier(appRole)}`,
+      `grant connect on database ${quoteIdentifier(databaseName)} to ${quoteIdentifier(seedRole)}`,
     );
 
-    for (const schema of appSchemas) {
+    for (const schema of seedSchemas) {
       await client.query(
-        `revoke create on schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`,
+        `revoke create on schema ${quoteIdentifier(schema)} from ${quoteIdentifier(seedRole)}`,
       );
       await client.query(
-        `revoke all privileges on all tables in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`,
+        `revoke all privileges on all tables in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(seedRole)}`,
       );
       await client.query(
-        `revoke all privileges on all sequences in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`,
+        `revoke all privileges on all sequences in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(seedRole)}`,
       );
       await client.query(
-        `alter default privileges for role ${quoteIdentifier(migrationRole)} in schema ${quoteIdentifier(schema)} revoke all privileges on tables from ${quoteIdentifier(appRole)}`,
+        `alter default privileges for role ${quoteIdentifier(migrationRole)} in schema ${quoteIdentifier(schema)} revoke all privileges on tables from ${quoteIdentifier(seedRole)}`,
       );
       await client.query(
-        `alter default privileges for role ${quoteIdentifier(migrationRole)} in schema ${quoteIdentifier(schema)} revoke all privileges on sequences from ${quoteIdentifier(appRole)}`,
+        `alter default privileges for role ${quoteIdentifier(migrationRole)} in schema ${quoteIdentifier(schema)} revoke all privileges on sequences from ${quoteIdentifier(seedRole)}`,
       );
       await client.query(
-        `grant usage on schema ${quoteIdentifier(schema)} to ${quoteIdentifier(appRole)}`,
+        `grant usage on schema ${quoteIdentifier(schema)} to ${quoteIdentifier(seedRole)}`,
       );
     }
 
@@ -184,12 +190,12 @@ async function main() {
         from pg_roles
         where rolname = $1
       `,
-      [appRole],
+      [seedRole],
     );
     const role = roleResult.rows[0];
 
     if (!role) {
-      throw new Error("Application database role was not created");
+      throw new Error("Seed database role was not created");
     }
 
     if (
@@ -200,27 +206,27 @@ async function main() {
       role.rolreplication !== false ||
       role.rolbypassrls !== false
     ) {
-      throw new Error("Application database role does not have the expected restricted attributes");
+      throw new Error("Seed database role does not have the expected restricted attributes");
     }
 
-    for (const schema of appSchemas) {
+    for (const schema of seedSchemas) {
       const privileges = await client.query(
         `
           select
             has_schema_privilege($1, $2, 'USAGE') as can_use_schema,
             has_schema_privilege($1, $2, 'CREATE') as can_create_in_schema
         `,
-        [appRole, schema],
+        [seedRole, schema],
       );
       const row = privileges.rows[0];
 
       if (row?.can_use_schema !== true) {
-        throw new Error(`Application database role cannot use schema ${schema}`);
+        throw new Error(`Seed database role cannot use schema ${schema}`);
       }
 
       if (row?.can_create_in_schema !== false) {
         throw new Error(
-          `Application database role has effective CREATE privilege in schema ${schema}`,
+          `Seed database role has effective CREATE privilege in schema ${schema}`,
         );
       }
 
@@ -238,11 +244,11 @@ async function main() {
               or has_table_privilege($2, c.oid, 'DELETE')
             )
         `,
-        [schema, appRole],
+        [schema, seedRole],
       );
 
       if (tablePrivileges.rows[0]?.privilege_count !== 0) {
-        throw new Error(`Application database role has table DML privileges in schema ${schema}`);
+        throw new Error(`Seed database role has table DML privileges in schema ${schema}`);
       }
 
       const sequencePrivileges = await client.query(
@@ -258,11 +264,11 @@ async function main() {
               or has_sequence_privilege($2, c.oid, 'UPDATE')
             )
         `,
-        [schema, appRole],
+        [schema, seedRole],
       );
 
       if (sequencePrivileges.rows[0]?.privilege_count !== 0) {
-        throw new Error(`Application database role has sequence privileges in schema ${schema}`);
+        throw new Error(`Seed database role has sequence privileges in schema ${schema}`);
       }
 
       const defaultPrivileges = await client.query(
@@ -275,22 +281,26 @@ async function main() {
           where n.nspname = $1
             and grantee.rolname = $2
         `,
-        [schema, appRole],
+        [schema, seedRole],
       );
 
       if (defaultPrivileges.rows[0]?.privilege_count !== 0) {
-        throw new Error(`Application database role has default privileges in schema ${schema}`);
+        throw new Error(`Seed database role has default privileges in schema ${schema}`);
       }
     }
 
     await client.query("commit");
     transactionStarted = false;
 
-    console.log("Application database role provisioned.");
+    console.log("Seed database role provisioned.");
     console.log(`database=${databaseName}`);
     console.log(`migration_role=${migrationRole}`);
-    console.log(`application_role=${appRole}`);
-    console.log(`schemas=${appSchemas.join(",")}`);
+    console.log(`seed_role=${seedRole}`);
+    console.log(`schemas=${seedSchemas.join(",")}`);
+    console.log("seed_role_superuser=false");
+    console.log("seed_role_create_schema=false");
+    console.log("seed_role_table_dml_privileges=false");
+    console.log("seed_role_default_privileges=false");
   } finally {
     try {
       if (transactionStarted) {
