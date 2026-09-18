@@ -65,6 +65,14 @@ jobs:
           DATABASE_APP_PASSWORD: tuttoseriea_ci_web_password
         run: pnpm run db:provision-role
 
+      - name: Provision CI database seed role
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+          DATABASE_SEED_ROLE: tuttoseriea_ci_seed
+          DATABASE_SEED_PASSWORD: tuttoseriea_ci_seed_password
+        run: pnpm run db:provision-seed-role
+
       - name: Apply CI database migrations
         working-directory: web
         env:
@@ -78,6 +86,51 @@ jobs:
         run: pnpm run db:migrate
 
       - name: Check CI database migration state
+        working-directory: web
+        env:
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:migrations:check
+
+      - name: Check CI seed role DDL denial
+        working-directory: web
+        env:
+          SEED_DATABASE_URL: postgresql://tuttoseriea_ci_seed:tuttoseriea_ci_seed_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:seed:check-ddl-denied
+
+      - name: Capture CI schema fingerprint before seed
+        id: seed_schema_before
+        working-directory: web
+        shell: bash
+        env:
+          SEED_DATABASE_URL: postgresql://tuttoseriea_ci_seed:tuttoseriea_ci_seed_password@127.0.0.1:5432/tuttoseriea_ci
+        run: echo "fingerprint=$(pnpm run --silent db:seed:schema-fingerprint)" >> "$GITHUB_OUTPUT"
+
+      - name: Seed CI database
+        working-directory: web
+        env:
+          SEED_DATABASE_URL: postgresql://tuttoseriea_ci_seed:tuttoseriea_ci_seed_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:seed
+
+      - name: Re-run CI database seed
+        working-directory: web
+        env:
+          SEED_DATABASE_URL: postgresql://tuttoseriea_ci_seed:tuttoseriea_ci_seed_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:seed
+
+      - name: Compare CI schema fingerprint after seed
+        working-directory: web
+        shell: bash
+        env:
+          SEED_DATABASE_URL: postgresql://tuttoseriea_ci_seed:tuttoseriea_ci_seed_password@127.0.0.1:5432/tuttoseriea_ci
+        run: |
+          fingerprint_after="$(pnpm run --silent db:seed:schema-fingerprint)"
+          if [ "${{ steps.seed_schema_before.outputs.fingerprint }}" != "$fingerprint_after" ]; then
+            echo "Schema fingerprint changed during seed" >&2
+            exit 1
+          fi
+          echo "schema_fingerprint_unchanged=true"
+
+      - name: Check CI database migration state after seed
         working-directory: web
         env:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
