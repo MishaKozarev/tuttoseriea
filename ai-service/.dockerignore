@@ -1,0 +1,25 @@
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment and secrets
+.env
+.env*
+*.pem
+
+# Build output and logs
+dist/
+build/
+*.egg-info/
+*.log
+
+# Repository/tooling metadata not needed inside the image
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+tests/
