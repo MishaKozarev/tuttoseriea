@@ -35,6 +35,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Python for AI service contract
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: ai-service/.python-version
+
+      - name: Set up uv for AI service contract
+        uses: astral-sh/setup-uv@v10.1.0
+
+      - name: Install AI service dependencies for contract export
+        working-directory: ai-service
+        run: uv sync --locked
+
       - name: Set up pnpm and Node.js
         uses: pnpm/setup@v2
         with:
@@ -48,6 +60,46 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
+
+      - name: Check AI service OpenAPI contract drift
+        working-directory: web
+        run: pnpm run ai:contract:check
+
+      - name: Check web AI service client
+        working-directory: web
+        run: pnpm run ai:client:check
+
+      - name: Check web to AI service localhost communication
+        shell: bash
+        env:
+          AI_SERVICE_INTERNAL_API_KEY: ci-internal-key
+          AI_SERVICE_URL: http://127.0.0.1:8000
+        run: |
+          cd ai-service
+          uv run uvicorn tuttoseriea_ai_service.main:app --host 127.0.0.1 --port 8000 &
+          server_pid="$!"
+
+          cleanup() {
+            kill "$server_pid" >/dev/null 2>&1 || true
+            wait "$server_pid" >/dev/null 2>&1 || true
+          }
+
+          trap cleanup EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/health >/dev/null; then
+              break
+            fi
+
+            if [ "$attempt" = "30" ]; then
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          cd ../web
+          pnpm run ai:client:check:live
 
       - name: Lint web
         working-directory: web

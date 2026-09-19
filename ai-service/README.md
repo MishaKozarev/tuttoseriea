@@ -37,6 +37,16 @@ uv run ruff check .
 uv run pytest
 ```
 
+Export the deterministic OpenAPI JSON from source without starting an HTTP
+server:
+
+```bash
+uv run --no-sync python -m tuttoseriea_ai_service.openapi
+```
+
+The web TypeScript contract is generated from this source export, not from a
+staging or production URL.
+
 Run locally on Windows:
 
 ```bash
@@ -55,7 +65,7 @@ From repository root:
 
 ```bash
 docker build -f ai-service/Dockerfile -t tuttoseriea-ai-service:local ai-service
-docker run --rm -p 8000:8000 -e AI_SERVICE_INTERNAL_API_KEY=change-me-local-only tuttoseriea-ai-service:local
+docker run --rm -p 127.0.0.1:8000:8000 -e AI_SERVICE_INTERNAL_API_KEY=change-me-local-only tuttoseriea-ai-service:local
 ```
 
 The container listens on `0.0.0.0:8000` internally. Publishing the port locally is
