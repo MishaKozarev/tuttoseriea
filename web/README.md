@@ -58,12 +58,17 @@ Set:
 - `DATABASE_AUTH_SCHEMA` to the Auth.js infrastructure schema name (`auth` by
   default);
 - `AUTH_SECRET` to a safe LOCAL-only Auth.js secret.
+- `AI_SERVICE_URL` to the LOCAL FastAPI service URL (`http://127.0.0.1:8000`
+  by default);
+- `AI_SERVICE_INTERNAL_API_KEY` to the shared LOCAL-only service-to-service key.
 
 `DATABASE_URL` is a server-side value and must not use a `NEXT_PUBLIC_` prefix.
 `MIGRATION_DATABASE_URL` is used only by migration/provisioning tooling and must
 not be supplied to the long-running web runtime.
 `SEED_DATABASE_URL` is used only by the explicit seed runner. The seed runner
 does not use the web runtime role or the privileged migration/admin role.
+`AI_SERVICE_URL` and `AI_SERVICE_INTERNAL_API_KEY` are server-side values and
+must not use a `NEXT_PUBLIC_` prefix.
 
 Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.3 adds migration
 tooling and the first technical migration for `CREATE EXTENSION IF NOT EXISTS
@@ -111,6 +116,49 @@ the current foundation. No real sign-in provider or registration flow exists yet
 defaults; add them only when the corresponding deployment/proxy/provider contract
 is verified.
 
+## AI Service Contract
+
+The FastAPI OpenAPI contract is exported from the `ai-service` source tree and
+converted to TypeScript for the server-side web client.
+
+Generate the tracked TypeScript contract after changing FastAPI route schemas:
+
+```bash
+pnpm ai:contract:generate
+```
+
+Check that the committed generated contract is current:
+
+```bash
+pnpm ai:contract:check
+```
+
+The generated file is:
+
+```text
+src/generated/ai-service-openapi.d.ts
+```
+
+The current web client is a small server-only wrapper for
+`GET /internal/health`. It uses native `fetch`, reads `AI_SERVICE_URL` and
+`AI_SERVICE_INTERNAL_API_KEY` from server environment variables, and sends the
+secret through `X-Internal-API-Key`.
+
+Run the mocked client check:
+
+```bash
+pnpm ai:client:check
+```
+
+For a live LOCAL check, start `ai-service` on `127.0.0.1:8000` with the same
+`AI_SERVICE_INTERNAL_API_KEY`, then run:
+
+```bash
+pnpm ai:client:check:live
+```
+
+No public Next.js proxy route exists for FastAPI in this foundation.
+
 ## Container Image
 
 From repository root:
@@ -145,6 +193,8 @@ pnpm db:seed:check-ddl-denied
 pnpm db:seed
 pnpm db:seed
 pnpm db:migrations:check
+pnpm ai:contract:check
+pnpm ai:client:check
 docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
 
@@ -158,11 +208,12 @@ This app was bootstrapped with:
 - ESLint;
 - pnpm;
 - Drizzle ORM foundation;
-- Auth.js database-session foundation.
+- Auth.js database-session foundation;
+- server-only FastAPI communication foundation.
 
 No product features, business seed data, real auth provider, registration flow,
-FastAPI integration or service-specific domain logic are part of this foundation
-yet.
+AI business workflows or service-specific domain logic are part of this
+foundation yet.
 
 ## Next.js Resources
 
