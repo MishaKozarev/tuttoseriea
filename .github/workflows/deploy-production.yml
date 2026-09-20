@@ -9,8 +9,12 @@ on:
         description: 40-character commit SHA approved through STAGING OK
         required: true
         type: string
-      image_digest:
+      web_image_digest:
         description: Immutable GHCR digest for ghcr.io/mishakozarev/tuttoseriea/web:sha-<git_sha>
+        required: true
+        type: string
+      ai_service_image_digest:
+        description: Immutable GHCR digest for ghcr.io/mishakozarev/tuttoseriea/ai-service:sha-<git_sha>
         required: true
         type: string
 
@@ -32,8 +36,10 @@ jobs:
       url: https://tuttoseriea.com/
     env:
       DEPLOY_GIT_SHA: ${{ inputs.git_sha }}
-      DEPLOY_IMAGE_DIGEST: ${{ inputs.image_digest }}
+      DEPLOY_WEB_IMAGE_DIGEST: ${{ inputs.web_image_digest }}
+      DEPLOY_AI_SERVICE_IMAGE_DIGEST: ${{ inputs.ai_service_image_digest }}
       WEB_IMAGE: ghcr.io/mishakozarev/tuttoseriea/web
+      AI_SERVICE_IMAGE: ghcr.io/mishakozarev/tuttoseriea/ai-service
       PRODUCTION_URL: https://tuttoseriea.com/
       PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
       PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}

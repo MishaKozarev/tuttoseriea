@@ -23,6 +23,7 @@ jobs:
       url: https://tuttoseriea.com/
     env:
       WEB_IMAGE: ghcr.io/mishakozarev/tuttoseriea/web
+      AI_SERVICE_IMAGE: ghcr.io/mishakozarev/tuttoseriea/ai-service
       PRODUCTION_URL: https://tuttoseriea.com/
       PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
       PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
