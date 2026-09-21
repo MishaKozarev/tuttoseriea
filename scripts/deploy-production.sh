@@ -1,73 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-error() {
-  printf '::error::%s\n' "$*" >&2
-  exit 1
-}
-
-require_env() {
-  local name="$1"
-
-  if [[ -z "${!name:-}" ]]; then
-    error "Missing required environment variable: ${name}"
-  fi
-}
-
-validate_git_sha() {
-  local value="$1"
-
-  [[ "$value" =~ ^[0-9a-f]{40}$ ]]
-}
-
-validate_image_digest() {
-  local value="$1"
-
-  [[ "$value" =~ ^sha256:[0-9a-f]{64}$ ]]
-}
-
-fetch_main_history() {
-  if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
-    git fetch --no-tags --prune --unshallow origin +refs/heads/main:refs/remotes/origin/main
-  else
-    git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
-  fi
-
-  if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
-    error "Repository checkout is shallow; cannot reliably validate commit ancestry"
-  fi
-}
-
-validate_main_ancestor() {
-  local git_sha="$1"
-
-  if ! git cat-file -e "${git_sha}^{commit}"; then
-    error "DEPLOY_GIT_SHA does not identify a commit in the fetched repository history"
-  fi
-
-  if ! git merge-base --is-ancestor "$git_sha" refs/remotes/origin/main; then
-    error "DEPLOY_GIT_SHA must be an ancestor of current origin/main"
-  fi
-}
-
-validate_ghcr_digest() {
-  local git_sha="$1"
-  local image_digest="$2"
-  local image_tag="${WEB_IMAGE}:sha-${git_sha}"
-
-  inspect_output="$(docker buildx imagetools inspect "$image_tag")" ||
-    error "Failed to inspect GHCR image tag: ${image_tag}"
-
-  published_digest="$(printf '%s\n' "$inspect_output" | awk '$1 == "Digest:" { print $2; exit }' | tr '[:upper:]' '[:lower:]')"
-
-  if [[ -z "$published_digest" ]]; then
-    error "Could not determine published digest for ${image_tag}"
-  fi
-
-  if [[ "$published_digest" != "$image_digest" ]]; then
-    error "Provided image digest does not match ${image_tag}; expected ${published_digest}, got ${image_digest}"
-  fi
-}
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-release.sh
+source "${SCRIPT_DIR}/lib-release.sh"
 
 wait_for_http_smoke() {
   printf 'Waiting for PRODUCTION HTTP availability at %s.\n' "$PRODUCTION_URL"
@@ -92,7 +28,8 @@ wait_for_http_smoke() {
 }
 
 require_env DEPLOY_GIT_SHA
-require_env DEPLOY_IMAGE_DIGEST
+require_env DEPLOY_WEB_IMAGE_DIGEST
+require_env DEPLOY_AI_SERVICE_IMAGE_DIGEST
 require_env PRODUCTION_SSH_HOST
 require_env PRODUCTION_SSH_KNOWN_HOSTS
 require_env PRODUCTION_SSH_PRIVATE_KEY
@@ -102,24 +39,30 @@ if [[ "${GITHUB_REF:-}" != "refs/heads/main" ]]; then
 fi
 
 WEB_IMAGE="${WEB_IMAGE:-ghcr.io/mishakozarev/tuttoseriea/web}"
+AI_SERVICE_IMAGE="${AI_SERVICE_IMAGE:-ghcr.io/mishakozarev/tuttoseriea/ai-service}"
 PRODUCTION_URL="${PRODUCTION_URL:-https://tuttoseriea.com/}"
 PRODUCTION_SSH_PORT="${PRODUCTION_SSH_PORT:-56777}"
 PRODUCTION_SSH_USER="${PRODUCTION_SSH_USER:-deploy}"
 
-git_sha="$(printf '%s' "$DEPLOY_GIT_SHA" | tr '[:upper:]' '[:lower:]')"
-image_digest="$(printf '%s' "$DEPLOY_IMAGE_DIGEST" | tr '[:upper:]' '[:lower:]')"
+git_sha="$(to_lower "$DEPLOY_GIT_SHA")"
+web_image_digest="$(to_lower "$DEPLOY_WEB_IMAGE_DIGEST")"
+ai_service_image_digest="$(to_lower "$DEPLOY_AI_SERVICE_IMAGE_DIGEST")"
 
 if ! validate_git_sha "$git_sha"; then
   error "DEPLOY_GIT_SHA must be a 40-character commit SHA"
 fi
 
-if ! validate_image_digest "$image_digest"; then
-  error "DEPLOY_IMAGE_DIGEST must use the sha256:<64-hex> format"
+if ! validate_image_digest "$web_image_digest"; then
+  error "DEPLOY_WEB_IMAGE_DIGEST must use the sha256:<64-hex> format"
+fi
+
+if ! validate_image_digest "$ai_service_image_digest"; then
+  error "DEPLOY_AI_SERVICE_IMAGE_DIGEST must use the sha256:<64-hex> format"
 fi
 
 fetch_main_history
-validate_main_ancestor "$git_sha"
-validate_ghcr_digest "$git_sha" "$image_digest"
+validate_main_ancestor "$git_sha" "DEPLOY_GIT_SHA"
+validate_release_digests "$git_sha" "$WEB_IMAGE" "$web_image_digest" "$AI_SERVICE_IMAGE" "$ai_service_image_digest"
 
 key_file="$(mktemp)"
 known_hosts_file="$(mktemp)"
@@ -147,20 +90,22 @@ ssh_options=(
   -o UserKnownHostsFile="$known_hosts_file"
 )
 
-image_tag="${WEB_IMAGE}:sha-${git_sha}"
+web_image_tag="$(image_tag_for_sha "$WEB_IMAGE" "$git_sha")"
+ai_service_image_tag="$(image_tag_for_sha "$AI_SERVICE_IMAGE" "$git_sha")"
 
 printf 'Validated %s as an ancestor of origin/main.\n' "$git_sha"
-printf 'Validated %s resolves to %s.\n' "$image_tag" "$image_digest"
+printf 'Validated %s resolves to %s.\n' "$web_image_tag" "$web_image_digest"
+printf 'Validated %s resolves to %s.\n' "$ai_service_image_tag" "$ai_service_image_digest"
 printf 'Deploying PRODUCTION through the documented VDS contract.\n'
 
-ssh "${ssh_options[@]}" "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" deploy "$git_sha" "$image_digest"
+ssh "${ssh_options[@]}" "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" deploy "$git_sha" "$web_image_digest" "$ai_service_image_digest"
 
 wait_for_http_smoke
 
 printf 'PRODUCTION health and smoke checks passed.\n'
 printf 'Recording verified PRODUCTION release through the documented VDS contract.\n'
 
-ssh "${ssh_options[@]}" "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" verify "$git_sha" "$image_digest"
+ssh "${ssh_options[@]}" "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" verify "$git_sha" "$web_image_digest" "$ai_service_image_digest"
 
 printf 'PRODUCTION release verified.\n'
 
@@ -170,11 +115,13 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     printf '| Field | Value |\n'
     printf '| --- | --- |\n'
     printf '| Git SHA | `%s` |\n' "$git_sha"
-    printf '| Image tag | `%s` |\n' "$image_tag"
-    printf '| Image digest | `%s` |\n' "$image_digest"
+    printf '| Web image tag | `%s` |\n' "$web_image_tag"
+    printf '| Web image digest | `%s` |\n' "$web_image_digest"
+    printf '| AI service image tag | `%s` |\n' "$ai_service_image_tag"
+    printf '| AI service image digest | `%s` |\n' "$ai_service_image_digest"
     printf '| Production URL | <%s> |\n' "$PRODUCTION_URL"
-    printf '| VDS deploy command | `deploy %s %s` |\n' "$git_sha" "$image_digest"
-    printf '| VDS verify command | `verify %s %s` |\n' "$git_sha" "$image_digest"
+    printf '| VDS deploy command | `deploy %s %s %s` |\n' "$git_sha" "$web_image_digest" "$ai_service_image_digest"
+    printf '| VDS verify command | `verify %s %s %s` |\n' "$git_sha" "$web_image_digest" "$ai_service_image_digest"
     printf '| Health/smoke | passed |\n'
     printf '| Verified release | recorded |\n'
   } >> "$GITHUB_STEP_SUMMARY"
