@@ -210,6 +210,41 @@ pnpm ai:client:check
 pnpm test
 ```
 
+## Server Logging
+
+Project-owned server-side Web logs are structured JSON lines written to
+stdout/stderr with the canonical fields:
+
+```json
+{
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "level": "info",
+  "message": "Safe event message",
+  "service": "web",
+  "requestId": "request-id-or-null"
+}
+```
+
+`X-Request-ID` is the correlation id for request-scoped logs and is propagated
+to `ai-service`. Logs outside a request context use `requestId: null`; they do
+not create fake request ids.
+
+Use levels intentionally:
+
+- `debug`: temporary technical diagnostics, never secrets;
+- `info`: controlled normal events;
+- `warn`: expected degraded situations such as AI-service timeout, network,
+  `5xx` or malformed responses;
+- `error`: unexpected project-owned failures.
+
+The logger redacts sensitive context keys such as `secret`, `token`, `password`,
+`authorization`, `cookie`, `apiKey`, `api_key`, `connectionString` and
+`databaseUrl`. Do not log request bodies, cookies, authorization headers,
+connection strings or raw provider/database exception messages by default.
+
+New log events should use a stable message plus minimal safe structured context,
+including `requestId` when the event belongs to a request.
+
 ## Container Image
 
 From repository root:

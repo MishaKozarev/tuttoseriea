@@ -101,6 +101,45 @@ The protected `/internal/health` endpoint keeps the existing
 New expected application errors should be represented as `ApplicationError` and
 serialized only by the centralized exception handlers.
 
+## Logging
+
+Project-owned AI-service logs are structured JSON lines written to Docker
+stdout/stderr through Python's standard logging stack. Canonical fields are:
+
+```json
+{
+  "timestamp": "2026-01-01T00:00:00+00:00",
+  "level": "info",
+  "message": "Safe event message",
+  "service": "ai-service",
+  "requestId": "request-id-or-null"
+}
+```
+
+Request logs reuse the existing `X-Request-ID` value stored on
+`request.state.request_id`. Startup and other non-request logs use
+`requestId: null`; they do not create a fake correlation id.
+
+Use levels intentionally:
+
+- `debug`: temporary technical diagnostics, never secrets;
+- `info`: startup and controlled normal service events;
+- `warn`: expected degraded behavior that is operationally useful;
+- `error`: unexpected service failures.
+
+Expected application errors and validation/auth failures should not create noisy
+error logs or stack traces by default. Unexpected exceptions are logged once by
+the centralized exception handler and the HTTP response remains the safe error
+contract.
+
+Sensitive context keys such as `secret`, `token`, `password`, `authorization`,
+`cookie`, `apiKey`, `api_key`, `connectionString` and `databaseUrl` are
+redacted. Do not log service-to-service keys, authorization headers, cookies,
+connection strings, raw request bodies or complete provider payloads by default.
+
+New log events should use a stable message plus minimal safe structured context,
+including the request id when the event belongs to a request.
+
 ## Container
 
 From repository root:
