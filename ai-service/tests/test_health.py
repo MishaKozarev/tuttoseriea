@@ -168,20 +168,15 @@ def test_startup_fails_when_required_key_is_empty(monkeypatch) -> None:
             pass
 
 
-def test_health_is_public_and_deterministic(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
-    with TestClient(create_app()) as client:
-        response = client.get("/health", headers={REQUEST_ID_HEADER: "health-request"})
+def test_health_is_public_and_deterministic(client: TestClient) -> None:
+    response = client.get("/health", headers={REQUEST_ID_HEADER: "health-request"})
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     assert response.headers[REQUEST_ID_HEADER] == "health-request"
 
 
-def test_application_error_uses_project_contract(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-    app = create_app()
+def test_application_error_uses_project_contract(app: FastAPI) -> None:
     add_error_test_routes(app)
 
     with TestClient(app) as client:
@@ -199,9 +194,10 @@ def test_application_error_uses_project_contract(monkeypatch) -> None:
     )
 
 
-def test_application_error_does_not_log_noisy_error(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-    app = create_app()
+def test_application_error_does_not_log_noisy_error(
+    app: FastAPI,
+    caplog,
+) -> None:
     add_error_test_routes(app)
 
     with caplog.at_level(logging.ERROR):
@@ -216,9 +212,7 @@ def test_application_error_does_not_log_noisy_error(monkeypatch, caplog) -> None
     assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
 
-def test_validation_error_uses_project_contract(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-    app = create_app()
+def test_validation_error_uses_project_contract(app: FastAPI) -> None:
     add_error_test_routes(app)
 
     with TestClient(app) as client:
@@ -238,9 +232,7 @@ def test_validation_error_uses_project_contract(monkeypatch) -> None:
     assert "not-an-integer" not in response.text
 
 
-def test_unexpected_error_uses_safe_project_contract(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-    app = create_app()
+def test_unexpected_error_uses_safe_project_contract(app: FastAPI) -> None:
     add_error_test_routes(app)
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -259,9 +251,10 @@ def test_unexpected_error_uses_safe_project_contract(monkeypatch) -> None:
     assert "secret internal detail" not in response.text
 
 
-def test_unexpected_error_logs_one_structured_error(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-    app = create_app()
+def test_unexpected_error_logs_one_structured_error(
+    app: FastAPI,
+    caplog,
+) -> None:
     add_error_test_routes(app)
 
     with caplog.at_level(logging.ERROR):
@@ -292,11 +285,8 @@ def test_unexpected_error_logs_one_structured_error(monkeypatch, caplog) -> None
     assert "unexpected-log-request" in serialized
 
 
-def test_internal_health_rejects_missing_key(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
-    with TestClient(create_app()) as client:
-        response = client.get("/internal/health")
+def test_internal_health_rejects_missing_key(client: TestClient) -> None:
+    response = client.get("/internal/health")
 
     assert_error_contract(
         response,
@@ -306,14 +296,11 @@ def test_internal_health_rejects_missing_key(monkeypatch) -> None:
     )
 
 
-def test_internal_health_rejects_wrong_key(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
-    with TestClient(create_app()) as client:
-        response = client.get(
-            "/internal/health",
-            headers={"X-Internal-API-Key": "wrong-key"},
-        )
+def test_internal_health_rejects_wrong_key(client: TestClient) -> None:
+    response = client.get(
+        "/internal/health",
+        headers={"X-Internal-API-Key": "wrong-key"},
+    )
 
     assert_error_contract(
         response,
@@ -323,36 +310,37 @@ def test_internal_health_rejects_wrong_key(monkeypatch) -> None:
     )
 
 
-def test_internal_health_accepts_correct_key(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
-    with TestClient(create_app()) as client:
-        response = client.get(
-            "/internal/health",
-            headers={
-                REQUEST_ID_HEADER: "internal-health-request",
-                "X-Internal-API-Key": "expected-key",
-            },
-        )
+def test_internal_health_accepts_correct_key(
+    client: TestClient,
+    internal_auth_headers: dict[str, str],
+) -> None:
+    response = client.get(
+        "/internal/health",
+        headers={
+            REQUEST_ID_HEADER: "internal-health-request",
+            **internal_auth_headers,
+        },
+    )
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     assert response.headers[REQUEST_ID_HEADER] == "internal-health-request"
 
 
-def test_internal_health_logs_request_id(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
+def test_internal_health_logs_request_id(
+    client: TestClient,
+    internal_auth_headers: dict[str, str],
+    caplog,
+) -> None:
     with caplog.at_level(logging.INFO):
-        with TestClient(create_app()) as client:
-            caplog.clear()
-            response = client.get(
-                "/internal/health",
-                headers={
-                    REQUEST_ID_HEADER: "internal-health-log-request",
-                    "X-Internal-API-Key": "expected-key",
-                },
-            )
+        caplog.clear()
+        response = client.get(
+            "/internal/health",
+            headers={
+                REQUEST_ID_HEADER: "internal-health-log-request",
+                **internal_auth_headers,
+            },
+        )
 
     assert response.status_code == 200
 
@@ -374,28 +362,26 @@ def test_internal_health_logs_request_id(monkeypatch, caplog) -> None:
 
 
 def test_request_completed_logs_keep_sequential_request_ids_isolated(
-    monkeypatch,
+    client: TestClient,
+    internal_auth_headers: dict[str, str],
     caplog,
 ) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
     with caplog.at_level(logging.INFO):
-        with TestClient(create_app()) as client:
-            caplog.clear()
-            response_a = client.get(
-                "/internal/health",
-                headers={
-                    REQUEST_ID_HEADER: "request-a",
-                    "X-Internal-API-Key": "expected-key",
-                },
-            )
-            response_b = client.get(
-                "/internal/health",
-                headers={
-                    REQUEST_ID_HEADER: "request-b",
-                    "X-Internal-API-Key": "expected-key",
-                },
-            )
+        caplog.clear()
+        response_a = client.get(
+            "/internal/health",
+            headers={
+                REQUEST_ID_HEADER: "request-a",
+                **internal_auth_headers,
+            },
+        )
+        response_b = client.get(
+            "/internal/health",
+            headers={
+                REQUEST_ID_HEADER: "request-b",
+                **internal_auth_headers,
+            },
+        )
 
     assert response_a.status_code == 200
     assert response_b.status_code == 200
@@ -416,12 +402,9 @@ def test_request_completed_logs_keep_sequential_request_ids_isolated(
 
 
 def test_concurrent_request_completed_logs_keep_request_ids_isolated(
-    monkeypatch,
+    app: FastAPI,
     caplog,
 ) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
-    app = create_app()
     barrier = Barrier(2)
     add_concurrent_test_route(app, barrier)
 
@@ -459,21 +442,19 @@ def test_concurrent_request_completed_logs_keep_request_ids_isolated(
 
 
 def test_non_request_log_after_request_does_not_inherit_request_id(
-    monkeypatch,
+    client: TestClient,
+    internal_auth_headers: dict[str, str],
     caplog,
 ) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
     with caplog.at_level(logging.INFO):
-        with TestClient(create_app()) as client:
-            caplog.clear()
-            response = client.get(
-                "/internal/health",
-                headers={
-                    REQUEST_ID_HEADER: "request-a",
-                    "X-Internal-API-Key": "expected-key",
-                },
-            )
+        caplog.clear()
+        response = client.get(
+            "/internal/health",
+            headers={
+                REQUEST_ID_HEADER: "request-a",
+                **internal_auth_headers,
+            },
+        )
 
     assert response.status_code == 200
 
@@ -488,11 +469,8 @@ def test_non_request_log_after_request_does_not_inherit_request_id(
     assert "request-a" not in serialized
 
 
-def test_openapi_contract_contains_stage_2_6_endpoints(monkeypatch) -> None:
-    monkeypatch.setenv("AI_SERVICE_INTERNAL_API_KEY", "expected-key")
-
-    with TestClient(create_app()) as client:
-        response = client.get("/openapi.json")
+def test_openapi_contract_contains_stage_2_6_endpoints(client: TestClient) -> None:
+    response = client.get("/openapi.json")
 
     assert response.status_code == 200
 

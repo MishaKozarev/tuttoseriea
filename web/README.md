@@ -24,6 +24,16 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+The application also exposes a minimal project-owned liveness endpoint:
+
+```text
+GET /api/health
+```
+
+It returns `{"status":"ok"}` without reading the database, external services or
+secrets. It is used by the Web smoke foundation and is also suitable for basic
+local runtime checks.
+
 Optionally run an already built application locally:
 
 ```bash
@@ -210,6 +220,48 @@ pnpm ai:client:check
 pnpm test
 ```
 
+## Testing
+
+`pnpm run test` is the stable CI-facing Web test command. It runs the existing
+Stage 2.8-2.10 contract checks and the Vitest unit/component suite.
+
+Available Web test commands:
+
+```bash
+pnpm run test
+pnpm run test:contracts
+pnpm run test:unit
+pnpm run test:smoke
+```
+
+`test:contracts` preserves the existing server-side configuration, API error,
+structured logging and AI client checks. The individual commands
+`config:check`, `api:error:check`, `logging:check`, `ai:client:check`,
+`ai:contract:check` and `ai:client:check:live` remain supported.
+
+Vitest uses the Node environment by default. Component tests opt into `jsdom`
+only where DOM rendering is needed. React component tests use React Testing
+Library and should assert observable behavior, not implementation details.
+
+The current Playwright smoke command starts the local Web app, verifies `/`,
+checks that `Bootstrap E2E marker` is visible and verifies `GET /api/health`.
+Before running it locally for the first time, install the Chromium browser used
+by the smoke test:
+
+```bash
+pnpm exec playwright install chromium
+pnpm run test:smoke
+```
+
+Automated tests must not require production secrets or real paid/limited
+providers. Use deterministic fixtures, mocks or fakes for unit tests when
+persistence semantics are not under test.
+
+Database integration tests must use real PostgreSQL + pgvector. SQLite is not a
+substitute for PostgreSQL or Drizzle behavior. The existing CI database checks
+reuse the PostgreSQL service in the Web job and must not be replaced by a second
+parallel DB-test mechanism.
+
 ## Server Logging
 
 Project-owned server-side Web logs are structured JSON lines written to
@@ -266,6 +318,10 @@ ghcr.io/mishakozarev/tuttoseriea/web:sha-<commit-sha>
 ## Checks
 
 ```bash
+pnpm run test
+pnpm run test:contracts
+pnpm run test:unit
+pnpm run test:smoke
 pnpm lint
 pnpm build
 pnpm db:migrate

@@ -38,6 +38,28 @@ uv run ruff check .
 uv run pytest
 ```
 
+## Testing
+
+AI-service tests use `pytest`.
+
+Reusable deterministic fixtures live in `tests/conftest.py`:
+
+- `configured_internal_api_key` sets the safe test-only
+  `AI_SERVICE_INTERNAL_API_KEY`;
+- `app` creates a fresh FastAPI application for a test;
+- `client` provides a FastAPI `TestClient`;
+- `internal_auth_headers` provides the protected endpoint header without using
+  real secrets.
+
+Tests should be deterministic, order-independent and isolated from external
+services. Do not call real AI providers, Football API providers or other paid,
+quota-limited services from automated tests by default.
+
+For unit tests, mocks or fakes are acceptable when persistence semantics are not
+the behavior under test. Integration tests that require database behavior must
+use real PostgreSQL + pgvector. SQLite is not a substitute for PostgreSQL
+behavior in this project.
+
 Export the deterministic OpenAPI JSON from source without starting an HTTP
 server:
 
