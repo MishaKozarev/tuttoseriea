@@ -1,9 +1,14 @@
 import secrets
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request, status
 from fastapi.security import APIKeyHeader
 
 from tuttoseriea_ai_service.config import Settings
+from tuttoseriea_ai_service.errors import (
+    ERROR_CODE_INTERNAL_API_KEY_INVALID,
+    ERROR_CODE_INTERNAL_API_KEY_MISSING,
+    ApplicationError,
+)
 
 INTERNAL_API_KEY_HEADER = "X-Internal-API-Key"
 
@@ -27,13 +32,15 @@ def require_internal_api_key(
     settings: Settings = Depends(get_settings),
 ) -> None:
     if api_key is None:
-        raise HTTPException(
+        raise ApplicationError(
+            code=ERROR_CODE_INTERNAL_API_KEY_MISSING,
+            message="Missing internal API key",
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing internal API key",
         )
 
     if not secrets.compare_digest(api_key, settings.ai_service_internal_api_key):
-        raise HTTPException(
+        raise ApplicationError(
+            code=ERROR_CODE_INTERNAL_API_KEY_INVALID,
+            message="Invalid internal API key",
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid internal API key",
         )

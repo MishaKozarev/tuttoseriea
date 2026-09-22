@@ -67,6 +67,40 @@ Available Stage 2.6 endpoints:
 - `GET /internal/health` - protected by `X-Internal-API-Key`.
 - `GET /openapi.json` - generated FastAPI OpenAPI contract.
 
+## Error Handling
+
+Project-owned FastAPI errors use the canonical external error shape:
+
+```json
+{
+  "error": {
+    "code": "STABLE_MACHINE_CODE",
+    "message": "Safe user-facing message",
+    "requestId": "request-id"
+  }
+}
+```
+
+Expected application failures raise `ApplicationError` with an explicit HTTP
+status, stable `code` and safe `message`. Request validation failures return
+HTTP `422` with `VALIDATION_ERROR`. Unexpected exceptions return HTTP `500`
+with `INTERNAL_SERVER_ERROR` and do not expose stack traces, raw exception text,
+secrets or internal implementation details.
+
+`X-Request-ID` is the request correlation header. A valid incoming value is
+reused in the response body and response header. If the request does not provide
+one, the service generates a single fallback request id for that request.
+
+The protected `/internal/health` endpoint keeps the existing
+`X-Internal-API-Key` protocol:
+
+- missing internal API key: HTTP `401`, `INTERNAL_API_KEY_MISSING`;
+- invalid internal API key: HTTP `403`, `INTERNAL_API_KEY_INVALID`;
+- valid internal API key: HTTP `200`, `{"status": "ok"}`.
+
+New expected application errors should be represented as `ApplicationError` and
+serialized only by the centralized exception handlers.
+
 ## Container
 
 From repository root:
