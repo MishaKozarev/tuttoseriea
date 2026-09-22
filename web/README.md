@@ -147,7 +147,7 @@ src/generated/ai-service-openapi.d.ts
 The current web client is a small server-only wrapper for
 `GET /internal/health`. It uses native `fetch`, reads `AI_SERVICE_URL` and
 `AI_SERVICE_INTERNAL_API_KEY` from server environment variables, and sends the
-secret through `X-Internal-API-Key`.
+secret through `X-Internal-API-Key` while propagating `X-Request-ID`.
 
 Run the mocked client check:
 
@@ -163,6 +163,52 @@ pnpm ai:client:check:live
 ```
 
 No public Next.js proxy route exists for FastAPI in this foundation.
+
+## API Error Handling
+
+Project-owned Web API boundaries use the canonical external error shape:
+
+```json
+{
+  "error": {
+    "code": "STABLE_MACHINE_CODE",
+    "message": "Safe user-facing message",
+    "requestId": "request-id"
+  }
+}
+```
+
+Expected application errors use `ApplicationError` with an explicit HTTP status,
+stable `code` and safe `message`. Unexpected errors serialize as
+`INTERNAL_SERVER_ERROR` with HTTP `500` and do not expose stack traces, SQL
+errors, secrets or raw exception text.
+
+Route Handlers owned by the application should use the shared error helpers in
+`src/api/errors.ts`. Auth.js routes are owned by Auth.js and are not wrapped in
+the project API error boundary.
+
+`X-Request-ID` is the request correlation header. A valid incoming value is
+reused; otherwise the boundary generates a single fallback request id. The
+server-side AI service client forwards that same value to FastAPI as
+`X-Request-ID`.
+
+Web maps AI-service failures without passing through raw upstream bodies:
+
+- timeout: HTTP `504`, `AI_SERVICE_TIMEOUT`;
+- network/connectivity failure: HTTP `502`, `AI_SERVICE_NETWORK_ERROR`;
+- AI-service `5xx`: HTTP `502`, `AI_SERVICE_UNAVAILABLE`;
+- malformed or unexpected upstream response: HTTP `502`,
+  `AI_SERVICE_BAD_RESPONSE`;
+- known expected AI-service `400`, `404`, `409` and `422`: same HTTP status,
+  `AI_SERVICE_REQUEST_REJECTED`.
+
+Run the local error contract checks:
+
+```bash
+pnpm api:error:check
+pnpm ai:client:check
+pnpm test
+```
 
 ## Container Image
 
@@ -199,7 +245,9 @@ pnpm db:seed
 pnpm db:seed
 pnpm db:migrations:check
 pnpm ai:contract:check
+pnpm api:error:check
 pnpm ai:client:check
+pnpm test
 docker build -f web/Dockerfile -t tuttoseriea-web:local web
 ```
 

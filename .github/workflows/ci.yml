@@ -65,9 +65,9 @@ jobs:
         working-directory: web
         run: pnpm run ai:contract:check
 
-      - name: Check web AI service client
+      - name: Test web
         working-directory: web
-        run: pnpm run ai:client:check
+        run: pnpm run test
 
       - name: Check web to AI service localhost communication
         shell: bash

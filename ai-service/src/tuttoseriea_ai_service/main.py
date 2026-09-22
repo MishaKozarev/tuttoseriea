@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 
 from tuttoseriea_ai_service.config import load_settings
+from tuttoseriea_ai_service.errors import register_error_handling
 from tuttoseriea_ai_service.security import require_internal_api_key
 
 
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
         summary="Internal FastAPI service foundation for AI workflows.",
         lifespan=lifespan,
     )
+    register_error_handling(app)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:
