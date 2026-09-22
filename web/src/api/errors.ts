@@ -2,6 +2,8 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { logger } from "@/src/logging/logger";
+
 export const REQUEST_ID_HEADER = "X-Request-ID";
 
 export const API_ERROR_CODES = {
@@ -132,6 +134,17 @@ export function createApiErrorResponse(
   source?: Headers | Request | string | null,
 ): Response {
   const { body, status } = serializeApiError(error, source);
+
+  if (!(error instanceof ApplicationError)) {
+    logger.error("Unexpected project-owned API error", {
+      context: {
+        errorName: error instanceof Error ? error.name : typeof error,
+        event: "api.unexpected_error",
+        status,
+      },
+      requestId: body.error.requestId,
+    });
+  }
 
   return Response.json(body, {
     headers: {

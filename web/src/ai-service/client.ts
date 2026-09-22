@@ -9,6 +9,7 @@ import {
 } from "@/src/api/errors";
 import { getAiServiceRuntimeConfig } from "@/src/config/runtime";
 import type { paths } from "@/src/generated/ai-service-openapi";
+import { logger } from "@/src/logging/logger";
 
 const INTERNAL_API_KEY_HEADER = "X-Internal-API-Key";
 const DEFAULT_AI_SERVICE_TIMEOUT_MS = 5_000;
@@ -55,6 +56,14 @@ async function fetchAiService(
     });
   } catch (error) {
     if (didTimeout) {
+      logger.warn("AI service request timed out", {
+        context: {
+          event: "ai_service.timeout",
+          timeoutMs,
+        },
+        requestId,
+      });
+
       throw new ApplicationError({
         cause: error,
         code: API_ERROR_CODES.aiServiceTimeout,
@@ -63,6 +72,13 @@ async function fetchAiService(
         status: 504,
       });
     }
+
+    logger.warn("AI service network failure", {
+      context: {
+        event: "ai_service.network_error",
+      },
+      requestId,
+    });
 
     throw new ApplicationError({
       cause: error,
@@ -97,6 +113,14 @@ function throwAiServiceStatusError(response: Response, requestId: string): never
   }
 
   if (response.status >= 500) {
+    logger.warn("AI service returned a server error", {
+      context: {
+        event: "ai_service.upstream_5xx",
+        upstreamStatus: response.status,
+      },
+      requestId,
+    });
+
     throw new ApplicationError({
       code: API_ERROR_CODES.aiServiceUnavailable,
       message: "AI service is unavailable",
@@ -117,6 +141,14 @@ async function readAiServiceJson(response: Response, requestId: string): Promise
   try {
     return await response.json();
   } catch (error) {
+    logger.warn("AI service returned invalid JSON", {
+      context: {
+        errorName: error instanceof Error ? error.name : typeof error,
+        event: "ai_service.invalid_json",
+      },
+      requestId,
+    });
+
     throw new ApplicationError({
       cause: error,
       code: API_ERROR_CODES.aiServiceBadResponse,
@@ -132,6 +164,13 @@ function parseInternalHealthResponse(
   requestId: string,
 ): AiServiceInternalHealthResponse {
   if (!body || typeof body !== "object" || !("status" in body)) {
+    logger.warn("AI service returned an unexpected response shape", {
+      context: {
+        event: "ai_service.unexpected_response",
+      },
+      requestId,
+    });
+
     throw new ApplicationError({
       code: API_ERROR_CODES.aiServiceBadResponse,
       message: "AI service returned an unexpected response",
@@ -143,6 +182,14 @@ function parseInternalHealthResponse(
   const statusValue = (body as { status: unknown }).status;
 
   if (statusValue !== "ok") {
+    logger.warn("AI service returned an unexpected health status", {
+      context: {
+        event: "ai_service.unexpected_response",
+        upstreamStatus: typeof statusValue === "string" ? statusValue : typeof statusValue,
+      },
+      requestId,
+    });
+
     throw new ApplicationError({
       code: API_ERROR_CODES.aiServiceBadResponse,
       message: "AI service returned an unexpected response",

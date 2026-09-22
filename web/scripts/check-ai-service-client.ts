@@ -9,6 +9,15 @@ import { buildAiServiceUrl, getAiServiceInternalHealth } from "../src/ai-service
 
 const INTERNAL_API_KEY_HEADER = "X-Internal-API-Key";
 
+type CapturedLog = {
+  context?: Record<string, unknown>;
+  level: string;
+  message: string;
+  requestId: string | null;
+  service: string;
+  timestamp: string;
+};
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
@@ -32,6 +41,49 @@ async function withMockedFetch(
   } finally {
     globalThis.fetch = originalFetch;
   }
+}
+
+async function captureStderrLogs(operation: () => Promise<void>): Promise<CapturedLog[]> {
+  const originalWrite = process.stderr.write;
+  let output = "";
+
+  process.stderr.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+    output += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+
+    const callback = args.find((entry): entry is () => void => typeof entry === "function");
+    callback?.();
+
+    return true;
+  }) as typeof process.stderr.write;
+
+  try {
+    await operation();
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as CapturedLog);
+}
+
+function assertAiServiceWarnLog(
+  logs: CapturedLog[],
+  expected: { event: string; requestId: string | undefined },
+): void {
+  assert(logs.length === 1, `Expected one AI service warning log for ${expected.event}`);
+
+  const [log] = logs;
+  const serialized = JSON.stringify(log);
+
+  assert(log.level === "warn", "AI service failure should log as warn");
+  assert(log.service === "web", "AI service warning should be emitted by web");
+  assert(log.requestId === expected.requestId, "AI service warning lost requestId");
+  assert(log.context?.event === expected.event, `Expected event ${expected.event}`);
+  assert(!serialized.includes("secret"), "AI service warning leaked upstream details");
+  assert(!serialized.includes("Traceback"), "AI service warning leaked upstream traceback");
 }
 
 async function captureApplicationError(
@@ -136,18 +188,27 @@ async function checkTimeoutMapping() {
       );
     });
   }, async () => {
-    await assertAiServiceError(
-      () =>
-        getAiServiceInternalHealth({
+    let error: ApplicationError | undefined;
+    const logs = await captureStderrLogs(async () => {
+      error = await assertAiServiceError(
+        () =>
+          getAiServiceInternalHealth({
+            requestId: "timeout-request",
+            timeoutMs: 1,
+          }),
+        {
+          code: API_ERROR_CODES.aiServiceTimeout,
           requestId: "timeout-request",
-          timeoutMs: 1,
-        }),
-      {
-        code: API_ERROR_CODES.aiServiceTimeout,
-        requestId: "timeout-request",
-        status: 504,
-      },
-    );
+          status: 504,
+        },
+      );
+    });
+
+    assert(error, "Timeout mapping did not capture error");
+    assertAiServiceWarnLog(logs, {
+      event: "ai_service.timeout",
+      requestId: error.requestId,
+    });
   });
 }
 
@@ -157,9 +218,18 @@ async function checkNetworkMapping() {
   await withMockedFetch(async () => {
     throw new TypeError("secret network detail");
   }, async () => {
-    await assertAiServiceError(() => getAiServiceInternalHealth(), {
-      code: API_ERROR_CODES.aiServiceNetworkError,
-      status: 502,
+    let error: ApplicationError | undefined;
+    const logs = await captureStderrLogs(async () => {
+      error = await assertAiServiceError(() => getAiServiceInternalHealth(), {
+        code: API_ERROR_CODES.aiServiceNetworkError,
+        status: 502,
+      });
+    });
+
+    assert(error, "Network mapping did not capture error");
+    assertAiServiceWarnLog(logs, {
+      event: "ai_service.network_error",
+      requestId: error.requestId,
     });
   });
 }
@@ -173,14 +243,23 @@ async function checkUpstream5xxMapping() {
       status: 500,
     });
   }, async () => {
-    await assertAiServiceError(
-      () => getAiServiceInternalHealth({ requestId: "upstream-5xx-request" }),
-      {
-        code: API_ERROR_CODES.aiServiceUnavailable,
-        requestId: "upstream-5xx-request",
-        status: 502,
-      },
-    );
+    let error: ApplicationError | undefined;
+    const logs = await captureStderrLogs(async () => {
+      error = await assertAiServiceError(
+        () => getAiServiceInternalHealth({ requestId: "upstream-5xx-request" }),
+        {
+          code: API_ERROR_CODES.aiServiceUnavailable,
+          requestId: "upstream-5xx-request",
+          status: 502,
+        },
+      );
+    });
+
+    assert(error, "AI 5xx mapping did not capture error");
+    assertAiServiceWarnLog(logs, {
+      event: "ai_service.upstream_5xx",
+      requestId: error.requestId,
+    });
   });
 }
 
@@ -213,14 +292,23 @@ async function checkMalformedUpstreamMapping() {
       status: 200,
     });
   }, async () => {
-    await assertAiServiceError(
-      () => getAiServiceInternalHealth({ requestId: "malformed-request" }),
-      {
-        code: API_ERROR_CODES.aiServiceBadResponse,
-        requestId: "malformed-request",
-        status: 502,
-      },
-    );
+    let error: ApplicationError | undefined;
+    const logs = await captureStderrLogs(async () => {
+      error = await assertAiServiceError(
+        () => getAiServiceInternalHealth({ requestId: "malformed-request" }),
+        {
+          code: API_ERROR_CODES.aiServiceBadResponse,
+          requestId: "malformed-request",
+          status: 502,
+        },
+      );
+    });
+
+    assert(error, "Malformed response mapping did not capture error");
+    assertAiServiceWarnLog(logs, {
+      event: "ai_service.invalid_json",
+      requestId: error.requestId,
+    });
   });
 }
 
@@ -233,14 +321,23 @@ async function checkUnexpectedUpstreamShapeMapping() {
       status: 200,
     });
   }, async () => {
-    await assertAiServiceError(
-      () => getAiServiceInternalHealth({ requestId: "unexpected-shape-request" }),
-      {
-        code: API_ERROR_CODES.aiServiceBadResponse,
-        requestId: "unexpected-shape-request",
-        status: 502,
-      },
-    );
+    let error: ApplicationError | undefined;
+    const logs = await captureStderrLogs(async () => {
+      error = await assertAiServiceError(
+        () => getAiServiceInternalHealth({ requestId: "unexpected-shape-request" }),
+        {
+          code: API_ERROR_CODES.aiServiceBadResponse,
+          requestId: "unexpected-shape-request",
+          status: 502,
+        },
+      );
+    });
+
+    assert(error, "Unexpected shape mapping did not capture error");
+    assertAiServiceWarnLog(logs, {
+      event: "ai_service.unexpected_response",
+      requestId: error.requestId,
+    });
   });
 }
 

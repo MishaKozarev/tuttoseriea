@@ -9,6 +9,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from tuttoseriea_ai_service.structured_logging import exception_context
+
 REQUEST_ID_HEADER = "X-Request-ID"
 
 ERROR_CODE_FORBIDDEN = "FORBIDDEN"
@@ -111,6 +113,18 @@ async def request_id_middleware(request: Request, call_next: Any) -> Any:
 
     response = await call_next(request)
     response.headers[REQUEST_ID_HEADER] = request_id
+    logger.info(
+        "AI service request completed",
+        extra={
+            "context": {
+                "event": "http.request",
+                "method": request.method,
+                "path": request.url.path,
+                "statusCode": response.status_code,
+            },
+            "request_id": request_id,
+        },
+    )
     return response
 
 
@@ -157,8 +171,13 @@ async def unexpected_exception_handler(
     request_id = get_request_id(request)
     logger.error(
         "Unexpected AI service exception",
-        extra={"requestId": request_id},
-        exc_info=(type(exception), exception, exception.__traceback__),
+        extra={
+            "context": {
+                "event": "api.unexpected_error",
+                **exception_context(exception),
+            },
+            "request_id": request_id,
+        },
     )
 
     return error_response(
