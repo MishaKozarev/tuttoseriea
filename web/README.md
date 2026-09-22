@@ -58,6 +58,9 @@ Set:
 - `DATABASE_AUTH_SCHEMA` to the Auth.js infrastructure schema name (`auth` by
   default);
 - `AUTH_SECRET` to a safe LOCAL-only Auth.js secret.
+- `AUTH_URL` to the LOCAL web origin (`http://localhost:3000` by default);
+- `AUTH_TRUST_HOST` to `true` for proxy/deployment environments that require
+  Auth.js to trust forwarded host headers;
 - `AI_SERVICE_URL` to the LOCAL FastAPI service URL (`http://127.0.0.1:8000`
   by default);
 - `AI_SERVICE_INTERNAL_API_KEY` to the shared LOCAL-only service-to-service key.
@@ -69,6 +72,9 @@ not be supplied to the long-running web runtime.
 does not use the web runtime role or the privileged migration/admin role.
 `AI_SERVICE_URL` and `AI_SERVICE_INTERNAL_API_KEY` are server-side values and
 must not use a `NEXT_PUBLIC_` prefix.
+`AUTH_SECRET`, `AUTH_URL` and `AUTH_TRUST_HOST` are read by Auth.js. The current
+application code does not add separate runtime validation for `AUTH_URL` or
+`AUTH_TRUST_HOST`.
 
 Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.3 adds migration
 tooling and the first technical migration for `CREATE EXTENSION IF NOT EXISTS
@@ -112,9 +118,8 @@ STAGING/PRODUCTION deployment lifecycle.
 
 Auth.js uses database sessions with the Drizzle adapter and `providers: []` in
 the current foundation. No real sign-in provider or registration flow exists yet.
-`AUTH_TRUST_HOST` and provider-specific secrets are not configured in repository
-defaults; add them only when the corresponding deployment/proxy/provider contract
-is verified.
+Provider-specific Auth.js secrets are not configured in repository defaults; add
+them only when the corresponding provider contract is verified.
 
 ## AI Service Contract
 

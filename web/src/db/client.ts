@@ -3,6 +3,8 @@ import "server-only";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
+import { getDatabaseUrl } from "@/src/config/runtime";
+
 import * as schema from "./schema";
 
 type Database = ReturnType<typeof createDatabase>;
@@ -12,19 +14,9 @@ type DatabaseGlobals = typeof globalThis & {
   __tuttoserieaDb?: Database;
 };
 
-function requireDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required for server-side database access");
-  }
-
-  return databaseUrl;
-}
-
 function createDatabasePool(): Pool {
   return new Pool({
-    connectionString: requireDatabaseUrl(),
+    connectionString: getDatabaseUrl(),
   });
 }
 

@@ -12,15 +12,16 @@ storage or integrate with `web/`.
 
 ## Environment
 
-Create a local ignored environment file when running the protected internal
-endpoint manually:
+The application reads configuration from the process environment. `.env.example`
+documents the required variable names, but the FastAPI process does not load
+`.env.local` by itself.
 
 ```bash
 cp .env.example .env.local
 ```
 
-Set `AI_SERVICE_INTERNAL_API_KEY` to a LOCAL-only value. Do not commit real
-service-to-service secrets.
+Set `AI_SERVICE_INTERNAL_API_KEY` to a LOCAL-only value before startup. Do not
+commit real service-to-service secrets.
 
 ## Commands
 
@@ -48,6 +49,13 @@ The web TypeScript contract is generated from this source export, not from a
 staging or production URL.
 
 Run locally on Windows:
+
+```powershell
+$env:AI_SERVICE_INTERNAL_API_KEY = "change-me-local-only"
+uv run uvicorn tuttoseriea_ai_service.main:app --host 127.0.0.1 --port 8000
+```
+
+Or from a POSIX shell:
 
 ```bash
 AI_SERVICE_INTERNAL_API_KEY=change-me-local-only uv run uvicorn tuttoseriea_ai_service.main:app --host 127.0.0.1 --port 8000
