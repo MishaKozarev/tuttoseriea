@@ -6,6 +6,10 @@ import {
   normalizeRequestId,
   serializeApiError,
 } from "../src/api/errors";
+import {
+  createForbiddenResponse,
+  createUnauthorizedResponse,
+} from "../src/api/access";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -99,6 +103,38 @@ async function main() {
   assert(
     responseBody.error.requestId === "response-request-id",
     "API error response body should expose the same requestId",
+  );
+
+  const unauthorizedResponse = createUnauthorizedResponse(
+    { requestId: "auth-request-id" },
+    null,
+  );
+  const unauthorizedBody = await readErrorResponse(unauthorizedResponse);
+
+  assert(unauthorizedResponse.status === 401, "Unauthorized response must be 401");
+  assert(
+    unauthorizedBody.error.code === API_ERROR_CODES.unauthorized,
+    "Unauthorized response must use UNAUTHORIZED code",
+  );
+  assert(
+    unauthorizedBody.error.requestId === "auth-request-id",
+    "Unauthorized response should preserve requestId",
+  );
+
+  const forbiddenResponse = createForbiddenResponse(
+    { requestId: "forbidden-request-id" },
+    null,
+  );
+  const forbiddenBody = await readErrorResponse(forbiddenResponse);
+
+  assert(forbiddenResponse.status === 403, "Forbidden response must be 403");
+  assert(
+    forbiddenBody.error.code === API_ERROR_CODES.forbidden,
+    "Forbidden response must use FORBIDDEN code",
+  );
+  assert(
+    forbiddenBody.error.requestId === "forbidden-request-id",
+    "Forbidden response should preserve requestId",
   );
 
   console.log("api_error_check=passed");
