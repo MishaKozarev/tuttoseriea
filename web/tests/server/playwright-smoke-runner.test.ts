@@ -99,7 +99,7 @@ describe("Playwright smoke runner lifecycle", () => {
 
         response.setHeader("content-type", "text/html");
         response.end(
-          "<!doctype html><title>dummy</title><body>Bootstrap E2E marker</body>",
+          "<!doctype html><title>dummy</title><body>tuttoseriea.com</body>",
         );
       });
       const port = await listenOnLoopback(server);

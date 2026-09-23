@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-test("web bootstrap smoke", async ({ page, request }) => {
+test("web public shell smoke", async ({ page, request }) => {
   await page.goto("/");
 
-  await expect(page.getByText("Bootstrap E2E marker")).toBeVisible();
+  await expect(page.getByRole("banner")).toBeVisible();
+  await expect(page.getByRole("main")).toContainText("Serie A на русском");
+  await expect(page.getByRole("contentinfo")).toBeVisible();
 
   const response = await request.get("/api/health");
 

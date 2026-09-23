@@ -244,7 +244,7 @@ only where DOM rendering is needed. React component tests use React Testing
 Library and should assert observable behavior, not implementation details.
 
 The current Playwright smoke command starts the local Web app, verifies `/`,
-checks that `Bootstrap E2E marker` is visible and verifies `GET /api/health`.
+checks that the public shell renders and verifies `GET /api/health`.
 Before running it locally for the first time, install the Chromium browser used
 by the smoke test:
 
@@ -354,6 +354,21 @@ This app was bootstrapped with:
 - Drizzle ORM foundation;
 - Auth.js database-session foundation;
 - server-only FastAPI communication foundation.
+
+The public UI foundation uses root-level App Router files, shared layout
+components under `components/layout`, and the shadcn/ui baseline under
+`components/ui`.
+
+The public container convention is layered:
+
+- `wide`: max width `80rem`, for the shell, header/footer alignment and future
+  data-heavy views;
+- `normal`: max width `70rem`, for default public content;
+- `narrow`: max width `45rem`, for editorial or article-like content.
+
+Horizontal shell padding is `1rem` on mobile, `1.5rem` on tablet-sized screens
+and `2rem` on desktop-sized screens. Future product stages can choose the
+appropriate layer per view without changing the baseline shell.
 
 No product features, business seed data, real auth provider, registration flow,
 AI business workflows or service-specific domain logic are part of this
