@@ -15,6 +15,13 @@
       "when": 1789756341121,
       "tag": "0001_auth_js_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790195401202,
+      "tag": "0002_identity_rbac_foundation",
+      "breakpoints": true
     }
   ]
 }

@@ -67,10 +67,16 @@ Set:
   seed role;
 - `DATABASE_AUTH_SCHEMA` to the Auth.js infrastructure schema name (`auth` by
   default);
+- `DATABASE_IDENTITY_SCHEMA` to the Identity domain schema name (`identity` by
+  default);
 - `AUTH_SECRET` to a safe LOCAL-only Auth.js secret.
 - `AUTH_URL` to the LOCAL web origin (`http://localhost:3000` by default);
 - `AUTH_TRUST_HOST` to `true` for proxy/deployment environments that require
   Auth.js to trust forwarded host headers;
+- `AUTH_STAFF_EMAIL_DELIVERY=disabled` by default to prevent accidental external
+  SMTP email sends;
+- `AUTH_EMAIL_SERVER` and `AUTH_EMAIL_FROM` for the staff magic-link provider
+  when email delivery is explicitly enabled;
 - `AI_SERVICE_URL` to the LOCAL FastAPI service URL (`http://127.0.0.1:8000`
   by default);
 - `AI_SERVICE_INTERNAL_API_KEY` to the shared LOCAL-only service-to-service key.
@@ -90,9 +96,13 @@ Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.3 adds migration
 tooling and the first technical migration for `CREATE EXTENSION IF NOT EXISTS
 vector`. Stage 2.5 adds Auth.js infrastructure tables in PostgreSQL schema
 `auth`. These are adapter/session tables, not Stage 3 Identity domain tables.
-The foundation does not add product registration, OAuth, Credentials, email
-provider, WebAuthn functionality, application roles, PublicProfile, FastAPI
-integration or Stage 3 domain schema.
+Stage 3.4 adds the initial Identity domain schema in `identity`: `accounts`,
+`roles` and `account_roles`. `identity.accounts` is the domain Account model and
+links one-to-one to `auth.users`; future domain references use
+`identity.accounts.id`.
+
+The foundation does not add product registration, OAuth, Credentials, WebAuthn
+functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 
 Stage 2.4 adds a seed foundation without business seed data. The current seed
 registry is explicit and empty, so the runner connects to PostgreSQL, acquires
@@ -109,6 +119,7 @@ pnpm db:migrations:check
 pnpm db:provision-role
 pnpm db:check
 pnpm db:auth:check
+pnpm db:identity:check
 pnpm db:provision-seed-role
 pnpm db:seed:check-ddl-denied
 pnpm db:seed:schema-fingerprint
@@ -126,10 +137,20 @@ startup.
 The seed runner is manual and is not run by application startup or by the
 STAGING/PRODUCTION deployment lifecycle.
 
-Auth.js uses database sessions with the Drizzle adapter and `providers: []` in
-the current foundation. No real sign-in provider or registration flow exists yet.
-Provider-specific Auth.js secrets are not configured in repository defaults; add
-them only when the corresponding provider contract is verified.
+Auth.js uses database sessions with the Drizzle adapter. Stage 3.4 configures a
+staff-only Email/Nodemailer magic-link provider. It is restricted to
+pre-provisioned staff identities and separately checks `admin.access`;
+authentication alone does not grant `/admin` access. External SMTP delivery is
+disabled by default and must not be enabled or used without explicit approval.
+
+Staff identities can be provisioned with:
+
+```bash
+pnpm identity:provision-staff -- --email=<staff-email> --roles=writer
+```
+
+This is an operational command. Do not run it for real staff identities without
+separate explicit approval. Use `--dry-run` for a rollback-only verification.
 
 ## AI Service Contract
 
@@ -330,6 +351,7 @@ pnpm db:migrations:check
 pnpm db:provision-role
 pnpm db:check
 pnpm db:auth:check
+pnpm db:identity:check
 pnpm db:provision-seed-role
 pnpm db:seed:check-ddl-denied
 pnpm db:seed

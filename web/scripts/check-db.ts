@@ -44,6 +44,10 @@ type CountRow = {
   count: number;
 };
 
+type TablePrivilegeRow = {
+  allowed: boolean;
+};
+
 function firstRow<T>(rows: T[], label: string): T {
   const row = rows[0];
 
@@ -82,6 +86,156 @@ function postgresErrorCode(error: unknown): string | undefined {
   }
 
   return postgresErrorCode((error as { cause?: unknown }).cause);
+}
+
+async function assertSchemaAccess(
+  db: ReturnType<typeof getDb>,
+  schema: string,
+): Promise<void> {
+  const schemaPrivileges = firstRow(
+    (
+      await db.execute(
+        sql<SchemaPrivilegesRow>`
+          select
+            has_schema_privilege(current_user, ${schema}, 'USAGE') as "canUseSchema",
+            has_schema_privilege(current_user, ${schema}, 'CREATE') as "canCreateInSchema"
+        `,
+      )
+    ).rows,
+    `${schema} schema privileges check`,
+  );
+
+  if (schemaPrivileges.canUseSchema !== true) {
+    throw new Error(`DATABASE_URL role cannot use ${schema} schema`);
+  }
+
+  if (schemaPrivileges.canCreateInSchema !== false) {
+    throw new Error(`DATABASE_URL role can create objects in ${schema} schema`);
+  }
+}
+
+async function assertNoTableDmlPrivileges(
+  db: ReturnType<typeof getDb>,
+  schema: string,
+): Promise<void> {
+  const tablePrivileges = firstRow(
+    (
+      await db.execute(
+        sql<CountRow>`
+          select count(*)::int as "count"
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = ${schema}
+            and c.relkind in ('r', 'p', 'v', 'm', 'f')
+            and (
+              has_table_privilege(current_user, c.oid, 'SELECT')
+              or has_table_privilege(current_user, c.oid, 'INSERT')
+              or has_table_privilege(current_user, c.oid, 'UPDATE')
+              or has_table_privilege(current_user, c.oid, 'DELETE')
+            )
+        `,
+      )
+    ).rows,
+    `${schema} table privilege check`,
+  );
+
+  if (tablePrivileges.count !== 0) {
+    throw new Error(`DATABASE_URL role has table DML privileges in ${schema} schema`);
+  }
+}
+
+async function assertNoSequencePrivileges(
+  db: ReturnType<typeof getDb>,
+  schema: string,
+): Promise<void> {
+  const sequencePrivileges = firstRow(
+    (
+      await db.execute(
+        sql<CountRow>`
+          select count(*)::int as "count"
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = ${schema}
+            and c.relkind = 'S'
+            and (
+              has_sequence_privilege(current_user, c.oid, 'USAGE')
+              or has_sequence_privilege(current_user, c.oid, 'SELECT')
+              or has_sequence_privilege(current_user, c.oid, 'UPDATE')
+            )
+        `,
+      )
+    ).rows,
+    `${schema} sequence privilege check`,
+  );
+
+  if (sequencePrivileges.count !== 0) {
+    throw new Error(`DATABASE_URL role has sequence privileges in ${schema} schema`);
+  }
+}
+
+async function assertNoDefaultPrivileges(
+  db: ReturnType<typeof getDb>,
+  schema: string,
+): Promise<void> {
+  const defaultPrivileges = firstRow(
+    (
+      await db.execute(
+        sql<CountRow>`
+          select count(*)::int as "count"
+          from pg_default_acl da
+          join pg_namespace n on n.oid = da.defaclnamespace
+          join lateral aclexplode(da.defaclacl) acl on true
+          join pg_roles grantee on grantee.oid = acl.grantee
+          where n.nspname = ${schema}
+            and grantee.rolname = current_user
+        `,
+      )
+    ).rows,
+    `${schema} default privilege check`,
+  );
+
+  if (defaultPrivileges.count !== 0) {
+    throw new Error(`DATABASE_URL role has default privileges in ${schema} schema`);
+  }
+}
+
+async function assertExactTablePrivileges(
+  db: ReturnType<typeof getDb>,
+  schema: string,
+  tableName: string,
+  expectedPrivileges: readonly string[],
+): Promise<void> {
+  const relation = `${schema}.${tableName}`;
+  const expectedPrivilegeSet = new Set(expectedPrivileges);
+
+  for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
+    const row = firstRow(
+      (
+        await db.execute(
+          sql<TablePrivilegeRow>`select has_table_privilege(current_user, to_regclass(${relation}), ${privilege}) as "allowed"`,
+        )
+      ).rows,
+      `${schema}.${tableName} ${privilege} privilege check`,
+    );
+
+    const expected = expectedPrivilegeSet.has(privilege);
+
+    if (row.allowed !== expected) {
+      throw new Error(
+        `DATABASE_URL privilege mismatch on ${schema}.${tableName}: ${privilege} expected ${expected}, got ${row.allowed}`,
+      );
+    }
+  }
+}
+
+async function assertIdentityReadOnlyAccess(db: ReturnType<typeof getDb>): Promise<void> {
+  await assertSchemaAccess(db, "identity");
+  await assertNoSequencePrivileges(db, "identity");
+  await assertNoDefaultPrivileges(db, "identity");
+
+  for (const tableName of ["accounts", "roles", "account_roles"]) {
+    await assertExactTablePrivileges(db, "identity", tableName, ["SELECT"]);
+  }
 }
 
 async function assertRuntimeDdlDenied(db: ReturnType<typeof getDb>): Promise<void> {
@@ -200,96 +354,11 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL role is not a restricted runtime role");
   }
 
-  const schemaPrivileges = firstRow(
-    (
-      await db.execute(
-        sql<SchemaPrivilegesRow>`
-          select
-            has_schema_privilege(current_user, 'public', 'USAGE') as "canUseSchema",
-            has_schema_privilege(current_user, 'public', 'CREATE') as "canCreateInSchema"
-        `,
-      )
-    ).rows,
-    "runtime schema privileges check",
-  );
-
-  if (schemaPrivileges.canUseSchema !== true) {
-    throw new Error("DATABASE_URL role cannot use public schema");
-  }
-
-  if (schemaPrivileges.canCreateInSchema !== false) {
-    throw new Error("DATABASE_URL role can create objects in public schema");
-  }
-
-  const tablePrivileges = firstRow(
-    (
-      await db.execute(
-        sql<CountRow>`
-          select count(*)::int as "count"
-          from pg_class c
-          join pg_namespace n on n.oid = c.relnamespace
-          where n.nspname = 'public'
-            and c.relkind in ('r', 'p', 'v', 'm', 'f')
-            and (
-              has_table_privilege(current_user, c.oid, 'SELECT')
-              or has_table_privilege(current_user, c.oid, 'INSERT')
-              or has_table_privilege(current_user, c.oid, 'UPDATE')
-              or has_table_privilege(current_user, c.oid, 'DELETE')
-            )
-        `,
-      )
-    ).rows,
-    "runtime table privilege check",
-  );
-
-  if (tablePrivileges.count !== 0) {
-    throw new Error("DATABASE_URL role has table DML privileges in public schema");
-  }
-
-  const sequencePrivileges = firstRow(
-    (
-      await db.execute(
-        sql<CountRow>`
-          select count(*)::int as "count"
-          from pg_class c
-          join pg_namespace n on n.oid = c.relnamespace
-          where n.nspname = 'public'
-            and c.relkind = 'S'
-            and (
-              has_sequence_privilege(current_user, c.oid, 'USAGE')
-              or has_sequence_privilege(current_user, c.oid, 'SELECT')
-              or has_sequence_privilege(current_user, c.oid, 'UPDATE')
-            )
-        `,
-      )
-    ).rows,
-    "runtime sequence privilege check",
-  );
-
-  if (sequencePrivileges.count !== 0) {
-    throw new Error("DATABASE_URL role has sequence privileges in public schema");
-  }
-
-  const defaultPrivileges = firstRow(
-    (
-      await db.execute(
-        sql<CountRow>`
-          select count(*)::int as "count"
-          from pg_default_acl da
-          join pg_namespace n on n.oid = da.defaclnamespace
-          join lateral aclexplode(da.defaclacl) acl on true
-          join pg_roles grantee on grantee.oid = acl.grantee
-          where n.nspname = 'public'
-            and grantee.rolname = current_user
-        `,
-      )
-    ).rows,
-    "runtime default privilege check",
-  );
-
-  if (defaultPrivileges.count !== 0) {
-    throw new Error("DATABASE_URL role has default privileges in public schema");
-  }
+  await assertSchemaAccess(db, "public");
+  await assertNoTableDmlPrivileges(db, "public");
+  await assertNoSequencePrivileges(db, "public");
+  await assertNoDefaultPrivileges(db, "public");
+  await assertIdentityReadOnlyAccess(db);
 
   await assertRuntimeDdlDenied(db);
 
@@ -306,6 +375,7 @@ async function main(): Promise<void> {
   console.log("runtime_role_table_dml_privileges=false");
   console.log("runtime_role_default_privileges=false");
   console.log("runtime_role_ddl_denied=true");
+  console.log("identity_role_table_grants=select_only");
 }
 
 main()
