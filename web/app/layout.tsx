@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 
+import { buildRootMetadata } from "@/src/seo/site";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "tuttoseriea.com",
-  description: "Русскоязычная платформа о Серии A.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  await headers();
+
+  return buildRootMetadata();
+}
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

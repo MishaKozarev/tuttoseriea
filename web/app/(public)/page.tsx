@@ -1,4 +1,9 @@
+import type { Metadata } from "next";
+
 import { Container } from "@/components/layout/container";
+import { homeMetadata } from "@/src/seo/site";
+
+export const metadata: Metadata = homeMetadata;
 
 export default function Home() {
   return (
