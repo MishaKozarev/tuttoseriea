@@ -117,6 +117,10 @@ jobs:
         working-directory: web
         run: pnpm run build
 
+      - name: Check web job runner runtime
+        working-directory: web
+        run: pnpm run jobs:run -- --check-runtime
+
       - name: Apply CI database migrations
         working-directory: web
         env:
@@ -161,6 +165,13 @@ jobs:
           DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:identity:check
+
+      - name: Check CI jobs foundation
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:jobs:check
 
       - name: Provision CI database seed role
         working-directory: web
@@ -229,6 +240,9 @@ jobs:
             --file web/Dockerfile \
             --tag "${WEB_IMAGE}:${WEB_IMAGE_TAG}" \
             web
+
+      - name: Check web container job runner runtime
+        run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/cli.js --check-runtime
 
       - name: Smoke web container
         shell: bash

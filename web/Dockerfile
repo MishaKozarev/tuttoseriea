@@ -41,6 +41,7 @@ RUN mkdir .next && chown node:node .next
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/dist/job-runner ./job-runner
 COPY --from=builder --chown=node:node /app/drizzle ./drizzle
 COPY --from=builder --chown=node:node /app/scripts/migrate-db.mjs ./scripts/migrate-db.mjs
 COPY --from=builder --chown=node:node /app/scripts/provision-db-role.mjs ./scripts/provision-db-role.mjs

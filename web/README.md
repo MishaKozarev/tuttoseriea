@@ -69,6 +69,11 @@ Set:
   default);
 - `DATABASE_IDENTITY_SCHEMA` to the Identity domain schema name (`identity` by
   default);
+- `DATABASE_JOBS_SCHEMA` to the shared job coordination schema name (`jobs` by
+  default);
+- `JOB_RUNNER_LEASE_SECONDS`, `JOB_RUNNER_MAX_ATTEMPTS`,
+  `JOB_RUNNER_RETRY_DELAY_SECONDS` and `JOB_RUNNER_RETRY_DELAY_CAP_SECONDS` for
+  the shared job runner defaults;
 - `AUTH_SECRET` to a safe LOCAL-only Auth.js secret.
 - `AUTH_URL` to the LOCAL web origin (`http://localhost:3000` by default);
 - `AUTH_TRUST_HOST` to `true` for proxy/deployment environments that require
@@ -104,6 +109,12 @@ Stage 3.4 adds the initial Identity domain schema in `identity`: `accounts`,
 links one-to-one to `auth.users`; future domain references use
 `identity.accounts.id`.
 
+Stage 4.1A adds the shared PostgreSQL job coordination schema in `jobs`:
+`executions`. It stores canonical job type/idempotency scope, lifecycle state,
+claim ownership, fencing version, retry availability and safe diagnostic error
+fields. It is infrastructure foundation only; no Football provider job is
+registered yet.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 
@@ -116,11 +127,12 @@ Current database commands:
 
 ```bash
 pnpm db:generate
-pnpm db:generate:custom -- --name=<migration_name>
+pnpm db:generate:custom --name=<migration_name>
 pnpm db:migrate
 pnpm db:migrations:check
 pnpm db:provision-role
 pnpm db:check
+pnpm db:jobs:check
 pnpm db:auth:check
 pnpm db:identity:check
 pnpm db:provision-seed-role
@@ -132,6 +144,10 @@ pnpm db:seed
 Runtime role provisioning must run after migrations because it synchronizes exact
 table grants for infrastructure tables created by migrations. It does not use
 blanket DML grants or default privileges.
+
+For `jobs.executions`, the runtime role receives only `SELECT`, `INSERT` and
+`UPDATE`. It does not receive `DELETE`, schema `CREATE`, sequence privileges or
+default privileges.
 
 The production image contains the migration runner and Drizzle migration
 artifacts, but the normal Next.js container process does not run migrations on
@@ -256,6 +272,9 @@ pnpm run test
 pnpm run test:contracts
 pnpm run test:unit
 pnpm run test:smoke
+pnpm run jobs:build
+pnpm run jobs:run -- --check-runtime
+pnpm run db:jobs:check
 ```
 
 `test:contracts` preserves the existing server-side configuration, API error,
@@ -286,6 +305,10 @@ Database integration tests must use real PostgreSQL + pgvector. SQLite is not a
 substitute for PostgreSQL or Drizzle behavior. The existing CI database checks
 reuse the PostgreSQL service in the Web job and must not be replaced by a second
 parallel DB-test mechanism.
+
+`db:jobs:check` uses an injectable test registry against real PostgreSQL to
+verify shared job create/claim/finalize, retry scheduling, duplicate active
+no-op behavior, stale recovery and heartbeat/fencing loss.
 
 ## Server Logging
 
@@ -328,6 +351,7 @@ From repository root:
 
 ```bash
 docker build -f web/Dockerfile -t tuttoseriea-web:local web
+docker run --rm --entrypoint node tuttoseriea-web:local /app/job-runner/cli.js --check-runtime
 docker run --rm -p 3000:3000 tuttoseriea-web:local
 ```
 
@@ -347,6 +371,8 @@ pnpm run test
 pnpm run test:contracts
 pnpm run test:unit
 pnpm run test:smoke
+pnpm run jobs:build
+pnpm run jobs:run -- --check-runtime
 pnpm lint
 pnpm build
 pnpm db:migrate
@@ -354,6 +380,7 @@ pnpm db:migrate
 pnpm db:migrations:check
 pnpm db:provision-role
 pnpm db:check
+pnpm db:jobs:check
 pnpm db:auth:check
 pnpm db:identity:check
 pnpm db:provision-seed-role
@@ -379,7 +406,8 @@ This app was bootstrapped with:
 - pnpm;
 - Drizzle ORM foundation;
 - Auth.js database-session foundation;
-- server-only FastAPI communication foundation.
+- server-only FastAPI communication foundation;
+- shared PostgreSQL job runner foundation.
 
 The public UI foundation uses root-level App Router files, shared layout
 components under `components/layout`, and the shadcn/ui baseline under
