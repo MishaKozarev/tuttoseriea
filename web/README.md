@@ -88,9 +88,12 @@ not be supplied to the long-running web runtime.
 does not use the web runtime role or the privileged migration/admin role.
 `AI_SERVICE_URL` and `AI_SERVICE_INTERNAL_API_KEY` are server-side values and
 must not use a `NEXT_PUBLIC_` prefix.
-`AUTH_SECRET`, `AUTH_URL` and `AUTH_TRUST_HOST` are read by Auth.js. The current
-application code does not add separate runtime validation for `AUTH_URL` or
-`AUTH_TRUST_HOST`.
+`AUTH_SECRET`, `AUTH_URL` and `AUTH_TRUST_HOST` are read by Auth.js. `AUTH_URL`
+is also the Web public-origin convention for site-level SEO metadata, canonical
+URLs, robots and sitemap output. LOCAL and CI may fall back to
+`http://localhost:3000`; STAGING and PRODUCTION must provide a valid public
+HTTP/HTTPS origin and must not silently fall back to localhost. The current
+application code does not add separate runtime validation for `AUTH_TRUST_HOST`.
 
 Drizzle schema definitions start in `src/db/schema.ts`. Stage 2.3 adds migration
 tooling and the first technical migration for `CREATE EXTENSION IF NOT EXISTS
@@ -265,7 +268,8 @@ only where DOM rendering is needed. React component tests use React Testing
 Library and should assert observable behavior, not implementation details.
 
 The current Playwright smoke command starts the local Web app, verifies `/`,
-checks that the public shell renders and verifies `GET /api/health`.
+checks that the public shell renders, verifies `GET /api/health`, and verifies
+the site-level SEO foundation at `/robots.txt` and `/sitemap.xml`.
 Before running it locally for the first time, install the Chromium browser used
 by the smoke test:
 
@@ -391,6 +395,13 @@ The public container convention is layered:
 Horizontal shell padding is `1rem` on mobile, `1.5rem` on tablet-sized screens
 and `2rem` on desktop-sized screens. Future product stages can choose the
 appropriate layer per view without changing the baseline shell.
+
+The Stage 3 site-level SEO foundation uses Next.js Metadata API, `robots.ts` and
+`sitemap.ts`. Root layout metadata defines only site-wide defaults such as
+`metadataBase`, title template and Russian description. The current public home
+route owns canonical `/`. Admin/private surfaces under `/admin` are explicitly
+`noindex`/`nofollow`, and the sitemap currently contains only the existing
+preferred public URL `/`.
 
 No product features, business seed data, real auth provider, registration flow,
 AI business workflows or service-specific domain logic are part of this

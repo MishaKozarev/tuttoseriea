@@ -233,7 +233,7 @@ jobs:
       - name: Smoke web container
         shell: bash
         run: |
-          container_id="$(docker run --rm -d -p 3000:3000 "${WEB_IMAGE}:${WEB_IMAGE_TAG}")"
+          container_id="$(docker run --rm -d -p 3000:3000 -e AUTH_URL=http://127.0.0.1:3000 "${WEB_IMAGE}:${WEB_IMAGE_TAG}")"
 
           cleanup() {
             docker stop "$container_id" >/dev/null 2>&1 || true

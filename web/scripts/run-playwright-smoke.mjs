@@ -7,6 +7,7 @@ const appDirectory = resolve(scriptDirectory, "..");
 const hostname = process.env.WEB_SMOKE_HOSTNAME ?? "127.0.0.1";
 const port = process.env.WEB_SMOKE_PORT ?? "3100";
 const baseUrl = `http://${hostname}:${port}`;
+const siteOrigin = new URL(process.env.AUTH_URL ?? "http://localhost:3000").origin;
 const nextBin = resolve(appDirectory, "node_modules", "next", "dist", "bin", "next");
 const playwrightBin = resolve(
   appDirectory,
@@ -157,6 +158,7 @@ export function runPlaywright({ webProcess } = {}) {
       env: {
         ...process.env,
         WEB_SMOKE_BASE_URL: baseUrl,
+        WEB_SMOKE_SITE_ORIGIN: siteOrigin,
       },
     });
 
@@ -203,6 +205,10 @@ export async function runSmoke() {
       port,
     ],
     {
+      env: {
+        ...process.env,
+        AUTH_URL: siteOrigin,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
