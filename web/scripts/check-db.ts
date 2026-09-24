@@ -238,6 +238,48 @@ async function assertIdentityReadOnlyAccess(db: ReturnType<typeof getDb>): Promi
   }
 }
 
+async function assertNoUnexpectedJobsTablePrivileges(
+  db: ReturnType<typeof getDb>,
+): Promise<void> {
+  const tablePrivileges = firstRow(
+    (
+      await db.execute(
+        sql<CountRow>`
+          select count(*)::int as "count"
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'jobs'
+            and c.relkind in ('r', 'p', 'v', 'm', 'f')
+            and c.relname <> 'executions'
+            and (
+              has_table_privilege(current_user, c.oid, 'SELECT')
+              or has_table_privilege(current_user, c.oid, 'INSERT')
+              or has_table_privilege(current_user, c.oid, 'UPDATE')
+              or has_table_privilege(current_user, c.oid, 'DELETE')
+            )
+        `,
+      )
+    ).rows,
+    "jobs unmanaged table privilege check",
+  );
+
+  if (tablePrivileges.count !== 0) {
+    throw new Error("DATABASE_URL role has privileges on unmanaged tables in jobs schema");
+  }
+}
+
+async function assertJobsExecutionAccess(db: ReturnType<typeof getDb>): Promise<void> {
+  await assertSchemaAccess(db, "jobs");
+  await assertNoSequencePrivileges(db, "jobs");
+  await assertNoDefaultPrivileges(db, "jobs");
+  await assertExactTablePrivileges(db, "jobs", "executions", [
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+  ]);
+  await assertNoUnexpectedJobsTablePrivileges(db);
+}
+
 async function assertRuntimeDdlDenied(db: ReturnType<typeof getDb>): Promise<void> {
   const probeTable = "__tuttoseriea_runtime_ddl_probe";
   let probeCreated = false;
@@ -359,6 +401,7 @@ async function main(): Promise<void> {
   await assertNoSequencePrivileges(db, "public");
   await assertNoDefaultPrivileges(db, "public");
   await assertIdentityReadOnlyAccess(db);
+  await assertJobsExecutionAccess(db);
 
   await assertRuntimeDdlDenied(db);
 
@@ -376,6 +419,7 @@ async function main(): Promise<void> {
   console.log("runtime_role_default_privileges=false");
   console.log("runtime_role_ddl_denied=true");
   console.log("identity_role_table_grants=select_only");
+  console.log("jobs_role_table_grants=select_insert_update");
 }
 
 main()

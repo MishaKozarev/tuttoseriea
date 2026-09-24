@@ -49,6 +49,12 @@ const identityTablePrivileges = [
     privileges: ["SELECT"],
   },
 ];
+const jobsTablePrivileges = [
+  {
+    tableName: "executions",
+    privileges: ["SELECT", "INSERT", "UPDATE"],
+  },
+];
 
 async function loadLocalEnvFiles() {
   try {
@@ -339,6 +345,31 @@ async function verifyNoUnexpectedIdentityTablePrivileges(client, appRole, schema
   }
 }
 
+async function verifyNoUnexpectedJobsTablePrivileges(client, appRole, schema) {
+  const managedTables = jobsTablePrivileges.map((entry) => entry.tableName);
+  const result = await client.query(
+    `
+      select count(*)::int as privilege_count
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = $1
+        and c.relkind in ('r', 'p', 'v', 'm', 'f')
+        and not (c.relname = any($3::text[]))
+        and (
+          has_table_privilege($2, c.oid, 'SELECT')
+          or has_table_privilege($2, c.oid, 'INSERT')
+          or has_table_privilege($2, c.oid, 'UPDATE')
+          or has_table_privilege($2, c.oid, 'DELETE')
+        )
+    `,
+    [schema, appRole, managedTables],
+  );
+
+  if (result.rows[0]?.privilege_count !== 0) {
+    throw new Error(`Application database role has privileges on unmanaged tables in ${schema}`);
+  }
+}
+
 async function revokeDefaultPrivileges(client, migrationRole, schema, appRole) {
   await client.query(
     `alter default privileges for role ${quoteIdentifier(migrationRole)} in schema ${quoteIdentifier(schema)} revoke all privileges on tables from ${quoteIdentifier(appRole)}`,
@@ -447,6 +478,44 @@ async function syncIdentitySchemaPrivileges(client, migrationRole, appRole, sche
   await verifyNoUnexpectedIdentityTablePrivileges(client, appRole, schema);
 }
 
+async function syncJobsSchemaPrivileges(client, migrationRole, appRole, schema) {
+  await assertSchemaExists(client, schema);
+
+  for (const { tableName } of jobsTablePrivileges) {
+    await assertTableExists(client, schema, tableName);
+  }
+
+  await client.query(
+    `revoke create on schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`,
+  );
+  await client.query(
+    `revoke all privileges on all tables in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`,
+  );
+  await client.query(
+    `revoke all privileges on all sequences in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`,
+  );
+  await revokeDefaultPrivileges(client, migrationRole, schema, appRole);
+  await client.query(
+    `grant usage on schema ${quoteIdentifier(schema)} to ${quoteIdentifier(appRole)}`,
+  );
+
+  for (const { tableName, privileges } of jobsTablePrivileges) {
+    await client.query(
+      `grant ${privileges.join(", ")} on table ${qualifiedName(schema, tableName)} to ${quoteIdentifier(appRole)}`,
+    );
+  }
+
+  await verifySchemaAccess(client, appRole, schema);
+  await verifyNoSequencePrivileges(client, appRole, schema);
+  await verifyNoDefaultPrivileges(client, appRole, schema);
+
+  for (const { tableName, privileges } of jobsTablePrivileges) {
+    await verifyExactTablePrivileges(client, appRole, schema, tableName, privileges);
+  }
+
+  await verifyNoUnexpectedJobsTablePrivileges(client, appRole, schema);
+}
+
 async function main() {
   await loadLocalEnvFiles();
 
@@ -456,10 +525,12 @@ async function main() {
   const appSchemas = parseSchemaList(process.env.DATABASE_APP_SCHEMAS ?? "public");
   const authSchemaName = process.env.DATABASE_AUTH_SCHEMA ?? "auth";
   const identitySchemaName = process.env.DATABASE_IDENTITY_SCHEMA ?? "identity";
+  const jobsSchemaName = process.env.DATABASE_JOBS_SCHEMA ?? "jobs";
 
   assertIdentifier(appRole, "DATABASE_APP_ROLE");
   assertIdentifier(authSchemaName, "DATABASE_AUTH_SCHEMA");
   assertIdentifier(identitySchemaName, "DATABASE_IDENTITY_SCHEMA");
+  assertIdentifier(jobsSchemaName, "DATABASE_JOBS_SCHEMA");
 
   for (const schema of appSchemas) {
     assertIdentifier(schema, "DATABASE_APP_SCHEMAS entry");
@@ -474,6 +545,12 @@ async function main() {
   if (appSchemas.includes(identitySchemaName)) {
     throw new Error(
       "DATABASE_APP_SCHEMAS must not include DATABASE_IDENTITY_SCHEMA; Identity grants are synchronized explicitly",
+    );
+  }
+
+  if (appSchemas.includes(jobsSchemaName)) {
+    throw new Error(
+      "DATABASE_APP_SCHEMAS must not include DATABASE_JOBS_SCHEMA; Jobs grants are synchronized explicitly",
     );
   }
 
@@ -539,6 +616,7 @@ async function main() {
 
     await syncAuthSchemaPrivileges(client, migrationRole, appRole, authSchemaName);
     await syncIdentitySchemaPrivileges(client, migrationRole, appRole, identitySchemaName);
+    await syncJobsSchemaPrivileges(client, migrationRole, appRole, jobsSchemaName);
     await verifyRoleAttributes(client, appRole);
 
     await client.query("commit");
@@ -551,8 +629,10 @@ async function main() {
     console.log(`schemas=${appSchemas.join(",")}`);
     console.log(`auth_schema=${authSchemaName}`);
     console.log(`identity_schema=${identitySchemaName}`);
+    console.log(`jobs_schema=${jobsSchemaName}`);
     console.log("auth_table_grants=exact");
     console.log("identity_table_grants=select_only");
+    console.log("jobs_table_grants=select_insert_update");
     console.log("application_role_superuser=false");
     console.log("application_role_create_schema=false");
     console.log("application_role_default_privileges=false");
