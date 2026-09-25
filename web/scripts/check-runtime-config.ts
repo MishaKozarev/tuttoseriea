@@ -8,6 +8,11 @@ import {
   getDatabaseUrl,
   getWebRuntimeConfig,
 } from "../src/config/runtime";
+import {
+  API_FOOTBALL_ENV,
+  getApiFootballConfig,
+  getApiFootballRealProviderConfig,
+} from "../src/football/api-football";
 
 const appDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(appDirectory, "..");
@@ -81,6 +86,44 @@ assert(
   "getAiServiceRuntimeConfig mismatch",
 );
 
+const providerKey = "runtime-config-check-provider-key";
+const providerConfig = getApiFootballConfig({
+  API_FOOTBALL_KEY: providerKey,
+});
+
+assert(
+  providerConfig.baseUrl.toString() === "https://v3.football.api-sports.io/",
+  "API_FOOTBALL_BASE_URL default was not applied",
+);
+assert(
+  providerConfig.timeoutMs === 10_000,
+  "API_FOOTBALL_TIMEOUT_MS default was not applied",
+);
+assert(
+  providerConfig.realProviderEnabled === false,
+  "API_FOOTBALL_KEY presence must not enable real provider calls",
+);
+assert(providerConfig.hasApiKey === true, "API_FOOTBALL_KEY presence was not detected");
+assert(!("apiKey" in providerConfig), "safe provider config must not expose API key");
+
+assertThrows(
+  "real API-Football mode without opt-in",
+  () => getApiFootballRealProviderConfig({ API_FOOTBALL_KEY: providerKey }),
+  /API_FOOTBALL_ENABLE_REAL=true is required/,
+);
+assertThrows(
+  "real API-Football mode without key",
+  () => getApiFootballRealProviderConfig({ API_FOOTBALL_ENABLE_REAL: "true" }),
+  /API_FOOTBALL_KEY is required/,
+);
+assert(
+  getApiFootballRealProviderConfig({
+    API_FOOTBALL_ENABLE_REAL: "true",
+    API_FOOTBALL_KEY: providerKey,
+  }).apiKey === providerKey,
+  "explicit real API-Football provider config did not read the key",
+);
+
 assertThrows(
   "missing DATABASE_URL",
   () => getWebRuntimeConfig({ ...validEnv, DATABASE_URL: "" }),
@@ -125,6 +168,14 @@ assert(
   aiServiceExample.includes(`${canonicalSecretName}=`),
   "ai-service/.env.example must use the canonical AI service secret name",
 );
+assert(
+  webExample.includes(`${API_FOOTBALL_ENV.enableReal}=false`),
+  "web/.env.example must document explicit API-Football real-provider opt-in",
+);
+assert(
+  webExample.includes(`${API_FOOTBALL_ENV.key}=`),
+  "web/.env.example must document the API-Football key name without a real secret",
+);
 
 for (const fullPath of [
   ...collectTextFiles(path.join(appDirectory, "app")),
@@ -135,6 +186,12 @@ for (const fullPath of [
   assert(
     !/NEXT_PUBLIC_[A-Z0-9_]*AI[A-Z0-9_]*/.test(text),
     `${path.relative(repoRoot, fullPath)} exposes AI configuration through NEXT_PUBLIC_*`,
+  );
+  assert(
+    !/NEXT_PUBLIC_[A-Z0-9_]*(FOOTBALL|APISPORTS|API_SPORTS|PROVIDER)[A-Z0-9_]*/.test(
+      text,
+    ),
+    `${path.relative(repoRoot, fullPath)} exposes provider configuration through NEXT_PUBLIC_*`,
   );
 }
 
