@@ -85,6 +85,14 @@ Set:
 - `AI_SERVICE_URL` to the LOCAL FastAPI service URL (`http://127.0.0.1:8000`
   by default);
 - `AI_SERVICE_INTERNAL_API_KEY` to the shared LOCAL-only service-to-service key.
+- `API_FOOTBALL_ENABLE_REAL=false` by default so real API-Football calls require
+  explicit opt-in;
+- `API_FOOTBALL_BASE_URL` to the API-Football v3 base URL
+  (`https://v3.football.api-sports.io/` by default);
+- `API_FOOTBALL_TIMEOUT_MS` to the API-Football request timeout in
+  milliseconds (`10000` by default);
+- `API_FOOTBALL_KEY` only for explicitly approved real-provider verification or
+  operations.
 
 `DATABASE_URL` is a server-side value and must not use a `NEXT_PUBLIC_` prefix.
 `MIGRATION_DATABASE_URL` is used only by migration/provisioning tooling and must
@@ -93,6 +101,8 @@ not be supplied to the long-running web runtime.
 does not use the web runtime role or the privileged migration/admin role.
 `AI_SERVICE_URL` and `AI_SERVICE_INTERNAL_API_KEY` are server-side values and
 must not use a `NEXT_PUBLIC_` prefix.
+`API_FOOTBALL_KEY` is a server-side secret and must not use a `NEXT_PUBLIC_`
+prefix. Its presence alone does not enable real provider calls.
 `AUTH_SECRET`, `AUTH_URL` and `AUTH_TRUST_HOST` are read by Auth.js. `AUTH_URL`
 is also the Web public-origin convention for site-level SEO metadata, canonical
 URLs, robots and sitemap output. LOCAL and CI may fall back to
@@ -114,6 +124,12 @@ Stage 4.1A adds the shared PostgreSQL job coordination schema in `jobs`:
 claim ownership, fencing version, retry availability and safe diagnostic error
 fields. It is infrastructure foundation only; no Football provider job is
 registered yet.
+
+Stage 4.1B adds the API-Football provider integration foundation. It provides
+server-side provider configuration, explicit real-provider opt-in, bounded
+HTTP retry/timeout behavior, provider envelope/error normalization and fixture
+status normalization. It does not add Football persistence, sync jobs,
+scheduler behavior, admin UI or bulk import.
 
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
@@ -300,6 +316,8 @@ pnpm run test:smoke
 Automated tests must not require production secrets or real paid/limited
 providers. Use deterministic fixtures, mocks or fakes for unit tests when
 persistence semantics are not under test.
+API-Football tests use injected fake provider responses and must not consume
+real provider quota.
 
 Database integration tests must use real PostgreSQL + pgvector. SQLite is not a
 substitute for PostgreSQL or Drizzle behavior. The existing CI database checks
