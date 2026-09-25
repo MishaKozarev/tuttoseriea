@@ -71,6 +71,8 @@ Set:
   default);
 - `DATABASE_JOBS_SCHEMA` to the shared job coordination schema name (`jobs` by
   default);
+- `DATABASE_FOOTBALL_SCHEMA` to the Football domain schema name (`football` by
+  default);
 - `JOB_RUNNER_LEASE_SECONDS`, `JOB_RUNNER_MAX_ATTEMPTS`,
   `JOB_RUNNER_RETRY_DELAY_SECONDS` and `JOB_RUNNER_RETRY_DELAY_CAP_SECONDS` for
   the shared job runner defaults;
@@ -131,6 +133,18 @@ HTTP retry/timeout behavior, provider envelope/error normalization and fixture
 status normalization. It does not add Football persistence, sync jobs,
 scheduler behavior, admin UI or bulk import.
 
+Stage 4.2 adds the initial Football domain persistence in schema `football`:
+`competitions`, `seasons`, `clubs` and `season_clubs`. The first registered
+production job type is `football.sync-serie-a-foundation`, scoped only to
+API-Football Serie A league `135` and season `2026`. The job accepts no runtime
+arguments and uses the canonical idempotency key
+`api-football:league:135:season:2026:foundation`.
+
+The Stage 4.2 sync preserves application-owned values such as the Serie A slug
+and Russian display name, club `slug` and club `name_ru`. Provider-owned fields
+are updated on repeated sync. Missing provider rows are not deleted in this
+stage.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 
@@ -149,6 +163,7 @@ pnpm db:migrations:check
 pnpm db:provision-role
 pnpm db:check
 pnpm db:jobs:check
+pnpm db:football:check
 pnpm db:auth:check
 pnpm db:identity:check
 pnpm db:provision-seed-role
@@ -164,6 +179,10 @@ blanket DML grants or default privileges.
 For `jobs.executions`, the runtime role receives only `SELECT`, `INSERT` and
 `UPDATE`. It does not receive `DELETE`, schema `CREATE`, sequence privileges or
 default privileges.
+
+For the managed Football tables, the runtime role receives only `SELECT`,
+`INSERT` and `UPDATE`. It does not receive `DELETE`, schema `CREATE`, sequence
+privileges or default privileges.
 
 The production image contains the migration runner and Drizzle migration
 artifacts, but the normal Next.js container process does not run migrations on
@@ -291,6 +310,7 @@ pnpm run test:smoke
 pnpm run jobs:build
 pnpm run jobs:run -- --check-runtime
 pnpm run db:jobs:check
+pnpm run db:football:check
 ```
 
 `test:contracts` preserves the existing server-side configuration, API error,
@@ -327,6 +347,45 @@ parallel DB-test mechanism.
 `db:jobs:check` uses an injectable test registry against real PostgreSQL to
 verify shared job create/claim/finalize, retry scheduling, duplicate active
 no-op behavior, stale recovery and heartbeat/fencing loss.
+
+`db:football:check` uses fake API-Football responses against real PostgreSQL to
+verify the initial Football sync, repeated sync idempotency, application-owned
+field protection, provider-owned field updates, public listing query behavior,
+runtime grants and the shared job runner path. It does not call the real
+provider.
+
+## Operational Jobs
+
+Repository-side restricted job workflows are available for manually approved
+STAGING and PRODUCTION operations:
+
+```text
+.github/workflows/run-job-staging.yml
+.github/workflows/run-job-production.yml
+scripts/run-job-staging.sh
+scripts/run-job-production.sh
+scripts/vds/tuttoseriea-run-job-staging
+scripts/vds/tuttoseriea-run-job-production
+```
+
+The only whitelisted Stage 4.2 job type is:
+
+```text
+football.sync-serie-a-foundation
+```
+
+The repository-side scripts call the VDS contract:
+
+```text
+run-job football.sync-serie-a-foundation
+```
+
+They do not accept arbitrary payloads, arguments, images, entrypoints,
+environment variables, shell commands, Docker commands or sudo. The server-side
+VDS forced-command/root-owned implementation is responsible for selecting the
+current deployed immutable Web image and controlled runner environment for the
+target environment. Real API-Football sync still requires separate explicit
+approval before invoking the job.
 
 ## Server Logging
 
@@ -399,6 +458,7 @@ pnpm db:migrations:check
 pnpm db:provision-role
 pnpm db:check
 pnpm db:jobs:check
+pnpm db:football:check
 pnpm db:auth:check
 pnpm db:identity:check
 pnpm db:provision-seed-role
@@ -445,9 +505,10 @@ appropriate layer per view without changing the baseline shell.
 The Stage 3 site-level SEO foundation uses Next.js Metadata API, `robots.ts` and
 `sitemap.ts`. Root layout metadata defines only site-wide defaults such as
 `metadataBase`, title template and Russian description. The current public home
-route owns canonical `/`. Admin/private surfaces under `/admin` are explicitly
-`noindex`/`nofollow`, and the sitemap currently contains only the existing
-preferred public URL `/`.
+route owns canonical `/`, and the current Clubs listing route owns canonical
+`/clubs`. Admin/private surfaces under `/admin` are explicitly
+`noindex`/`nofollow`, and the sitemap currently contains only existing preferred
+public URLs: `/` and `/clubs`.
 
 No product features, business seed data, real auth provider, registration flow,
 AI business workflows or service-specific domain logic are part of this

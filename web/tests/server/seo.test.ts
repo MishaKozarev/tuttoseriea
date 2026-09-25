@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import { metadata as adminMetadata } from "@/app/admin/layout";
+import { metadata as clubsPageMetadata } from "@/app/(public)/clubs/page";
 import { metadata as homePageMetadata } from "@/app/(public)/page";
 import {
   SITE_DESCRIPTION,
@@ -76,6 +79,12 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("sets the clubs listing canonical at the page level", () => {
+    expect(clubsPageMetadata.alternates).toEqual({
+      canonical: "/clubs",
+    });
+  });
+
   it("marks the admin subtree as noindex and nofollow", () => {
     expect(adminMetadata.robots).toEqual({
       index: false,
@@ -109,7 +118,10 @@ describe("site SEO configuration", () => {
       NODE_ENV: "production",
     });
 
-    expect(sitemap).toEqual([{ url: "https://tuttoseriea.com/" }]);
+    expect(sitemap).toEqual([
+      { url: "https://tuttoseriea.com/" },
+      { url: "https://tuttoseriea.com/clubs" },
+    ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",
     );

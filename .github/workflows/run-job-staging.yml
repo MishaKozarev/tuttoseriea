@@ -1,0 +1,43 @@
+name: Run Job Staging
+
+run-name: Run STAGING job ${{ inputs.job_type }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_type:
+        description: Approved job type
+        required: true
+        type: choice
+        options:
+          - football.sync-serie-a-foundation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-run-job
+  cancel-in-progress: false
+
+jobs:
+  run-job-staging:
+    name: Run Staging Job
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.tuttoseriea.com/
+    env:
+      RUN_JOB_TYPE: ${{ inputs.job_type }}
+      STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+      STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+      STAGING_SSH_PORT: "56777"
+      STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+      STAGING_SSH_USER: deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run staging job
+        shell: bash
+        run: bash scripts/run-job-staging.sh
