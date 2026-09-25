@@ -11,8 +11,25 @@ boundary.
 Installed paths:
 
 ```text
+/usr/local/sbin/tuttoseriea-read-current-staging
 /usr/local/sbin/tuttoseriea-run-job-staging
 /usr/local/sbin/tuttoseriea-run-job-production
+```
+
+STAGING deployment state is owned by the existing deployment infrastructure.
+Operational consumers must not guess or derive deployment-state filesystem
+paths. STAGING run-job obtains the current release tuple only through:
+
+```text
+/usr/local/sbin/tuttoseriea-read-current-staging
+```
+
+That reader accepts no arguments, reads the authoritative STAGING state file at
+`/srv/tuttoseriea/staging/state/current-release`, validates the exact canonical
+three-field tuple format, and prints only:
+
+```text
+<GIT_SHA> <WEB_IMAGE_DIGEST> <AI_SERVICE_IMAGE_DIGEST>
 ```
 
 The forced SSH commands expose only:

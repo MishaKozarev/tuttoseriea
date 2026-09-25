@@ -23,6 +23,23 @@ require_file() {
   fi
 }
 
+read_current_release() {
+  if [[ "$#" -ne 1 ]]; then
+    error "Usage: read_current_release <environment>"
+  fi
+
+  local environment="$1"
+
+  case "$environment" in
+    staging)
+      /usr/local/sbin/tuttoseriea-read-current-staging
+      ;;
+    *)
+      error "No current-release reader configured for environment: ${environment}"
+      ;;
+  esac
+}
+
 validate_job_type() {
   case "$1" in
     football.sync-serie-a-foundation)
@@ -49,17 +66,15 @@ run_tuttoseriea_job() {
 
   local base_dir="/srv/tuttoseriea/${environment}"
   local config_dir="${base_dir}/config"
-  local release_file="${base_dir}/current-release"
   local runtime_env="${config_dir}/runtime.env"
   local runner_env="${config_dir}/job-runner.env"
   local web_image="ghcr.io/mishakozarev/tuttoseriea/web"
 
-  require_file "$release_file" "current release record"
   require_file "$runtime_env" "web runtime env file"
   require_file "$runner_env" "job runner env file"
 
   local release_record
-  release_record="$(<"$release_file")"
+  release_record="$(read_current_release "$environment")"
 
   if [[ "$release_record" == *$'\n'* ]]; then
     error "current-release must contain a single release tuple"

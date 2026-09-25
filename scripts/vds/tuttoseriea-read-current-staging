@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+error() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "$#" -ne 0 ]]; then
+  error "Usage: tuttoseriea-read-current-staging accepts no arguments"
+fi
+
+release_file="/srv/tuttoseriea/staging/state/current-release"
+
+if [[ ! -f "$release_file" ]]; then
+  error "Missing STAGING current release record"
+fi
+
+release_record="$(<"$release_file")"
+
+if [[ "$release_record" == *$'\n'* ]]; then
+  error "STAGING current release record must contain a single release tuple"
+fi
+
+git_sha=""
+web_digest=""
+ai_service_digest=""
+extra=""
+
+read -r git_sha web_digest ai_service_digest extra <<< "$release_record"
+
+if [[ -z "${git_sha:-}" || -z "${web_digest:-}" || -z "${ai_service_digest:-}" || -n "${extra:-}" ]]; then
+  error "STAGING current release record must contain exactly: <GIT_SHA> <WEB_IMAGE_DIGEST> <AI_SERVICE_IMAGE_DIGEST>"
+fi
+
+if [[ ! "$git_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  error "STAGING current release record has invalid Git SHA"
+fi
+
+if [[ ! "$web_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  error "STAGING current release record has invalid Web image digest"
+fi
+
+if [[ ! "$ai_service_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  error "STAGING current release record has invalid AI service image digest"
+fi
+
+printf '%s %s %s\n' "$git_sha" "$web_digest" "$ai_service_digest"

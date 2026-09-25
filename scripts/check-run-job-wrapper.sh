@@ -44,9 +44,11 @@ grep -q 'football.sync-serie-a-foundation' "${SCRIPT_DIR}/../.github/workflows/r
   error "Production run-job workflow does not whitelist the Football sync job"
 
 vds_common="${SCRIPT_DIR}/vds/tuttoseriea-run-job-common.sh"
+vds_reader="${SCRIPT_DIR}/vds/tuttoseriea-read-current-staging"
 
 for required_fragment in \
-  "current-release" \
+  "read_current_release" \
+  "/usr/local/sbin/tuttoseriea-read-current-staging" \
   "validate_job_type" \
   "ghcr.io/mishakozarev/tuttoseriea/web" \
   "--pull never" \
@@ -58,9 +60,29 @@ for required_fragment in \
     error "VDS run-job common script is missing required fragment: ${required_fragment}"
 done
 
+if grep -q '\${base_dir}/current-release' "$vds_common" ||
+  grep -q '/srv/tuttoseriea/staging/current-release' "$vds_common"; then
+  error "VDS run-job common script must not guess deployment-state filesystem paths"
+fi
+
 if grep -Eq 'docker exec|eval|bash -c|sh -c' "$vds_common"; then
   error "VDS run-job script uses a forbidden execution primitive"
 fi
+
+bash -n "$vds_reader"
+
+if bash "$vds_reader" unexpected-argument >/dev/null 2>&1; then
+  error "STAGING current-release reader accepted an unexpected argument"
+fi
+
+for required_fragment in \
+  "/srv/tuttoseriea/staging/state/current-release" \
+  "^[0-9a-f]{40}$" \
+  "^sha256:[0-9a-f]{64}$" \
+  "accepts no arguments"; do
+  grep -Fq -- "$required_fragment" "$vds_reader" ||
+    error "STAGING current-release reader is missing required fragment: ${required_fragment}"
+done
 
 printf 'run_job_wrapper_check=passed\n'
 printf 'run_job_unknown_type_rejected=true\n'
@@ -68,3 +90,4 @@ printf 'run_job_unexpected_arguments_rejected=true\n'
 printf 'run_job_shell_metacharacters_rejected=true\n'
 printf 'run_job_repository_wrapper_no_docker_or_sudo=true\n'
 printf 'run_job_vds_exact_image_resolution=true\n'
+printf 'run_job_staging_reader_contract=true\n'
