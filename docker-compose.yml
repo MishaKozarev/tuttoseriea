@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: tuttoseriea_local
       POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Set LOCAL_POSTGRES_PASSWORD in root .env}
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:15432:5432"
     volumes:
       - tuttoseriea_local_postgres_data:/var/lib/postgresql
     networks:

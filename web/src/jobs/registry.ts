@@ -1,6 +1,9 @@
 import { JobUsageError, type JobDefinition, type JobRegistry } from "./types";
+import { syncSerieAFoundationJob } from "./football-sync";
 
-export const productionJobRegistry: JobRegistry = new Map<string, JobDefinition>();
+export const productionJobRegistry: JobRegistry = createJobRegistry([
+  syncSerieAFoundationJob,
+]);
 
 export function createJobRegistry(definitions: readonly JobDefinition[]): JobRegistry {
   const registry = new Map<string, JobDefinition>();

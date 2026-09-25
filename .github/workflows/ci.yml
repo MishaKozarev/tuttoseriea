@@ -69,6 +69,10 @@ jobs:
         working-directory: web
         run: pnpm run test
 
+      - name: Check restricted run-job wrapper
+        shell: bash
+        run: bash scripts/check-run-job-wrapper.sh
+
       - name: Install Playwright browser
         working-directory: web
         run: pnpm exec playwright install --with-deps chromium
@@ -172,6 +176,13 @@ jobs:
           DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:jobs:check
+
+      - name: Check CI Football foundation
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:football:check
 
       - name: Provision CI database seed role
         working-directory: web

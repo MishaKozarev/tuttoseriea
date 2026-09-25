@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [[ "$#" -ne 1 ]]; then
+  printf '%s\n' "Usage: tuttoseriea-run-job-production <job-type>" >&2
+  exit 64
+fi
+
+# shellcheck source=scripts/vds/tuttoseriea-run-job-common.sh
+source "/usr/local/sbin/tuttoseriea-run-job-common.sh"
+
+run_tuttoseriea_job "production" "tuttoseriea-production" "$1"

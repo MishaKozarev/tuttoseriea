@@ -89,6 +89,14 @@ export const homeMetadata: Metadata = {
   },
 };
 
+export const clubsMetadata: Metadata = {
+  title: "Клубы Серии А",
+  description: "Клубы Серии А сезона 2026/27 на tuttoseriea.com.",
+  alternates: {
+    canonical: "/clubs",
+  },
+};
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -115,6 +123,9 @@ export function buildSitemap(env: RuntimeEnv = process.env): MetadataRoute.Sitem
   return [
     {
       url: createSiteUrl("/", env),
+    },
+    {
+      url: createSiteUrl("/clubs", env),
     },
   ];
 }

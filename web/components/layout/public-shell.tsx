@@ -22,13 +22,19 @@ export function PublicShell({ children }: { children: ReactNode }) {
           </Link>
           <nav
             aria-label="Основная навигация"
-            className="hidden items-center sm:flex"
+            className="hidden items-center gap-5 sm:flex"
           >
             <Link
               href="/"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               Главная
+            </Link>
+            <Link
+              href="/clubs"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              Клубы
             </Link>
           </nav>
         </Container>

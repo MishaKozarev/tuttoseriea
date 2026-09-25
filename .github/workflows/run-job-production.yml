@@ -1,0 +1,43 @@
+name: Run Job Production
+
+run-name: Run PRODUCTION job ${{ inputs.job_type }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_type:
+        description: Approved job type
+        required: true
+        type: choice
+        options:
+          - football.sync-serie-a-foundation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-run-job
+  cancel-in-progress: false
+
+jobs:
+  run-job-production:
+    name: Run Production Job
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://tuttoseriea.com/
+    env:
+      RUN_JOB_TYPE: ${{ inputs.job_type }}
+      PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+      PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+      PRODUCTION_SSH_PORT: "56777"
+      PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+      PRODUCTION_SSH_USER: deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run production job
+        shell: bash
+        run: bash scripts/run-job-production.sh

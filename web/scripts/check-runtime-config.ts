@@ -63,7 +63,7 @@ function collectTextFiles(directory: string): string[] {
 }
 
 const validEnv = {
-  DATABASE_URL: "postgresql://user:password@127.0.0.1:55432/tuttoseriea_local",
+  DATABASE_URL: "postgresql://user:password@127.0.0.1:15432/tuttoseriea_local",
   AI_SERVICE_URL: "http://127.0.0.1:8000",
   AI_SERVICE_INTERNAL_API_KEY: "local-contract-test-key",
 };
