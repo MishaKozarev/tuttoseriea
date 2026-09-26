@@ -107,6 +107,9 @@ assert(
 
 const vdsCommon = readRepoFile("scripts/vds/tuttoseriea-run-job-common.sh");
 const vdsStagingReader = readRepoFile("scripts/vds/tuttoseriea-read-current-staging");
+const vdsStagingDispatcher = readRepoFile("scripts/vds/tuttoseriea-ssh-staging");
+const vdsStagingWrapper = readRepoFile("scripts/vds/tuttoseriea-run-job-staging");
+const vdsSudoers = readRepoFile("scripts/vds/tuttoseriea-deploy.sudoers");
 
 for (const requiredFragment of [
   "read_current_release",
@@ -133,6 +136,67 @@ assert(
 );
 
 assert(!/docker exec|eval|bash -c|sh -c/u.test(vdsCommon), "VDS run-job script uses a forbidden execution primitive");
+
+const stagingRunJobCommands = Array.from(
+  vdsStagingDispatcher.matchAll(/^\s+"(run-job [^"]+)"\)$/gmu),
+  (match) => match[1],
+);
+
+assert(
+  JSON.stringify(stagingRunJobCommands) ===
+    JSON.stringify([
+      `run-job ${foundationJobType}`,
+      `run-job ${matchesJobType}`,
+    ]),
+  "STAGING forced command must contain exactly the two approved run-job commands",
+);
+assert(
+  vdsStagingDispatcher.includes(
+    "^(deploy|verify)\\ ([0-9a-f]{40})\\ (sha256:[0-9a-f]{64})(\\ (sha256:[0-9a-f]{64}))?$",
+  ),
+  "STAGING forced command changed the approved deploy/verify parser",
+);
+assert(
+  !/eval|bash -c|sh -c|run-job-production/u.test(vdsStagingDispatcher),
+  "STAGING forced command contains a forbidden execution primitive",
+);
+
+assert(
+  vdsStagingWrapper.includes('if [[ "$#" -ne 1 ]]') &&
+    vdsStagingWrapper.includes(
+      'run_tuttoseriea_job "staging" "tuttoseriea-staging" "$1"',
+    ) &&
+    !vdsStagingWrapper.includes("football.sync-"),
+  "VDS STAGING run-job wrapper must remain a generic one-argument delegator",
+);
+
+const expectedSudoers = [
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-rollback-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-rollback-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$",
+  'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-read-previous-production ""',
+  `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${foundationJobType}`,
+  `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${matchesJobType}`,
+];
+const actualSudoers = vdsSudoers.trimEnd().split(/\r?\n/u);
+
+assert(
+  JSON.stringify(actualSudoers) === JSON.stringify(expectedSudoers),
+  "VDS sudoers template differs from the complete approved contract",
+);
+assert(
+  !vdsSudoers.includes("tuttoseriea-run-job-production") &&
+    !/tuttoseriea-run-job-staging .*[*?]/u.test(vdsSudoers) &&
+    !/\/usr\/bin\/docker|\/bin\/(?:ba)?sh/u.test(vdsSudoers),
+  "VDS sudoers template contains a wildcard or forbidden privilege",
+);
 
 for (const requiredFragment of [
   "Usage: tuttoseriea-read-current-staging accepts no arguments",
@@ -175,3 +239,6 @@ console.log("run_job_vds_exact_image_resolution=true");
 console.log("run_job_staging_reader_contract=true");
 console.log("run_job_staging_matches_whitelisted=true");
 console.log("run_job_production_matches_rejected=true");
+console.log("run_job_staging_forced_command_contract=true");
+console.log("run_job_staging_sudoers_contract=true");
+console.log("run_job_staging_wrapper_generic=true");
