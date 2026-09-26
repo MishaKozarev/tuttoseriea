@@ -1,0 +1,13 @@
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-verify-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-rollback-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-rollback-production ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-read-previous-production ""
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-foundation
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-matches

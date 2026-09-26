@@ -73,6 +73,10 @@ jobs:
         shell: bash
         run: bash scripts/check-run-job-wrapper.sh
 
+      - name: Check VDS sudoers template
+        shell: bash
+        run: /usr/sbin/visudo -cf scripts/vds/tuttoseriea-deploy.sudoers
+
       - name: Install Playwright browser
         working-directory: web
         run: pnpm exec playwright install --with-deps chromium

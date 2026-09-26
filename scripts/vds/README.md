@@ -1,20 +1,30 @@
-# VDS run-job contract templates
+# VDS operational contract templates
 
-These files document the root-owned VDS side of the restricted `run-job`
-contract introduced in Stage 4.2.
+This directory contains the reviewed repository sources for root-owned VDS
+operational contracts. Each live copy is provisioned manually from a trusted
+`main` commit; the normal application deployment does not install or update
+these files.
 
-They are not executed from the repository checkout. On the VDS, the installed
-files must be owned by `root`, writable only by `root`, and invoked only from the
-environment-specific forced SSH command through the existing restricted sudo
-boundary.
+The canonical STAGING boundary sources and destinations are:
 
-Installed paths:
+| Repository source | VDS destination | Owner/group | Mode |
+| --- | --- | --- | --- |
+| `scripts/vds/tuttoseriea-ssh-staging` | `/usr/local/sbin/tuttoseriea-ssh-staging` | `root:root` | `0755` |
+| `scripts/vds/tuttoseriea-deploy.sudoers` | `/etc/sudoers.d/tuttoseriea-deploy` | `root:root` | `0440` |
+| `scripts/vds/tuttoseriea-read-current-staging` | `/usr/local/sbin/tuttoseriea-read-current-staging` | `root:root` | `0755` |
+| `scripts/vds/tuttoseriea-run-job-common.sh` | `/usr/local/sbin/tuttoseriea-run-job-common.sh` | `root:root` | `0644` |
+| `scripts/vds/tuttoseriea-run-job-staging` | `/usr/local/sbin/tuttoseriea-run-job-staging` | `root:root` | `0755` |
+
+The run-job templates also include a Production delegator, but this change does
+not provision or alter Production:
 
 ```text
-/usr/local/sbin/tuttoseriea-read-current-staging
-/usr/local/sbin/tuttoseriea-run-job-staging
 /usr/local/sbin/tuttoseriea-run-job-production
 ```
+
+Live ad hoc edits are not the normal workflow. If emergency recovery requires a
+live change, the resulting contract must be reconciled back into these reviewed
+sources before later provisioning treats the repository as authoritative.
 
 STAGING deployment state is owned by the existing deployment infrastructure.
 Operational consumers must not guess or derive deployment-state filesystem
@@ -39,12 +49,8 @@ run-job football.sync-serie-a-foundation
 run-job football.sync-serie-a-matches
 ```
 
-PRODUCTION remains limited to
-`run-job football.sync-serie-a-foundation`; Stage 4.3 does not add Production
-provisioning or execution. The updated STAGING common wrapper must be installed
-manually through the approved root-owned provisioning process after its source
-has reached trusted `main`. Normal application deployment does not install or
-update files under `/usr/local/sbin`.
+PRODUCTION remains limited to `run-job football.sync-serie-a-foundation`;
+Stage 4.3 does not add Production provisioning, sudo allowance, or execution.
 
 The deploy user must not receive Docker group membership, direct Docker socket
 access, arbitrary sudo, a free shell, arbitrary image selection, arbitrary
