@@ -11,6 +11,7 @@ on:
         type: choice
         options:
           - football.sync-serie-a-foundation
+          - football.sync-serie-a-matches
 
 permissions:
   contents: read

@@ -20,7 +20,7 @@ require_env STAGING_SSH_HOST
 require_env STAGING_SSH_KNOWN_HOSTS
 require_env STAGING_SSH_PRIVATE_KEY
 
-require_run_job_type "$RUN_JOB_TYPE"
+require_run_job_type_for_environment staging "$RUN_JOB_TYPE"
 
 STAGING_SSH_PORT="${STAGING_SSH_PORT:-56777}"
 STAGING_SSH_USER="${STAGING_SSH_USER:-deploy}"

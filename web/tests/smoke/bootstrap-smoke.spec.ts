@@ -37,8 +37,19 @@ test("web public shell smoke", async ({ page, request }) => {
 
   expect(sitemapResponse.ok()).toBe(true);
   expect(sitemap).toContain(`<loc>${siteOrigin}/</loc>`);
+  expect(sitemap).toContain(`<loc>${siteOrigin}/clubs</loc>`);
+  expect(sitemap).toContain(`<loc>${siteOrigin}/calendar</loc>`);
   expect(sitemap).not.toContain("/admin");
   expect(sitemap).not.toContain("/api/");
   expect(sitemap).not.toContain("/news");
   expect(sitemap).not.toContain("/articles");
+
+  await page.goto("/calendar");
+
+  await expect(page.getByRole("heading", { name: "Календарь Серии А" })).toBeVisible();
+  await expect(page.getByText(/Календарь появится после синхронизации матчей/)).toBeVisible();
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    `${siteOrigin}/calendar`,
+  );
 });

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { metadata as adminMetadata } from "@/app/admin/layout";
+import { metadata as calendarPageMetadata } from "@/app/(public)/calendar/page";
 import { metadata as clubsPageMetadata } from "@/app/(public)/clubs/page";
 import { metadata as homePageMetadata } from "@/app/(public)/page";
 import {
@@ -85,6 +86,12 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("sets the calendar canonical at the page level", () => {
+    expect(calendarPageMetadata.alternates).toEqual({
+      canonical: "/calendar",
+    });
+  });
+
   it("marks the admin subtree as noindex and nofollow", () => {
     expect(adminMetadata.robots).toEqual({
       index: false,
@@ -121,6 +128,7 @@ describe("site SEO configuration", () => {
     expect(sitemap).toEqual([
       { url: "https://tuttoseriea.com/" },
       { url: "https://tuttoseriea.com/clubs" },
+      { url: "https://tuttoseriea.com/calendar" },
     ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",

@@ -32,11 +32,19 @@ three-field tuple format, and prints only:
 <GIT_SHA> <WEB_IMAGE_DIGEST> <AI_SERVICE_IMAGE_DIGEST>
 ```
 
-The forced SSH commands expose only:
+The STAGING forced SSH command exposes only these exact identifiers:
 
 ```text
 run-job football.sync-serie-a-foundation
+run-job football.sync-serie-a-matches
 ```
+
+PRODUCTION remains limited to
+`run-job football.sync-serie-a-foundation`; Stage 4.3 does not add Production
+provisioning or execution. The updated STAGING common wrapper must be installed
+manually through the approved root-owned provisioning process after its source
+has reached trusted `main`. Normal application deployment does not install or
+update files under `/usr/local/sbin`.
 
 The deploy user must not receive Docker group membership, direct Docker socket
 access, arbitrary sudo, a free shell, arbitrary image selection, arbitrary

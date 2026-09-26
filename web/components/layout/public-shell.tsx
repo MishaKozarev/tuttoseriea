@@ -36,6 +36,12 @@ export function PublicShell({ children }: { children: ReactNode }) {
             >
               Клубы
             </Link>
+            <Link
+              href="/calendar"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              Календарь
+            </Link>
           </nav>
         </Container>
       </header>
