@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const appDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(appDirectory, "..");
-const allowedJobType = "football.sync-serie-a-foundation";
+const foundationJobType = "football.sync-serie-a-foundation";
+const matchesJobType = "football.sync-serie-a-matches";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(path.join(repoRoot, relativePath), "utf8");
@@ -16,21 +17,42 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
-function validateRunJobType(value: string): boolean {
-  return value === allowedJobType;
+function validateRunJobType(environment: "staging" | "production", value: string): boolean {
+  if (value === foundationJobType) {
+    return true;
+  }
+
+  return environment === "staging" && value === matchesJobType;
 }
 
 for (const invalidType of [
   "",
-  `${allowedJobType} --season 2025`,
-  `${allowedJobType};uname`,
-  `${allowedJobType}\necho`,
+  `${foundationJobType} --season 2025`,
+  `${matchesJobType} --round 1`,
+  `${foundationJobType};uname`,
+  `${foundationJobType}\necho`,
   "football.sync-other",
 ]) {
-  assert(!validateRunJobType(invalidType), `Invalid run-job type accepted: ${invalidType}`);
+  assert(
+    !validateRunJobType("staging", invalidType) &&
+      !validateRunJobType("production", invalidType),
+    `Invalid run-job type accepted: ${invalidType}`,
+  );
 }
 
-assert(validateRunJobType(allowedJobType), "Allowed run-job type was rejected");
+assert(
+  validateRunJobType("staging", foundationJobType) &&
+    validateRunJobType("staging", matchesJobType),
+  "STAGING allowed run-job type was rejected",
+);
+assert(
+  validateRunJobType("production", foundationJobType),
+  "PRODUCTION foundation run-job type was rejected",
+);
+assert(
+  !validateRunJobType("production", matchesJobType),
+  "PRODUCTION unexpectedly accepted the STAGING-only matches job type",
+);
 
 for (const relativePath of [
   "scripts/lib-run-job.sh",
@@ -45,18 +67,43 @@ for (const relativePath of [
   );
 }
 
-for (const relativePath of [
-  ".github/workflows/run-job-staging.yml",
-  ".github/workflows/run-job-production.yml",
-]) {
-  const content = readRepoFile(relativePath);
+const runJobLibrary = readRepoFile("scripts/lib-run-job.sh");
+const stagingWrapper = readRepoFile("scripts/run-job-staging.sh");
+const productionWrapper = readRepoFile("scripts/run-job-production.sh");
 
-  assert(content.includes("type: choice"), `${relativePath} must use a choice input`);
-  assert(
-    content.includes(`- ${allowedJobType}`),
-    `${relativePath} must whitelist ${allowedJobType}`,
-  );
-}
+assert(
+  runJobLibrary.includes("RUN_JOB_STAGING_ALLOWED_TYPES") &&
+    runJobLibrary.includes(matchesJobType) &&
+    runJobLibrary.includes("RUN_JOB_PRODUCTION_ALLOWED_TYPES"),
+  "Repository run-job library is missing environment-specific allowlists",
+);
+assert(
+  stagingWrapper.includes('require_run_job_type_for_environment staging "$RUN_JOB_TYPE"'),
+  "STAGING wrapper does not enforce the STAGING allowlist",
+);
+assert(
+  productionWrapper.includes('require_run_job_type "$RUN_JOB_TYPE"'),
+  "PRODUCTION wrapper does not retain the foundation-only allowlist",
+);
+
+const stagingWorkflow = readRepoFile(".github/workflows/run-job-staging.yml");
+const productionWorkflow = readRepoFile(".github/workflows/run-job-production.yml");
+
+assert(stagingWorkflow.includes("type: choice"), "STAGING workflow must use a choice input");
+assert(
+  stagingWorkflow.includes(`- ${foundationJobType}`) &&
+    stagingWorkflow.includes(`- ${matchesJobType}`),
+  "STAGING workflow must whitelist both approved Football job types",
+);
+assert(
+  productionWorkflow.includes("type: choice") &&
+    productionWorkflow.includes(`- ${foundationJobType}`),
+  "PRODUCTION workflow must retain the foundation job choice",
+);
+assert(
+  !productionWorkflow.includes(matchesJobType),
+  "PRODUCTION workflow must not whitelist the STAGING-only matches job type",
+);
 
 const vdsCommon = readRepoFile("scripts/vds/tuttoseriea-run-job-common.sh");
 const vdsStagingReader = readRepoFile("scripts/vds/tuttoseriea-read-current-staging");
@@ -65,6 +112,7 @@ for (const requiredFragment of [
   "read_current_release",
   "/usr/local/sbin/tuttoseriea-read-current-staging",
   "validate_job_type",
+  matchesJobType,
   "ghcr.io/mishakozarev/tuttoseriea/web",
   "--pull never",
   "--env-file \"$runtime_env\"",
@@ -125,3 +173,5 @@ console.log("run_job_shell_metacharacters_rejected=true");
 console.log("run_job_repository_wrapper_no_docker_or_sudo=true");
 console.log("run_job_vds_exact_image_resolution=true");
 console.log("run_job_staging_reader_contract=true");
+console.log("run_job_staging_matches_whitelisted=true");
+console.log("run_job_production_matches_rejected=true");

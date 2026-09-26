@@ -41,9 +41,33 @@ read_current_release() {
 }
 
 validate_job_type() {
-  case "$1" in
-    football.sync-serie-a-foundation)
-      return 0
+  if [[ "$#" -ne 2 ]]; then
+    return 1
+  fi
+
+  local environment="$1"
+  local job_type="$2"
+
+  case "$environment" in
+    staging)
+      case "$job_type" in
+        football.sync-serie-a-foundation | football.sync-serie-a-matches)
+          return 0
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    production)
+      case "$job_type" in
+        football.sync-serie-a-foundation)
+          return 0
+          ;;
+        *)
+          return 1
+          ;;
+      esac
       ;;
     *)
       return 1
@@ -60,7 +84,7 @@ run_tuttoseriea_job() {
   local compose_project="$2"
   local job_type="$3"
 
-  if ! validate_job_type "$job_type"; then
+  if ! validate_job_type "$environment" "$job_type"; then
     error "Unsupported job type: ${job_type}"
   fi
 

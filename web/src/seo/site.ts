@@ -97,6 +97,14 @@ export const clubsMetadata: Metadata = {
   },
 };
 
+export const calendarMetadata: Metadata = {
+  title: "Календарь Серии А",
+  description: "Календарь матчей Серии А сезона 2026/27 на tuttoseriea.com.",
+  alternates: {
+    canonical: "/calendar",
+  },
+};
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -126,6 +134,9 @@ export function buildSitemap(env: RuntimeEnv = process.env): MetadataRoute.Sitem
     },
     {
       url: createSiteUrl("/clubs", env),
+    },
+    {
+      url: createSiteUrl("/calendar", env),
     },
   ];
 }

@@ -72,6 +72,10 @@ const footballTablePrivileges = [
     tableName: "season_clubs",
     privileges: ["SELECT", "INSERT", "UPDATE"],
   },
+  {
+    tableName: "matches",
+    privileges: ["SELECT", "INSERT", "UPDATE"],
+  },
 ];
 
 async function loadLocalEnvFiles() {

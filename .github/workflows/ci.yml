@@ -77,10 +77,6 @@ jobs:
         working-directory: web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Smoke web with Playwright
-        working-directory: web
-        run: pnpm run test:smoke
-
       - name: Check web to AI service localhost communication
         shell: bash
         env:
@@ -150,6 +146,12 @@ jobs:
           DATABASE_APP_ROLE: tuttoseriea_ci_web
           DATABASE_APP_PASSWORD: tuttoseriea_ci_web_password
         run: pnpm run db:provision-role
+
+      - name: Smoke web with Playwright
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run test:smoke
 
       - name: Check CI runtime database access
         working-directory: web

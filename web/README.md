@@ -145,6 +145,22 @@ and Russian display name, club `slug` and club `name_ru`. Provider-owned fields
 are updated on repeated sync. Missing provider rows are not deleted in this
 stage.
 
+Stage 4.3 adds `football.matches` and the controlled
+`football.sync-serie-a-matches` job for the complete Serie A 2026/27 season.
+The job accepts no runtime arguments, requests only
+`/fixtures?league=135&season=2026`, validates the complete season response and
+season-club references before writing, and persists all 380 fixtures in one
+transaction. Existing fixtures are updated by provider identity; a fixture
+missing from a later provider response is not deleted. Every match retains the
+complete provider fixture object in `provider_raw` alongside first-class date,
+venue, referee, status, winner and score fields.
+
+The public `/calendar` route reads the current season only from PostgreSQL. No
+public request calls API-Football. Automatic scheduling is not part of Stage
+4.3: full-season refreshes, active-window polling and final post-match refreshes
+remain configurable operational policy for a future scheduler and executions
+are controlled/manual for now.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 
@@ -349,10 +365,11 @@ verify shared job create/claim/finalize, retry scheduling, duplicate active
 no-op behavior, stale recovery and heartbeat/fencing loss.
 
 `db:football:check` uses fake API-Football responses against real PostgreSQL to
-verify the initial Football sync, repeated sync idempotency, application-owned
-field protection, provider-owned field updates, public listing query behavior,
-runtime grants and the shared job runner path. It does not call the real
-provider.
+verify the competition/season/club foundation and full-season match sync,
+repeated sync idempotency, provider identity uniqueness, ownership rules,
+provider-field and complete snapshot updates, all-or-nothing behavior, public
+listing queries, runtime grants and the shared job runner path. It rolls back
+its domain fixtures and does not call the real provider.
 
 ## Operational Jobs
 
@@ -368,16 +385,19 @@ scripts/vds/tuttoseriea-run-job-staging
 scripts/vds/tuttoseriea-run-job-production
 ```
 
-The only whitelisted Stage 4.2 job type is:
+The environment-specific job allowlists are:
 
 ```text
-football.sync-serie-a-foundation
+STAGING: football.sync-serie-a-foundation
+STAGING: football.sync-serie-a-matches
+PRODUCTION: football.sync-serie-a-foundation
 ```
 
-The repository-side scripts call the VDS contract:
+The repository-side scripts call the VDS contract with one exact whitelisted
+identifier, for example:
 
 ```text
-run-job football.sync-serie-a-foundation
+run-job football.sync-serie-a-matches
 ```
 
 They do not accept arbitrary payloads, arguments, images, entrypoints,
@@ -505,10 +525,10 @@ appropriate layer per view without changing the baseline shell.
 The Stage 3 site-level SEO foundation uses Next.js Metadata API, `robots.ts` and
 `sitemap.ts`. Root layout metadata defines only site-wide defaults such as
 `metadataBase`, title template and Russian description. The current public home
-route owns canonical `/`, and the current Clubs listing route owns canonical
-`/clubs`. Admin/private surfaces under `/admin` are explicitly
+route owns canonical `/`; the Clubs and Calendar listings own canonical
+`/clubs` and `/calendar`. Admin/private surfaces under `/admin` are explicitly
 `noindex`/`nofollow`, and the sitemap currently contains only existing preferred
-public URLs: `/` and `/clubs`.
+public URLs: `/`, `/clubs` and `/calendar`.
 
 No product features, business seed data, real auth provider, registration flow,
 AI business workflows or service-specific domain logic are part of this
