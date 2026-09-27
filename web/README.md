@@ -407,6 +407,7 @@ The environment-specific job allowlists are:
 ```text
 STAGING: football.sync-serie-a-foundation
 STAGING: football.sync-serie-a-matches
+STAGING: football.sync-serie-a-standings
 PRODUCTION: football.sync-serie-a-foundation
 ```
 
@@ -414,7 +415,7 @@ The repository-side scripts call the VDS contract with one exact whitelisted
 identifier, for example:
 
 ```text
-run-job football.sync-serie-a-matches
+run-job football.sync-serie-a-standings
 ```
 
 They do not accept arbitrary payloads, arguments, images, entrypoints,

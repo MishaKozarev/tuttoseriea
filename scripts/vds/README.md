@@ -47,10 +47,12 @@ The STAGING forced SSH command exposes only these exact identifiers:
 ```text
 run-job football.sync-serie-a-foundation
 run-job football.sync-serie-a-matches
+run-job football.sync-serie-a-standings
 ```
 
 PRODUCTION remains limited to `run-job football.sync-serie-a-foundation`;
-Stage 4.3 does not add Production provisioning, sudo allowance, or execution.
+the STAGING matches and standings extensions do not add Production
+provisioning, sudo allowance, or execution.
 
 The deploy user must not receive Docker group membership, direct Docker socket
 access, arbitrary sudo, a free shell, arbitrary image selection, arbitrary
