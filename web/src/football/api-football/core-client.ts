@@ -33,6 +33,7 @@ export type ApiFootballRequestParameters = Record<
 >;
 
 export type ApiFootballClient = {
+  getRequestAttemptCount(): number;
   get<TResponse>(
     pathname: string,
     parameters?: ApiFootballRequestParameters,
@@ -304,8 +305,12 @@ export function createApiFootballClient(
     DEFAULT_BACKOFF_BASE_MS,
   );
   const jitter = options.jitter ?? Math.random;
+  let requestAttemptCount = 0;
 
   return {
+    getRequestAttemptCount(): number {
+      return requestAttemptCount;
+    },
     async get<TResponse>(
       pathname: string,
       parameters: ApiFootballRequestParameters = {},
@@ -323,6 +328,7 @@ export function createApiFootballClient(
         let failure: ApiFootballFailure | null = null;
 
         try {
+          requestAttemptCount += 1;
           const response = await fetchImpl(url, {
             cache: "no-store",
             headers: {

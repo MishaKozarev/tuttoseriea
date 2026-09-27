@@ -46,6 +46,7 @@ function createFixtures() {
 
 function successfulClient(response: unknown): ApiFootballClient {
   return {
+    getRequestAttemptCount: () => 1,
     async get<TResponse>(): Promise<ApiFootballResult<TResponse>> {
       return {
         ok: true,
@@ -195,6 +196,7 @@ describe("Serie A matches synchronization validation", () => {
   it("preserves retry semantics for transient provider failures", async () => {
     const database = databaseProbe();
     const client: ApiFootballClient = {
+      getRequestAttemptCount: () => 3,
       async get<TResponse>(): Promise<ApiFootballResult<TResponse>> {
         return {
           ok: false,

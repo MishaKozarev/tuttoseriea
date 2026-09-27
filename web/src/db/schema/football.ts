@@ -216,3 +216,85 @@ export const footballMatches = footballSchema.table(
     ),
   }),
 );
+
+export const footballStandings = footballSchema.table(
+  "standings",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    seasonId: text("season_id").notNull(),
+    clubId: text("club_id").notNull(),
+    groupName: text("group_name"),
+    rank: integer("rank").notNull(),
+    points: integer("points").notNull(),
+    goalsDiff: integer("goals_diff").notNull(),
+    form: text("form"),
+    providerStatus: text("provider_status"),
+    description: text("description"),
+    played: integer("played").notNull(),
+    wins: integer("wins").notNull(),
+    draws: integer("draws").notNull(),
+    losses: integer("losses").notNull(),
+    goalsFor: integer("goals_for").notNull(),
+    goalsAgainst: integer("goals_against").notNull(),
+    homePlayed: integer("home_played").notNull(),
+    homeWins: integer("home_wins").notNull(),
+    homeDraws: integer("home_draws").notNull(),
+    homeLosses: integer("home_losses").notNull(),
+    homeGoalsFor: integer("home_goals_for").notNull(),
+    homeGoalsAgainst: integer("home_goals_against").notNull(),
+    awayPlayed: integer("away_played").notNull(),
+    awayWins: integer("away_wins").notNull(),
+    awayDraws: integer("away_draws").notNull(),
+    awayLosses: integer("away_losses").notNull(),
+    awayGoalsFor: integer("away_goals_for").notNull(),
+    awayGoalsAgainst: integer("away_goals_against").notNull(),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (table) => ({
+    seasonClubUnique: uniqueIndex("standings_season_club_unique").on(
+      table.seasonId,
+      table.clubId,
+    ),
+    seasonRankUnique: uniqueIndex("standings_season_rank_unique").on(
+      table.seasonId,
+      table.rank,
+    ),
+    clubIndex: index("standings_club_id_idx").on(table.clubId),
+    seasonFk: foreignKey({
+      name: "standings_season_id_seasons_id_fk",
+      columns: [table.seasonId],
+      foreignColumns: [footballSeasons.id],
+    }).onDelete("restrict"),
+    seasonClubFk: foreignKey({
+      name: "standings_season_club_fk",
+      columns: [table.seasonId, table.clubId],
+      foreignColumns: [footballSeasonClubs.seasonId, footballSeasonClubs.clubId],
+    }).onDelete("restrict"),
+    rankPositiveCheck: check("standings_rank_positive_check", sql`${table.rank} > 0`),
+    statisticsNonnegativeCheck: check(
+      "standings_statistics_nonnegative_check",
+      sql`${table.played} >= 0
+        and ${table.wins} >= 0
+        and ${table.draws} >= 0
+        and ${table.losses} >= 0
+        and ${table.goalsFor} >= 0
+        and ${table.goalsAgainst} >= 0
+        and ${table.homePlayed} >= 0
+        and ${table.homeWins} >= 0
+        and ${table.homeDraws} >= 0
+        and ${table.homeLosses} >= 0
+        and ${table.homeGoalsFor} >= 0
+        and ${table.homeGoalsAgainst} >= 0
+        and ${table.awayPlayed} >= 0
+        and ${table.awayWins} >= 0
+        and ${table.awayDraws} >= 0
+        and ${table.awayLosses} >= 0
+        and ${table.awayGoalsFor} >= 0
+        and ${table.awayGoalsAgainst} >= 0`,
+    ),
+  }),
+);

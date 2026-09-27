@@ -161,6 +161,23 @@ public request calls API-Football. Automatic scheduling is not part of Stage
 remain configurable operational policy for a future scheduler and executions
 are controlled/manual for now.
 
+Stage 4.4 adds the current-season `football.standings` snapshot and the
+fixed-argument `football.sync-serie-a-standings` production job. The job calls
+only `/standings?league=135&season=2026`, requires one complete 20-club table,
+validates every club against the persisted season membership and replaces no
+rows outside its provider-identity upserts. A malformed or partial response is
+rejected before writes; persistence is all-or-nothing in one transaction.
+
+The public `/table` route reads standings only from PostgreSQL. Provider
+descriptions are retained as provider facts and are not converted into
+application-owned qualification zones at this stage. Every Football job logs
+one safe `api_football_requests=<N>` total for its client instance, counting
+actual outbound attempts including bounded HTTP retries. Automatic scheduling
+and root-owned operational allowlisting for the standings job are not part of
+Stage 4.4 LOCAL implementation. The accepted starting refresh policy is
+approximately hourly through future controlled scheduling; Stage 4.4 stores
+only current state and adds no standings history or snapshot timeline.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 

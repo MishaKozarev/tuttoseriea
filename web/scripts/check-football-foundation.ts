@@ -5,13 +5,15 @@ import pg from "pg";
 
 import type { ApiFootballClient, ApiFootballResult } from "../src/football/api-football/node";
 import {
-  SERIE_A_MATCHES_IDEMPOTENCY_KEY,
-  SERIE_A_MATCHES_JOB_TYPE,
+  SERIE_A_STANDINGS_IDEMPOTENCY_KEY,
+  SERIE_A_STANDINGS_JOB_TYPE,
 } from "../src/football/foundation";
 import { listCurrentSerieAMatches } from "../src/football/matches-repository";
 import { listCurrentSerieAClubs } from "../src/football/repository";
 import { syncSerieAFoundation } from "../src/football/serie-a-foundation-sync";
 import { syncSerieAMatches } from "../src/football/serie-a-matches-sync";
+import { syncSerieAStandings } from "../src/football/serie-a-standings-sync";
+import { listCurrentSerieAStandings } from "../src/football/standings-repository";
 import {
   createJobRegistry,
   getJobRunnerConfig,
@@ -61,6 +63,18 @@ type MatchFactsRow = {
 
 type DuplicateRow = {
   count: number;
+};
+
+type StandingFactsRow = {
+  rank: number;
+  points: number;
+  goalsDiff: number;
+  form: string | null;
+  description: string | null;
+  played: number;
+  homeWins: number;
+  awayGoalsFor: number;
+  providerRaw: Record<string, unknown>;
 };
 
 function requireEnv(name: string): string {
@@ -232,6 +246,71 @@ function createFixtures(options: FixtureSetOptions = {}) {
   });
 }
 
+type StandingSetOptions = {
+  firstDescription?: string | null;
+  firstForm?: string | null;
+  firstPoints?: number;
+  firstSnapshotMarker?: string;
+  swapFirstTwoRanks?: boolean;
+};
+
+function createStandings(options: StandingSetOptions = {}) {
+  const rows = Array.from({ length: 20 }, (_, index) => ({
+    rank:
+      options.swapFirstTwoRanks && index < 2
+        ? index === 0
+          ? 2
+          : 1
+        : index + 1,
+    team: {
+      id: 900_000 + index,
+      name: index === 0 ? "AC Milan" : `Serie A Club ${index + 1}`,
+      logo: `https://media.example.invalid/clubs/${900_000 + index}.png`,
+    },
+    points: index === 0 ? (options.firstPoints ?? 63) : 60 - index,
+    goalsDiff: 20 - index,
+    group: "Serie A",
+    form: index === 0 ? (options.firstForm ?? "WWDLW") : "DWLWW",
+    status: "same",
+    description:
+      index === 0 ? (options.firstDescription ?? "Champions League") : null,
+    all: {
+      played: 25,
+      win: 15,
+      draw: 6,
+      lose: 4,
+      goals: { for: 50, against: 30 },
+    },
+    home: {
+      played: 13,
+      win: 9,
+      draw: 3,
+      lose: 1,
+      goals: { for: 30, against: 12 },
+    },
+    away: {
+      played: 12,
+      win: 6,
+      draw: 3,
+      lose: 3,
+      goals: { for: 20, against: 18 },
+    },
+    snapshot: {
+      marker: index === 0 ? (options.firstSnapshotMarker ?? "initial") : "standing",
+    },
+  }));
+
+  return [
+    {
+      league: {
+        id: 135,
+        season: 2026,
+        standings: [rows],
+      },
+    },
+  ];
+}
+
 function ok<TResponse>(data: TResponse, operation: string): ApiFootballResult<TResponse> {
   return {
     ok: true,
@@ -249,8 +328,10 @@ function ok<TResponse>(data: TResponse, operation: string): ApiFootballResult<TR
 function createFakeClient(
   nameSuffix = "",
   fixtures = createFixtures(),
+  standings = createStandings(),
 ): ApiFootballClient {
   return {
+    getRequestAttemptCount: () => 0,
     async get<TResponse>(pathname: string): Promise<ApiFootballResult<TResponse>> {
       if (pathname === "/leagues") {
         return ok(createLeague(), "leagues") as ApiFootballResult<TResponse>;
@@ -262,6 +343,10 @@ function createFakeClient(
 
       if (pathname === "/fixtures") {
         return ok(fixtures, "fixtures") as ApiFootballResult<TResponse>;
+      }
+
+      if (pathname === "/standings") {
+        return ok(standings, "standings") as ApiFootballResult<TResponse>;
       }
 
       return {
@@ -322,6 +407,39 @@ async function countFakeMatches(client: pg.PoolClient): Promise<number> {
       where provider = 'api-football'
         and provider_fixture_id >= 910000
         and provider_fixture_id < 920001
+    `,
+  );
+
+  return result.rows[0]?.count ?? 0;
+}
+
+async function countFakeStandings(queryable: Pick<pg.Pool | pg.PoolClient, "query">): Promise<number> {
+  const result = await queryable.query<CountRow>(
+    `
+      select count(*)::int as count
+      from football.standings st
+      join football.seasons s on s.id = st.season_id
+      join football.competitions comp on comp.id = s.competition_id
+      where comp.provider = 'api-football'
+        and comp.provider_competition_id = 135
+        and s.provider = 'api-football'
+        and s.provider_season_year = 2026
+    `,
+  );
+
+  return result.rows[0]?.count ?? 0;
+}
+
+async function countDuplicateStandingIdentities(client: pg.PoolClient): Promise<number> {
+  const result = await client.query<DuplicateRow>(
+    `
+      select count(*)::int as count
+      from (
+        select season_id, club_id
+        from football.standings
+        group by season_id, club_id
+        having count(*) > 1
+      ) duplicates
     `,
   );
 
@@ -394,7 +512,36 @@ async function getFirstMatchFacts(client: pg.PoolClient): Promise<MatchFactsRow>
   return row;
 }
 
-async function assertDeleteDenied(pool: pg.Pool, tableName: "clubs" | "matches"): Promise<void> {
+async function getFirstStandingFacts(client: pg.PoolClient): Promise<StandingFactsRow> {
+  const result = await client.query<StandingFactsRow>(
+    `
+      select
+        st.rank,
+        st.points,
+        st.goals_diff as "goalsDiff",
+        st.form,
+        st.description,
+        st.played,
+        st.home_wins as "homeWins",
+        st.away_goals_for as "awayGoalsFor",
+        st.provider_raw as "providerRaw"
+      from football.standings st
+      join football.clubs c on c.id = st.club_id
+      where c.provider = 'api-football'
+        and c.provider_club_id = 900000
+    `,
+  );
+  const row = result.rows[0];
+
+  assertCondition(row, "synced standing was not found");
+
+  return row;
+}
+
+async function assertDeleteDenied(
+  pool: pg.Pool,
+  tableName: "clubs" | "matches" | "standings",
+): Promise<void> {
   try {
     await pool.query(`delete from football.${tableName} where false`);
   } catch (error) {
@@ -471,6 +618,107 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     ).rows[0]?.id;
 
     assertCondition(seasonId, "synced season was not found");
+
+    const standingsConstraint = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from pg_constraint
+        where conname = 'standings_season_club_fk'
+          and conrelid = 'football.standings'::regclass
+      `,
+    );
+
+    assertCondition(
+      standingsConstraint.rows[0]?.count === 1,
+      "standings exact-season membership constraint is missing",
+    );
+
+    const initialStandingsSync = await syncSerieAStandings({
+      client: createFakeClient(),
+      transactionClient: client,
+    });
+
+    assertCondition(
+      initialStandingsSync.status === "success" &&
+        initialStandingsSync.standingCount === 20,
+      "initial standings sync failed",
+    );
+    assertCondition(await countFakeStandings(client) === 20, "standings count mismatch");
+    assertCondition(
+      await countDuplicateStandingIdentities(client) === 0,
+      "standings season/club identities are not unique",
+    );
+
+    const initialStandingFacts = await getFirstStandingFacts(client);
+
+    assertCondition(
+      initialStandingFacts.rank === 1 &&
+        initialStandingFacts.points === 63 &&
+        initialStandingFacts.goalsDiff === 20,
+      "standing rank, points or goal difference was not persisted",
+    );
+    assertCondition(
+      initialStandingFacts.form === "WWDLW" &&
+        initialStandingFacts.description === "Champions League",
+      "standing provider text was not persisted",
+    );
+    assertCondition(
+      initialStandingFacts.played === 25 &&
+        initialStandingFacts.homeWins === 9 &&
+        initialStandingFacts.awayGoalsFor === 20,
+      "standing statistics were not persisted",
+    );
+    assertCondition(
+      (initialStandingFacts.providerRaw.snapshot as { marker?: unknown } | undefined)
+        ?.marker === "initial",
+      "complete standings provider snapshot was not persisted",
+    );
+
+    const repeatedStandingsSync = await syncSerieAStandings({
+      client: createFakeClient(),
+      transactionClient: client,
+    });
+
+    assertCondition(
+      repeatedStandingsSync.status === "success" &&
+        (await countFakeStandings(client)) === 20,
+      "repeated standings sync was not idempotent",
+    );
+
+    const updatedStandingsSync = await syncSerieAStandings({
+      client: createFakeClient(
+        "",
+        createFixtures(),
+        createStandings({
+          firstDescription: "  Europa League  ",
+          firstForm: "LWWWW",
+          firstPoints: 66,
+          firstSnapshotMarker: "updated",
+          swapFirstTwoRanks: true,
+        }),
+      ),
+      transactionClient: client,
+    });
+
+    assertCondition(updatedStandingsSync.status === "success", "standings update sync failed");
+
+    const updatedStandingFacts = await getFirstStandingFacts(client);
+
+    assertCondition(
+      updatedStandingFacts.rank === 2 &&
+        updatedStandingFacts.points === 66 &&
+        updatedStandingFacts.form === "LWWWW",
+      "standing rank swap or provider-owned values did not update",
+    );
+    assertCondition(
+      updatedStandingFacts.description === "  Europa League  ",
+      "standing provider description was not preserved exactly",
+    );
+    assertCondition(
+      (updatedStandingFacts.providerRaw.snapshot as { marker?: unknown } | undefined)
+        ?.marker === "updated",
+      "standings provider snapshot was not replaced on update",
+    );
 
     const missingProviderClubId = crypto.randomUUID();
 
@@ -565,6 +813,22 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       listedClubs.some((club) => club.displayName === "Милан"),
       "public club listing did not use application display name",
+    );
+
+    const listedStandings = await listCurrentSerieAStandings(client);
+
+    assertCondition(listedStandings.length === 20, "public standings listing count mismatch");
+    const listedMilanStanding = listedStandings.find(
+      (standing) => standing.club.displayName === "Милан",
+    );
+
+    assertCondition(
+      listedMilanStanding,
+      "public standings listing did not use application-owned club display name",
+    );
+    assertCondition(
+      listedMilanStanding.description === "  Europa League  ",
+      "public standings listing changed provider description",
     );
 
     const initialMatchesSync = await syncSerieAMatches({
@@ -866,6 +1130,133 @@ async function verifyProductionPoolRollback(
   }
 }
 
+async function verifyStandingsProductionPoolRollback(
+  runtimeDatabaseUrl: string,
+  migrationPool: pg.Pool,
+): Promise<void> {
+  const forcedFailureMessage = "stage44_forced_failure_after_standing_insert";
+  const rollbackTestPool = new Pool({
+    connectionString: runtimeDatabaseUrl,
+    max: 1,
+  });
+  const originalConnect = rollbackTestPool.connect.bind(rollbackTestPool);
+  let insertedStandingMutations = 0;
+  let firstMutationObserved = false;
+  let rollbackObserved = false;
+  let expectedFailureObserved = false;
+
+  assertCondition(
+    (await countFakeStandings(migrationPool)) === 0,
+    "standings rollback test requires an empty current table",
+  );
+
+  rollbackTestPool.connect = (async () => {
+    const client = await originalConnect();
+    const executeQuery = client.query.bind(client) as unknown as (
+      queryText: string,
+      values?: unknown[],
+    ) => Promise<pg.QueryResult>;
+
+    const instrumentedQuery = async (queryText: unknown, values?: unknown[]) => {
+      assertCondition(
+        typeof queryText === "string",
+        "standings rollback test received an unsupported PostgreSQL query shape",
+      );
+
+      const normalizedQuery = queryText.trim().toLowerCase();
+
+      if (normalizedQuery === "begin") {
+        const result = await executeQuery(queryText, values);
+        const foundationResult = await syncSerieAFoundation({
+          client: createFakeClient(),
+          queryable: client,
+        });
+
+        assertCondition(
+          foundationResult.status === "success",
+          "standings rollback test could not prepare Football foundation rows",
+        );
+
+        return result;
+      }
+
+      if (queryText.includes("insert into football.standings")) {
+        if (insertedStandingMutations >= 1) {
+          throw new Error(forcedFailureMessage);
+        }
+
+        const result = await executeQuery(queryText, values);
+
+        insertedStandingMutations += 1;
+
+        const observedMutation = await client.query<CountRow>(
+          "select count(*)::int as count from football.standings",
+        );
+
+        firstMutationObserved = observedMutation.rows[0]?.count === 1;
+
+        return result;
+      }
+
+      if (normalizedQuery === "rollback") {
+        const result = await executeQuery(queryText, values);
+
+        rollbackObserved = true;
+
+        return result;
+      }
+
+      return executeQuery(queryText, values);
+    };
+
+    return new Proxy(client, {
+      get(target, property) {
+        if (property === "query") {
+          return instrumentedQuery;
+        }
+
+        const value = Reflect.get(target, property, target);
+
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }) as typeof rollbackTestPool.connect;
+
+  try {
+    try {
+      await syncSerieAStandings({
+        client: createFakeClient(),
+        pool: rollbackTestPool,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === forcedFailureMessage) {
+        expectedFailureObserved = true;
+      } else {
+        throw error;
+      }
+    }
+
+    assertCondition(
+      expectedFailureObserved,
+      "standings rollback test sync did not fail as expected",
+    );
+    assertCondition(
+      insertedStandingMutations === 1 && firstMutationObserved,
+      "standings rollback test did not observe a mutation before failure",
+    );
+    assertCondition(
+      rollbackObserved,
+      "standings production Pool path did not execute rollback",
+    );
+    assertCondition(
+      (await countFakeStandings(migrationPool)) === 0,
+      "standings production Pool rollback left partial rows persisted",
+    );
+  } finally {
+    await rollbackTestPool.end();
+  }
+}
+
 async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
   const client = await runtimePool.connect();
   let transactionStarted = false;
@@ -890,6 +1281,16 @@ async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
       matchesResult.status === "success",
       "runtime role matches fake sync failed",
     );
+
+    const standingsResult = await syncSerieAStandings({
+      client: createFakeClient(),
+      transactionClient: client,
+    });
+
+    assertCondition(
+      standingsResult.status === "success",
+      "runtime role standings fake sync failed",
+    );
   } finally {
     if (transactionStarted) {
       await client.query("rollback");
@@ -900,11 +1301,12 @@ async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
 
   await assertDeleteDenied(runtimePool, "clubs");
   await assertDeleteDenied(runtimePool, "matches");
+  await assertDeleteDenied(runtimePool, "standings");
   await assertDdlDenied(runtimePool);
 }
 
 async function verifyJobRunnerPath(runtimePool: pg.Pool, migrationPool: pg.Pool): Promise<void> {
-  const type = `stage43-football-check-${crypto.randomUUID()}`;
+  const type = `stage44-football-check-${crypto.randomUUID()}`;
   const repository = new JobRepository(getJobRunnerConfig());
   const definition: JobDefinition = {
     type,
@@ -912,10 +1314,10 @@ async function verifyJobRunnerPath(runtimePool: pg.Pool, migrationPool: pg.Pool)
       assertCondition(args.length === 0, "check job unexpectedly received args");
 
       return {
-        idempotencyKey: SERIE_A_MATCHES_IDEMPOTENCY_KEY,
+        idempotencyKey: SERIE_A_STANDINGS_IDEMPOTENCY_KEY,
         payload: {
-          type: SERIE_A_MATCHES_JOB_TYPE,
-          check: "football-matches",
+          type: SERIE_A_STANDINGS_JOB_TYPE,
+          check: "football-standings",
         },
       };
     },
@@ -945,9 +1347,19 @@ async function verifyJobRunnerPath(runtimePool: pg.Pool, migrationPool: pg.Pool)
           heartbeat: context.heartbeat,
         });
 
-        return matchesResult.status === "success"
+        if (matchesResult.status !== "success") {
+          return matchesResult;
+        }
+
+        const standingsResult = await syncSerieAStandings({
+          client: createFakeClient(),
+          transactionClient: client,
+          heartbeat: context.heartbeat,
+        });
+
+        return standingsResult.status === "success"
           ? { status: "success" }
-          : matchesResult;
+          : standingsResult;
       } finally {
         if (transactionStarted) {
           await client.query("rollback");
@@ -989,10 +1401,11 @@ async function main(): Promise<void> {
   try {
     await verifySyncWithMigrationRole(migrationPool);
     await verifyProductionPoolRollback(requireEnv("DATABASE_URL"), migrationPool);
+    await verifyStandingsProductionPoolRollback(requireEnv("DATABASE_URL"), migrationPool);
     await verifyRuntimeGrants(runtimePool);
     await verifyJobRunnerPath(runtimePool, migrationPool);
 
-    console.log("Football foundation and matches check passed.");
+    console.log("Football foundation, matches and standings check passed.");
     console.log("football_fake_provider_sync=true");
     console.log("football_repeated_sync_idempotent=true");
     console.log("football_application_owned_fields_protected=true");
@@ -1008,6 +1421,14 @@ async function main(): Promise<void> {
     console.log("football_matches_all_or_nothing=true");
     console.log("football_matches_production_pool_rollback=true");
     console.log("football_calendar_query_reads_postgres=true");
+    console.log("football_standings_current_rows=20");
+    console.log("football_standings_repeated_sync_idempotent=true");
+    console.log("football_standings_provider_fields_update=true");
+    console.log("football_standings_description_preserved=true");
+    console.log("football_standings_complete_raw_snapshot=true");
+    console.log("football_standings_exact_season_membership=true");
+    console.log("football_standings_production_pool_rollback=true");
+    console.log("football_table_query_reads_postgres=true");
     console.log("football_runtime_grants_select_insert_update=true");
     console.log("football_runtime_delete_denied=true");
     console.log("football_runtime_ddl_denied=true");
