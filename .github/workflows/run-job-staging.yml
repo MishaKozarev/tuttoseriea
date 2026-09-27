@@ -12,6 +12,7 @@ on:
         options:
           - football.sync-serie-a-foundation
           - football.sync-serie-a-matches
+          - football.sync-serie-a-standings
 
 permissions:
   contents: read

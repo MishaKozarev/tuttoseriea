@@ -23,17 +23,20 @@ function validateRunJobType(environment: "staging" | "production", value: string
     return true;
   }
 
-  return environment === "staging" && value === matchesJobType;
+  return (
+    environment === "staging" &&
+    (value === matchesJobType || value === standingsJobType)
+  );
 }
 
 for (const invalidType of [
   "",
   `${foundationJobType} --season 2025`,
   `${matchesJobType} --round 1`,
+  `${standingsJobType} --season 2025`,
   `${foundationJobType};uname`,
   `${foundationJobType}\necho`,
   "football.sync-other",
-  standingsJobType,
 ]) {
   assert(
     !validateRunJobType("staging", invalidType) &&
@@ -44,7 +47,8 @@ for (const invalidType of [
 
 assert(
   validateRunJobType("staging", foundationJobType) &&
-    validateRunJobType("staging", matchesJobType),
+    validateRunJobType("staging", matchesJobType) &&
+    validateRunJobType("staging", standingsJobType),
   "STAGING allowed run-job type was rejected",
 );
 assert(
@@ -56,9 +60,8 @@ assert(
   "PRODUCTION unexpectedly accepted the STAGING-only matches job type",
 );
 assert(
-  !validateRunJobType("staging", standingsJobType) &&
-    !validateRunJobType("production", standingsJobType),
-  "Standings job must remain outside the root-owned operational whitelist",
+  !validateRunJobType("production", standingsJobType),
+  "PRODUCTION unexpectedly accepted the STAGING-only standings job type",
 );
 
 for (const relativePath of [
@@ -81,8 +84,25 @@ const productionWrapper = readRepoFile("scripts/run-job-production.sh");
 assert(
   runJobLibrary.includes("RUN_JOB_STAGING_ALLOWED_TYPES") &&
     runJobLibrary.includes(matchesJobType) &&
+    runJobLibrary.includes(standingsJobType) &&
     runJobLibrary.includes("RUN_JOB_PRODUCTION_ALLOWED_TYPES"),
   "Repository run-job library is missing environment-specific allowlists",
+);
+const readShellArray = (name: string): string[] | undefined =>
+  runJobLibrary
+    .match(new RegExp(`${name}=\\(([^)]*)\\)`, "u"))?.[1]
+    ?.match(/"[^"]+"/gu)
+    ?.map((value) => value.slice(1, -1));
+
+assert(
+  JSON.stringify(readShellArray("RUN_JOB_STAGING_ALLOWED_TYPES")) ===
+    JSON.stringify([foundationJobType, matchesJobType, standingsJobType]),
+  "Repository STAGING allowlist must contain exactly the three approved job types",
+);
+assert(
+  JSON.stringify(readShellArray("RUN_JOB_PRODUCTION_ALLOWED_TYPES")) ===
+    JSON.stringify([foundationJobType]),
+  "Repository PRODUCTION allowlist changed from foundation-only",
 );
 assert(
   stagingWrapper.includes('require_run_job_type_for_environment staging "$RUN_JOB_TYPE"'),
@@ -99,17 +119,40 @@ const productionWorkflow = readRepoFile(".github/workflows/run-job-production.ym
 assert(stagingWorkflow.includes("type: choice"), "STAGING workflow must use a choice input");
 assert(
   stagingWorkflow.includes(`- ${foundationJobType}`) &&
-    stagingWorkflow.includes(`- ${matchesJobType}`),
-  "STAGING workflow must whitelist both approved Football job types",
+    stagingWorkflow.includes(`- ${matchesJobType}`) &&
+    stagingWorkflow.includes(`- ${standingsJobType}`),
+  "STAGING workflow must whitelist all three approved Football job types",
 );
+const stagingWorkflowOptions = stagingWorkflow
+  .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
+  ?.split(/\r?\n/u)
+  .map((line) => line.trim().replace(/^-\s+/u, ""))
+  .filter(Boolean);
+
+assert(
+  JSON.stringify(stagingWorkflowOptions) ===
+    JSON.stringify([foundationJobType, matchesJobType, standingsJobType]),
+  "STAGING workflow choice list must contain exactly the three approved job types",
+);
+const productionWorkflowOptions = productionWorkflow
+  .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
+  ?.split(/\r?\n/u)
+  .map((line) => line.trim().replace(/^-\s+/u, ""))
+  .filter(Boolean);
+
 assert(
   productionWorkflow.includes("type: choice") &&
     productionWorkflow.includes(`- ${foundationJobType}`),
   "PRODUCTION workflow must retain the foundation job choice",
 );
 assert(
-  !productionWorkflow.includes(matchesJobType),
-  "PRODUCTION workflow must not whitelist the STAGING-only matches job type",
+  !productionWorkflow.includes(matchesJobType) &&
+    !productionWorkflow.includes(standingsJobType),
+  "PRODUCTION workflow must not whitelist STAGING-only job types",
+);
+assert(
+  JSON.stringify(productionWorkflowOptions) === JSON.stringify([foundationJobType]),
+  "PRODUCTION workflow choice list changed from foundation-only",
 );
 
 const vdsCommon = readRepoFile("scripts/vds/tuttoseriea-run-job-common.sh");
@@ -118,25 +161,12 @@ const vdsStagingDispatcher = readRepoFile("scripts/vds/tuttoseriea-ssh-staging")
 const vdsStagingWrapper = readRepoFile("scripts/vds/tuttoseriea-run-job-staging");
 const vdsSudoers = readRepoFile("scripts/vds/tuttoseriea-deploy.sudoers");
 
-for (const operationalContract of [
-  runJobLibrary,
-  stagingWorkflow,
-  productionWorkflow,
-  vdsCommon,
-  vdsStagingDispatcher,
-  vdsSudoers,
-]) {
-  assert(
-    !operationalContract.includes(standingsJobType),
-    "Standings job unexpectedly entered a root-owned or repository operational whitelist",
-  );
-}
-
 for (const requiredFragment of [
   "read_current_release",
   "/usr/local/sbin/tuttoseriea-read-current-staging",
   "validate_job_type",
   matchesJobType,
+  standingsJobType,
   "ghcr.io/mishakozarev/tuttoseriea/web",
   "--pull never",
   "--env-file \"$runtime_env\"",
@@ -168,8 +198,9 @@ assert(
     JSON.stringify([
       `run-job ${foundationJobType}`,
       `run-job ${matchesJobType}`,
+      `run-job ${standingsJobType}`,
     ]),
-  "STAGING forced command must contain exactly the two approved run-job commands",
+  "STAGING forced command must contain exactly the three approved run-job commands",
 );
 assert(
   vdsStagingDispatcher.includes(
@@ -205,6 +236,7 @@ const expectedSudoers = [
   'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-read-previous-production ""',
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${foundationJobType}`,
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${matchesJobType}`,
+  `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${standingsJobType}`,
 ];
 const actualSudoers = vdsSudoers.trimEnd().split(/\r?\n/u);
 
@@ -259,8 +291,9 @@ console.log("run_job_repository_wrapper_no_docker_or_sudo=true");
 console.log("run_job_vds_exact_image_resolution=true");
 console.log("run_job_staging_reader_contract=true");
 console.log("run_job_staging_matches_whitelisted=true");
-console.log("run_job_standings_deferred=true");
+console.log("run_job_staging_standings_whitelisted=true");
 console.log("run_job_production_matches_rejected=true");
+console.log("run_job_production_standings_rejected=true");
 console.log("run_job_staging_forced_command_contract=true");
 console.log("run_job_staging_sudoers_contract=true");
 console.log("run_job_staging_wrapper_generic=true");
