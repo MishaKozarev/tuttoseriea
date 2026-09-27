@@ -105,6 +105,14 @@ export const calendarMetadata: Metadata = {
   },
 };
 
+export const tableMetadata: Metadata = {
+  title: "Таблица Серии А",
+  description: "Турнирная таблица Серии А сезона 2026/27 на tuttoseriea.com.",
+  alternates: {
+    canonical: "/table",
+  },
+};
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -137,6 +145,9 @@ export function buildSitemap(env: RuntimeEnv = process.env): MetadataRoute.Sitem
     },
     {
       url: createSiteUrl("/calendar", env),
+    },
+    {
+      url: createSiteUrl("/table", env),
     },
   ];
 }

@@ -81,6 +81,7 @@ describe("API-Football HTTP client", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(client.getRequestAttemptCount()).toBe(1);
     expect(requestedUrl).toBe(
       "https://v3.football.api-sports.io/leagues?id=135&season=2026",
     );
@@ -133,7 +134,40 @@ describe("API-Football HTTP client", () => {
 
     expect(result.ok).toBe(true);
     expect(attempts).toBe(3);
+    expect(client.getRequestAttemptCount()).toBe(3);
     expect(sleepMs).toEqual([25, 50]);
+  });
+
+  it("counts every exhausted retry attempt", async () => {
+    const client = createClient(
+      async () => jsonResponse(503, { error: "temporary" }),
+      { maxAttempts: 3 },
+    );
+
+    const result = await client.get("standings");
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        attempts: 3,
+        code: "http_server_error",
+        retryable: true,
+      },
+    });
+    expect(client.getRequestAttemptCount()).toBe(3);
+  });
+
+  it("scopes request counters to one client instance and starts at zero", async () => {
+    const first = createClient(async () => jsonResponse(200, envelope([])));
+    const second = createClient(async () => jsonResponse(200, envelope([])));
+
+    expect(first.getRequestAttemptCount()).toBe(0);
+    expect(second.getRequestAttemptCount()).toBe(0);
+
+    await first.get("standings");
+
+    expect(first.getRequestAttemptCount()).toBe(1);
+    expect(second.getRequestAttemptCount()).toBe(0);
   });
 
   it("does not retry ordinary non-rate-limit client errors", async () => {

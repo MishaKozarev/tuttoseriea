@@ -24,5 +24,8 @@ describe("PublicShell", () => {
     expect(
       screen.getByRole("link", { name: /tuttoseriea\.com/i }).getAttribute("href"),
     ).toBe("/");
+    expect(screen.getByRole("link", { name: "Таблица" }).getAttribute("href")).toBe(
+      "/table",
+    );
   });
 });

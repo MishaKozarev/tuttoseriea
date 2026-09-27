@@ -5,9 +5,15 @@ import {
   SERIE_A_FOUNDATION_JOB_TYPE,
   SERIE_A_MATCHES_IDEMPOTENCY_KEY,
   SERIE_A_MATCHES_JOB_TYPE,
+  SERIE_A_STANDINGS_IDEMPOTENCY_KEY,
+  SERIE_A_STANDINGS_JOB_TYPE,
 } from "@/src/football/foundation";
 import { createClubSlug } from "@/src/football/repository";
-import { syncSerieAFoundationJob, syncSerieAMatchesJob } from "@/src/jobs/football-sync";
+import {
+  syncSerieAFoundationJob,
+  syncSerieAMatchesJob,
+  syncSerieAStandingsJob,
+} from "@/src/jobs/football-sync";
 import { listJobTypes, productionJobRegistry } from "@/src/jobs/registry";
 
 describe("Football foundation", () => {
@@ -15,7 +21,24 @@ describe("Football foundation", () => {
     expect(listJobTypes(productionJobRegistry)).toEqual([
       SERIE_A_FOUNDATION_JOB_TYPE,
       SERIE_A_MATCHES_JOB_TYPE,
+      SERIE_A_STANDINGS_JOB_TYPE,
     ]);
+  });
+
+  it("uses a canonical idempotency key for the standings job and rejects arbitrary arguments", () => {
+    expect(syncSerieAStandingsJob.parseArguments([])).toEqual({
+      idempotencyKey: SERIE_A_STANDINGS_IDEMPOTENCY_KEY,
+      payload: {
+        provider: "api-football",
+        leagueId: 135,
+        season: 2026,
+        scope: "standings",
+      },
+    });
+
+    expect(() => syncSerieAStandingsJob.parseArguments(["--group", "Serie A"])).toThrow(
+      /does not accept job arguments/,
+    );
   });
 
   it("uses a canonical idempotency key for the foundation job and rejects arbitrary arguments", () => {

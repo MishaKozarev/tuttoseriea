@@ -43,6 +43,13 @@
       "when": 1790375772840,
       "tag": "0005_worried_hairball",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790530869791,
+      "tag": "0006_chief_katie_power",
+      "breakpoints": true
     }
   ]
 }

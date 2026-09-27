@@ -39,6 +39,7 @@ test("web public shell smoke", async ({ page, request }) => {
   expect(sitemap).toContain(`<loc>${siteOrigin}/</loc>`);
   expect(sitemap).toContain(`<loc>${siteOrigin}/clubs</loc>`);
   expect(sitemap).toContain(`<loc>${siteOrigin}/calendar</loc>`);
+  expect(sitemap).toContain(`<loc>${siteOrigin}/table</loc>`);
   expect(sitemap).not.toContain("/admin");
   expect(sitemap).not.toContain("/api/");
   expect(sitemap).not.toContain("/news");
@@ -51,5 +52,14 @@ test("web public shell smoke", async ({ page, request }) => {
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     "href",
     `${siteOrigin}/calendar`,
+  );
+
+  await page.goto("/table");
+
+  await expect(page.getByRole("heading", { name: "Таблица Серии А" })).toBeVisible();
+  await expect(page.getByText(/Таблица появится после синхронизации/)).toBeVisible();
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    `${siteOrigin}/table`,
   );
 });

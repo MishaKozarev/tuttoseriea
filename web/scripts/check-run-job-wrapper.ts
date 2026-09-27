@@ -6,6 +6,7 @@ const appDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const repoRoot = path.resolve(appDirectory, "..");
 const foundationJobType = "football.sync-serie-a-foundation";
 const matchesJobType = "football.sync-serie-a-matches";
+const standingsJobType = "football.sync-serie-a-standings";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(path.join(repoRoot, relativePath), "utf8");
@@ -32,6 +33,7 @@ for (const invalidType of [
   `${foundationJobType};uname`,
   `${foundationJobType}\necho`,
   "football.sync-other",
+  standingsJobType,
 ]) {
   assert(
     !validateRunJobType("staging", invalidType) &&
@@ -52,6 +54,11 @@ assert(
 assert(
   !validateRunJobType("production", matchesJobType),
   "PRODUCTION unexpectedly accepted the STAGING-only matches job type",
+);
+assert(
+  !validateRunJobType("staging", standingsJobType) &&
+    !validateRunJobType("production", standingsJobType),
+  "Standings job must remain outside the root-owned operational whitelist",
 );
 
 for (const relativePath of [
@@ -110,6 +117,20 @@ const vdsStagingReader = readRepoFile("scripts/vds/tuttoseriea-read-current-stag
 const vdsStagingDispatcher = readRepoFile("scripts/vds/tuttoseriea-ssh-staging");
 const vdsStagingWrapper = readRepoFile("scripts/vds/tuttoseriea-run-job-staging");
 const vdsSudoers = readRepoFile("scripts/vds/tuttoseriea-deploy.sudoers");
+
+for (const operationalContract of [
+  runJobLibrary,
+  stagingWorkflow,
+  productionWorkflow,
+  vdsCommon,
+  vdsStagingDispatcher,
+  vdsSudoers,
+]) {
+  assert(
+    !operationalContract.includes(standingsJobType),
+    "Standings job unexpectedly entered a root-owned or repository operational whitelist",
+  );
+}
 
 for (const requiredFragment of [
   "read_current_release",
@@ -238,6 +259,7 @@ console.log("run_job_repository_wrapper_no_docker_or_sudo=true");
 console.log("run_job_vds_exact_image_resolution=true");
 console.log("run_job_staging_reader_contract=true");
 console.log("run_job_staging_matches_whitelisted=true");
+console.log("run_job_standings_deferred=true");
 console.log("run_job_production_matches_rejected=true");
 console.log("run_job_staging_forced_command_contract=true");
 console.log("run_job_staging_sudoers_contract=true");

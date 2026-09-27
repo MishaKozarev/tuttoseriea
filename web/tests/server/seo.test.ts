@@ -6,6 +6,7 @@ import { metadata as adminMetadata } from "@/app/admin/layout";
 import { metadata as calendarPageMetadata } from "@/app/(public)/calendar/page";
 import { metadata as clubsPageMetadata } from "@/app/(public)/clubs/page";
 import { metadata as homePageMetadata } from "@/app/(public)/page";
+import { metadata as tablePageMetadata } from "@/app/(public)/table/page";
 import {
   SITE_DESCRIPTION,
   SITE_NAME,
@@ -92,6 +93,12 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("sets the standings table canonical at the page level", () => {
+    expect(tablePageMetadata.alternates).toEqual({
+      canonical: "/table",
+    });
+  });
+
   it("marks the admin subtree as noindex and nofollow", () => {
     expect(adminMetadata.robots).toEqual({
       index: false,
@@ -129,6 +136,7 @@ describe("site SEO configuration", () => {
       { url: "https://tuttoseriea.com/" },
       { url: "https://tuttoseriea.com/clubs" },
       { url: "https://tuttoseriea.com/calendar" },
+      { url: "https://tuttoseriea.com/table" },
     ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",
