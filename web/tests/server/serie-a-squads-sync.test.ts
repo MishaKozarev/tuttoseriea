@@ -217,16 +217,83 @@ describe("Serie A current squads synchronization", () => {
     ).resolves.toMatchObject({ status: "failed", errorCode });
   });
 
-  it("rejects duplicate player identities inside one club", async () => {
+  it("deduplicates structurally identical complete player objects inside one club", async () => {
     const database = transactionClient();
     const fake = createFakeClient((providerClubId) => {
       const player = createPlayer(providerClubId);
-      return createSquadResponse(providerClubId, [player, { ...player }]);
+      return createSquadResponse(
+        providerClubId,
+        providerClubId === 900_000 ? [player, { ...player }] : [player],
+      );
     });
 
     await expect(
       syncSerieASquads({ client: fake.client, transactionClient: database.client }),
-    ).resolves.toMatchObject({ errorCode: "api_football_duplicate_squad_player" });
+    ).resolves.toEqual({
+      status: "success",
+      clubCount: 20,
+      playerCount: 20,
+      membershipCount: 20,
+    });
+
+    const firstClubMemberships = database.query.mock.calls.filter(
+      ([queryText, values]) =>
+        queryText.includes("insert into football.squad_memberships") &&
+        (values as readonly unknown[] | undefined)?.[1] === "club-0",
+    );
+    expect(firstClubMemberships).toHaveLength(1);
+  });
+
+  it("rejects conflicting complete player objects and logs only safe diagnostic context", async () => {
+    const database = transactionClient();
+    const firstPlayer = createPlayer(900_000, { futureProviderField: "first" });
+    const conflictingPlayer = createPlayer(900_000, {
+      futureProviderField: "conflicting",
+    });
+    const fake = createFakeClient((providerClubId) =>
+      createSquadResponse(providerClubId, [firstPlayer, conflictingPlayer]),
+    );
+    Object.assign(fake.client, {
+      apiKey: "test-api-key-must-not-be-logged",
+      requestHeaders: { "x-apisports-key": "test-api-key-must-not-be-logged" },
+    });
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        syncSerieASquads({ client: fake.client, transactionClient: database.client }),
+      ).resolves.toEqual({
+        status: "failed",
+        errorCode: "api_football_duplicate_squad_player",
+        message:
+          "API-Football returned conflicting duplicate player data inside one current squad.",
+      });
+
+      expect(errorLog).toHaveBeenCalledOnce();
+      expect(errorLog).toHaveBeenCalledWith("api_football_duplicate_squad_player", {
+        team_id: 900_000,
+        player_id: 1_000_000,
+        first_player: firstPlayer,
+        conflicting_player: conflictingPlayer,
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        "test-api-key-must-not-be-logged",
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain("x-apisports-key");
+    } finally {
+      errorLog.mockRestore();
+    }
+
+    expect(
+      database.query.mock.calls.some(([queryText]) =>
+        queryText.includes("insert into football.players"),
+      ),
+    ).toBe(false);
+    expect(
+      database.query.mock.calls.some(([queryText]) =>
+        queryText.includes("insert into football.squad_memberships"),
+      ),
+    ).toBe(false);
   });
 
   it("rejects malformed membership fields without normalizing them", async () => {
