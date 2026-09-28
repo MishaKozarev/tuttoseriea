@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { Pool, PoolClient } from "pg";
 
 import type { ApiFootballClient, ApiFootballResult } from "./api-football/node";
@@ -191,24 +193,39 @@ function parseSquadResponse(
     );
   }
 
-  const seenPlayerIds = new Set<number>();
+  const playersByProviderId = new Map<number, Record<string, unknown>>();
   const parsedPlayers: ParsedSquadPlayer[] = [];
 
   for (const rawPlayer of players) {
+    const providerPlayerId = isRecord(rawPlayer) ? positiveInteger(rawPlayer.id) : null;
+    const existingPlayer =
+      providerPlayerId === null ? undefined : playersByProviderId.get(providerPlayerId);
+
+    if (existingPlayer) {
+      if (isDeepStrictEqual(existingPlayer, rawPlayer)) {
+        continue;
+      }
+
+      console.error("api_football_duplicate_squad_player", {
+        team_id: club.providerClubId,
+        player_id: providerPlayerId,
+        first_player: existingPlayer,
+        conflicting_player: rawPlayer,
+      });
+
+      return failed(
+        "api_football_duplicate_squad_player",
+        "API-Football returned conflicting duplicate player data inside one current squad.",
+      );
+    }
+
     const parsed = parsePlayer(rawPlayer);
 
     if ("errorCode" in parsed) {
       return parsed;
     }
 
-    if (seenPlayerIds.has(parsed.providerPlayerId)) {
-      return failed(
-        "api_football_duplicate_squad_player",
-        "API-Football returned a duplicate player inside one current squad.",
-      );
-    }
-
-    seenPlayerIds.add(parsed.providerPlayerId);
+    playersByProviderId.set(parsed.providerPlayerId, parsed.providerRaw);
     parsedPlayers.push(parsed);
   }
 
