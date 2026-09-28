@@ -2,12 +2,14 @@ import { JobUsageError, type JobDefinition, type JobRegistry } from "./types";
 import {
   syncSerieAFoundationJob,
   syncSerieAMatchesJob,
+  syncSerieASquadsJob,
   syncSerieAStandingsJob,
 } from "./football-sync";
 
 export const productionJobRegistry: JobRegistry = createJobRegistry([
   syncSerieAFoundationJob,
   syncSerieAMatchesJob,
+  syncSerieASquadsJob,
   syncSerieAStandingsJob,
 ]);
 

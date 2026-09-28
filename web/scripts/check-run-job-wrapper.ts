@@ -7,6 +7,7 @@ const repoRoot = path.resolve(appDirectory, "..");
 const foundationJobType = "football.sync-serie-a-foundation";
 const matchesJobType = "football.sync-serie-a-matches";
 const standingsJobType = "football.sync-serie-a-standings";
+const squadsJobType = "football.sync-serie-a-squads";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(path.join(repoRoot, relativePath), "utf8");
@@ -63,6 +64,11 @@ assert(
   !validateRunJobType("production", standingsJobType),
   "PRODUCTION unexpectedly accepted the STAGING-only standings job type",
 );
+assert(
+  !validateRunJobType("staging", squadsJobType) &&
+    !validateRunJobType("production", squadsJobType),
+  "Operational allowlists must defer the squads job type",
+);
 
 for (const relativePath of [
   "scripts/lib-run-job.sh",
@@ -100,6 +106,10 @@ assert(
   "Repository STAGING allowlist must contain exactly the three approved job types",
 );
 assert(
+  !runJobLibrary.includes(squadsJobType),
+  "Repository operational allowlists must defer the squads job type",
+);
+assert(
   JSON.stringify(readShellArray("RUN_JOB_PRODUCTION_ALLOWED_TYPES")) ===
     JSON.stringify([foundationJobType]),
   "Repository PRODUCTION allowlist changed from foundation-only",
@@ -134,6 +144,10 @@ assert(
     JSON.stringify([foundationJobType, matchesJobType, standingsJobType]),
   "STAGING workflow choice list must contain exactly the three approved job types",
 );
+assert(
+  !stagingWorkflow.includes(squadsJobType),
+  "STAGING workflow must defer the squads job type",
+);
 const productionWorkflowOptions = productionWorkflow
   .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
   ?.split(/\r?\n/u)
@@ -147,7 +161,8 @@ assert(
 );
 assert(
   !productionWorkflow.includes(matchesJobType) &&
-    !productionWorkflow.includes(standingsJobType),
+    !productionWorkflow.includes(standingsJobType) &&
+    !productionWorkflow.includes(squadsJobType),
   "PRODUCTION workflow must not whitelist STAGING-only job types",
 );
 assert(
@@ -160,6 +175,14 @@ const vdsStagingReader = readRepoFile("scripts/vds/tuttoseriea-read-current-stag
 const vdsStagingDispatcher = readRepoFile("scripts/vds/tuttoseriea-ssh-staging");
 const vdsStagingWrapper = readRepoFile("scripts/vds/tuttoseriea-run-job-staging");
 const vdsSudoers = readRepoFile("scripts/vds/tuttoseriea-deploy.sudoers");
+
+for (const [name, content] of [
+  ["VDS common wrapper", vdsCommon],
+  ["STAGING forced command", vdsStagingDispatcher],
+  ["STAGING sudoers", vdsSudoers],
+] as const) {
+  assert(!content.includes(squadsJobType), `${name} must defer the squads job type`);
+}
 
 for (const requiredFragment of [
   "read_current_release",
@@ -294,6 +317,7 @@ console.log("run_job_staging_matches_whitelisted=true");
 console.log("run_job_staging_standings_whitelisted=true");
 console.log("run_job_production_matches_rejected=true");
 console.log("run_job_production_standings_rejected=true");
+console.log("run_job_squads_operationally_deferred=true");
 console.log("run_job_staging_forced_command_contract=true");
 console.log("run_job_staging_sudoers_contract=true");
 console.log("run_job_staging_wrapper_generic=true");
