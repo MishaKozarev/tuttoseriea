@@ -26,7 +26,7 @@ function validateRunJobType(environment: "staging" | "production", value: string
 
   return (
     environment === "staging" &&
-    (value === matchesJobType || value === standingsJobType)
+    (value === matchesJobType || value === standingsJobType || value === squadsJobType)
   );
 }
 
@@ -35,6 +35,7 @@ for (const invalidType of [
   `${foundationJobType} --season 2025`,
   `${matchesJobType} --round 1`,
   `${standingsJobType} --season 2025`,
+  `${squadsJobType} --team 1`,
   `${foundationJobType};uname`,
   `${foundationJobType}\necho`,
   "football.sync-other",
@@ -49,7 +50,8 @@ for (const invalidType of [
 assert(
   validateRunJobType("staging", foundationJobType) &&
     validateRunJobType("staging", matchesJobType) &&
-    validateRunJobType("staging", standingsJobType),
+    validateRunJobType("staging", standingsJobType) &&
+    validateRunJobType("staging", squadsJobType),
   "STAGING allowed run-job type was rejected",
 );
 assert(
@@ -65,9 +67,8 @@ assert(
   "PRODUCTION unexpectedly accepted the STAGING-only standings job type",
 );
 assert(
-  !validateRunJobType("staging", squadsJobType) &&
-    !validateRunJobType("production", squadsJobType),
-  "Operational allowlists must defer the squads job type",
+  !validateRunJobType("production", squadsJobType),
+  "PRODUCTION unexpectedly accepted the STAGING-only squads job type",
 );
 
 for (const relativePath of [
@@ -91,6 +92,7 @@ assert(
   runJobLibrary.includes("RUN_JOB_STAGING_ALLOWED_TYPES") &&
     runJobLibrary.includes(matchesJobType) &&
     runJobLibrary.includes(standingsJobType) &&
+    runJobLibrary.includes(squadsJobType) &&
     runJobLibrary.includes("RUN_JOB_PRODUCTION_ALLOWED_TYPES"),
   "Repository run-job library is missing environment-specific allowlists",
 );
@@ -102,12 +104,8 @@ const readShellArray = (name: string): string[] | undefined =>
 
 assert(
   JSON.stringify(readShellArray("RUN_JOB_STAGING_ALLOWED_TYPES")) ===
-    JSON.stringify([foundationJobType, matchesJobType, standingsJobType]),
-  "Repository STAGING allowlist must contain exactly the three approved job types",
-);
-assert(
-  !runJobLibrary.includes(squadsJobType),
-  "Repository operational allowlists must defer the squads job type",
+    JSON.stringify([foundationJobType, matchesJobType, standingsJobType, squadsJobType]),
+  "Repository STAGING allowlist must contain exactly the four approved job types",
 );
 assert(
   JSON.stringify(readShellArray("RUN_JOB_PRODUCTION_ALLOWED_TYPES")) ===
@@ -130,8 +128,9 @@ assert(stagingWorkflow.includes("type: choice"), "STAGING workflow must use a ch
 assert(
   stagingWorkflow.includes(`- ${foundationJobType}`) &&
     stagingWorkflow.includes(`- ${matchesJobType}`) &&
-    stagingWorkflow.includes(`- ${standingsJobType}`),
-  "STAGING workflow must whitelist all three approved Football job types",
+    stagingWorkflow.includes(`- ${standingsJobType}`) &&
+    stagingWorkflow.includes(`- ${squadsJobType}`),
+  "STAGING workflow must whitelist all four approved Football job types",
 );
 const stagingWorkflowOptions = stagingWorkflow
   .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
@@ -141,12 +140,8 @@ const stagingWorkflowOptions = stagingWorkflow
 
 assert(
   JSON.stringify(stagingWorkflowOptions) ===
-    JSON.stringify([foundationJobType, matchesJobType, standingsJobType]),
-  "STAGING workflow choice list must contain exactly the three approved job types",
-);
-assert(
-  !stagingWorkflow.includes(squadsJobType),
-  "STAGING workflow must defer the squads job type",
+    JSON.stringify([foundationJobType, matchesJobType, standingsJobType, squadsJobType]),
+  "STAGING workflow choice list must contain exactly the four approved job types",
 );
 const productionWorkflowOptions = productionWorkflow
   .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
@@ -176,20 +171,13 @@ const vdsStagingDispatcher = readRepoFile("scripts/vds/tuttoseriea-ssh-staging")
 const vdsStagingWrapper = readRepoFile("scripts/vds/tuttoseriea-run-job-staging");
 const vdsSudoers = readRepoFile("scripts/vds/tuttoseriea-deploy.sudoers");
 
-for (const [name, content] of [
-  ["VDS common wrapper", vdsCommon],
-  ["STAGING forced command", vdsStagingDispatcher],
-  ["STAGING sudoers", vdsSudoers],
-] as const) {
-  assert(!content.includes(squadsJobType), `${name} must defer the squads job type`);
-}
-
 for (const requiredFragment of [
   "read_current_release",
   "/usr/local/sbin/tuttoseriea-read-current-staging",
   "validate_job_type",
   matchesJobType,
   standingsJobType,
+  squadsJobType,
   "ghcr.io/mishakozarev/tuttoseriea/web",
   "--pull never",
   "--env-file \"$runtime_env\"",
@@ -222,8 +210,9 @@ assert(
       `run-job ${foundationJobType}`,
       `run-job ${matchesJobType}`,
       `run-job ${standingsJobType}`,
+      `run-job ${squadsJobType}`,
     ]),
-  "STAGING forced command must contain exactly the three approved run-job commands",
+  "STAGING forced command must contain exactly the four approved run-job commands",
 );
 assert(
   vdsStagingDispatcher.includes(
@@ -260,6 +249,7 @@ const expectedSudoers = [
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${foundationJobType}`,
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${matchesJobType}`,
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${standingsJobType}`,
+  `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${squadsJobType}`,
 ];
 const actualSudoers = vdsSudoers.trimEnd().split(/\r?\n/u);
 
@@ -315,9 +305,10 @@ console.log("run_job_vds_exact_image_resolution=true");
 console.log("run_job_staging_reader_contract=true");
 console.log("run_job_staging_matches_whitelisted=true");
 console.log("run_job_staging_standings_whitelisted=true");
+console.log("run_job_staging_squads_whitelisted=true");
 console.log("run_job_production_matches_rejected=true");
 console.log("run_job_production_standings_rejected=true");
-console.log("run_job_squads_operationally_deferred=true");
+console.log("run_job_production_squads_rejected=true");
 console.log("run_job_staging_forced_command_contract=true");
 console.log("run_job_staging_sudoers_contract=true");
 console.log("run_job_staging_wrapper_generic=true");

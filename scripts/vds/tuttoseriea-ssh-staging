@@ -16,6 +16,10 @@ case "$COMMAND" in
         exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-run-job-staging \
             football.sync-serie-a-standings
         ;;
+    "run-job football.sync-serie-a-squads")
+        exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-run-job-staging \
+            football.sync-serie-a-squads
+        ;;
 esac
 
 if [[ "$COMMAND" =~ ^(deploy|verify)\ ([0-9a-f]{40})\ (sha256:[0-9a-f]{64})(\ (sha256:[0-9a-f]{64}))?$ ]]; then
