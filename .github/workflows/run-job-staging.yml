@@ -13,6 +13,7 @@ on:
           - football.sync-serie-a-foundation
           - football.sync-serie-a-matches
           - football.sync-serie-a-standings
+          - football.sync-serie-a-squads
 
 permissions:
   contents: read

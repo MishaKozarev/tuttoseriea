@@ -428,6 +428,7 @@ The environment-specific job allowlists are:
 STAGING: football.sync-serie-a-foundation
 STAGING: football.sync-serie-a-matches
 STAGING: football.sync-serie-a-standings
+STAGING: football.sync-serie-a-squads
 PRODUCTION: football.sync-serie-a-foundation
 ```
 

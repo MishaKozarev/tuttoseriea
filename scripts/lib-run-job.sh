@@ -4,6 +4,7 @@ RUN_JOB_STAGING_ALLOWED_TYPES=(
   "football.sync-serie-a-foundation"
   "football.sync-serie-a-matches"
   "football.sync-serie-a-standings"
+  "football.sync-serie-a-squads"
 )
 
 RUN_JOB_PRODUCTION_ALLOWED_TYPES=(
