@@ -88,7 +88,7 @@ type PlayerFactsRow = {
 type SquadMembershipFactsRow = {
   shirtNumber: number | null;
   position: string;
-  providerRaw: Record<string, unknown>;
+  providerRaw: Record<string, unknown>[];
 };
 
 function requireEnv(name: string): string {
@@ -937,7 +937,8 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       initialMembershipFacts?.shirtNumber === 10 &&
         initialMembershipFacts.position === "Provider Position" &&
-        (initialMembershipFacts.providerRaw.snapshot as
+        initialMembershipFacts.providerRaw.length === 1 &&
+        (initialMembershipFacts.providerRaw[0]?.snapshot as
           | { marker?: unknown }
           | undefined)?.marker === "initial",
       "current squad membership fields or raw player snapshot were not persisted",
@@ -1011,7 +1012,8 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       updatedMembershipFacts?.shirtNumber === null &&
         updatedMembershipFacts.position === "  Provider Owned Position  " &&
-        (updatedMembershipFacts.providerRaw.snapshot as
+        updatedMembershipFacts.providerRaw.length === 1 &&
+        (updatedMembershipFacts.providerRaw[0]?.snapshot as
           | { marker?: unknown }
           | undefined)?.marker === "updated",
       "membership provider-owned fields or raw snapshot did not update exactly",
@@ -1934,7 +1936,8 @@ async function verifySquadsProductionPoolRollback(
     );
     assertCondition(
       membershipAfterRollback?.position === "Provider Position" &&
-        (membershipAfterRollback.providerRaw.snapshot as
+        membershipAfterRollback.providerRaw.length === 1 &&
+        (membershipAfterRollback.providerRaw[0]?.snapshot as
           | { marker?: unknown }
           | undefined)?.marker === "initial",
       "squads production Pool rollback changed the prior membership snapshot",

@@ -14,10 +14,14 @@ import {
   type UpsertPlayerInput,
 } from "./squads-repository";
 
-type ParsedSquadPlayer = UpsertPlayerInput & {
+type ParsedProviderPlayer = UpsertPlayerInput & {
   shirtNumber: number | null;
   position: string;
   providerRaw: Record<string, unknown>;
+};
+
+type ParsedSquadPlayer = Omit<ParsedProviderPlayer, "providerRaw"> & {
+  providerRaw: Record<string, unknown>[];
 };
 
 type ParsedClubSquad = {
@@ -118,7 +122,7 @@ function providerFailure(
   };
 }
 
-function parsePlayer(rawPlayer: unknown): ParsedSquadPlayer | SerieASquadsSyncFailure {
+function parsePlayer(rawPlayer: unknown): ParsedProviderPlayer | SerieASquadsSyncFailure {
   if (!isRecord(rawPlayer)) {
     return failed(
       "api_football_malformed_squad_player",
@@ -158,6 +162,14 @@ function parsePlayer(rawPlayer: unknown): ParsedSquadPlayer | SerieASquadsSyncFa
   };
 }
 
+function withoutShirtNumber(
+  rawPlayer: Record<string, unknown>,
+): Record<string, unknown> {
+  const comparablePlayer = { ...rawPlayer };
+  delete comparablePlayer.number;
+  return comparablePlayer;
+}
+
 function parseSquadResponse(
   data: unknown,
   club: SerieASquadClub,
@@ -193,40 +205,69 @@ function parseSquadResponse(
     );
   }
 
-  const playersByProviderId = new Map<number, Record<string, unknown>>();
-  const parsedPlayers: ParsedSquadPlayer[] = [];
+  const playersByProviderId = new Map<number, ParsedProviderPlayer[]>();
 
   for (const rawPlayer of players) {
-    const providerPlayerId = isRecord(rawPlayer) ? positiveInteger(rawPlayer.id) : null;
-    const existingPlayer =
-      providerPlayerId === null ? undefined : playersByProviderId.get(providerPlayerId);
-
-    if (existingPlayer) {
-      if (isDeepStrictEqual(existingPlayer, rawPlayer)) {
-        continue;
-      }
-
-      console.error("api_football_duplicate_squad_player", {
-        team_id: club.providerClubId,
-        player_id: providerPlayerId,
-        first_player: existingPlayer,
-        conflicting_player: rawPlayer,
-      });
-
-      return failed(
-        "api_football_duplicate_squad_player",
-        "API-Football returned conflicting duplicate player data inside one current squad.",
-      );
-    }
-
     const parsed = parsePlayer(rawPlayer);
 
     if ("errorCode" in parsed) {
       return parsed;
     }
 
-    playersByProviderId.set(parsed.providerPlayerId, parsed.providerRaw);
-    parsedPlayers.push(parsed);
+    const playerGroup = playersByProviderId.get(parsed.providerPlayerId);
+
+    if (playerGroup) {
+      playerGroup.push(parsed);
+    } else {
+      playersByProviderId.set(parsed.providerPlayerId, [parsed]);
+    }
+  }
+
+  const parsedPlayers: ParsedSquadPlayer[] = [];
+
+  for (const playerGroup of playersByProviderId.values()) {
+    const firstPlayer = playerGroup[0];
+
+    if (!firstPlayer) {
+      throw new Error("Squad player group must not be empty");
+    }
+
+    const comparableFirstPlayer = withoutShirtNumber(firstPlayer.providerRaw);
+
+    for (const conflictingPlayer of playerGroup.slice(1)) {
+      if (
+        !isDeepStrictEqual(
+          comparableFirstPlayer,
+          withoutShirtNumber(conflictingPlayer.providerRaw),
+        )
+      ) {
+        console.error("api_football_duplicate_squad_player", {
+          team_id: club.providerClubId,
+          player_id: firstPlayer.providerPlayerId,
+          first_player: firstPlayer.providerRaw,
+          conflicting_player: conflictingPlayer.providerRaw,
+        });
+
+        return failed(
+          "api_football_duplicate_squad_player",
+          "API-Football returned conflicting duplicate player data inside one current squad.",
+        );
+      }
+    }
+
+    const hasShirtNumberAmbiguity = playerGroup.some(
+      (player) => !isDeepStrictEqual(firstPlayer.providerRaw, player.providerRaw),
+    );
+
+    parsedPlayers.push({
+      providerPlayerId: firstPlayer.providerPlayerId,
+      providerName: firstPlayer.providerName,
+      age: firstPlayer.age,
+      providerPhotoUrl: firstPlayer.providerPhotoUrl,
+      shirtNumber: hasShirtNumberAmbiguity ? null : firstPlayer.shirtNumber,
+      position: firstPlayer.position,
+      providerRaw: playerGroup.map((player) => player.providerRaw),
+    });
   }
 
   return { club, players: parsedPlayers };

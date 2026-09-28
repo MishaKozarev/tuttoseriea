@@ -42,7 +42,7 @@ export type UpsertSquadMembershipInput = {
   playerId: string;
   shirtNumber: number | null;
   position: string;
-  providerRaw: Record<string, unknown>;
+  providerRaw: Record<string, unknown>[];
 };
 
 function firstId(rows: IdRow[], label: string): string {
