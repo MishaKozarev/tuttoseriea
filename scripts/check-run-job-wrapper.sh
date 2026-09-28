@@ -10,6 +10,7 @@ source "${SCRIPT_DIR}/lib-run-job.sh"
 foundation_type="football.sync-serie-a-foundation"
 matches_type="football.sync-serie-a-matches"
 standings_type="football.sync-serie-a-standings"
+squads_type="football.sync-serie-a-squads"
 vds_common="${SCRIPT_DIR}/vds/tuttoseriea-run-job-common.sh"
 vds_reader="${SCRIPT_DIR}/vds/tuttoseriea-read-current-staging"
 vds_staging_dispatcher="${SCRIPT_DIR}/vds/tuttoseriea-ssh-staging"
@@ -47,6 +48,11 @@ if validate_run_job_type_for_environment production "$standings_type"; then
   error "PRODUCTION unexpectedly accepted the STAGING-only standings job type"
 fi
 
+if validate_run_job_type_for_environment staging "$squads_type" ||
+  validate_run_job_type_for_environment production "$squads_type"; then
+  error "Operational allowlists must defer the squads job type"
+fi
+
 for invalid_type in "${invalid_types[@]}"; do
   if validate_run_job_type_for_environment staging "$invalid_type" ||
     validate_run_job_type_for_environment production "$invalid_type"; then
@@ -76,6 +82,11 @@ grep -q 'football.sync-serie-a-matches' "${SCRIPT_DIR}/../.github/workflows/run-
   error "Staging run-job workflow does not whitelist the matches sync job"
 grep -q 'football.sync-serie-a-standings' "${SCRIPT_DIR}/../.github/workflows/run-job-staging.yml" ||
   error "Staging run-job workflow does not whitelist the standings sync job"
+if grep -q "$squads_type" "${SCRIPT_DIR}/lib-run-job.sh" ||
+  grep -q "$squads_type" "${SCRIPT_DIR}/../.github/workflows/run-job-staging.yml" ||
+  grep -q "$squads_type" "${SCRIPT_DIR}/../.github/workflows/run-job-production.yml"; then
+  error "Repository operational workflow must defer the squads job type"
+fi
 grep -q 'type: choice' "${SCRIPT_DIR}/../.github/workflows/run-job-production.yml" ||
   error "Production run-job workflow must use a choice input"
 grep -q 'football.sync-serie-a-foundation' "${SCRIPT_DIR}/../.github/workflows/run-job-production.yml" ||
@@ -112,6 +123,12 @@ fi
 
 if grep -Eq 'docker exec|eval|bash -c|sh -c' "$vds_common"; then
   error "VDS run-job script uses a forbidden execution primitive"
+fi
+
+if grep -q "$squads_type" "$vds_common" ||
+  grep -q "$squads_type" "$vds_staging_dispatcher" ||
+  grep -q "$squads_type" "$vds_sudoers"; then
+  error "Root-owned operational templates must defer the squads job type"
 fi
 
 bash -n "$vds_common"
@@ -184,6 +201,8 @@ for forbidden_command in \
   "run-job ${foundation_type} --season 2025" \
   "run-job ${matches_type} extra" \
   "run-job ${standings_type} extra" \
+  "run-job ${squads_type}" \
+  "run-job ${squads_type} extra" \
   "run-job ${foundation_type};uname" \
   "run-job ${foundation_type} && uname"; do
   reject_staging_dispatch "$forbidden_command"
@@ -223,6 +242,11 @@ fi
 
 if validate_job_type production "$standings_type"; then
   error "VDS common wrapper expanded the PRODUCTION allowlist to standings"
+fi
+
+if validate_job_type staging "$squads_type" ||
+  validate_job_type production "$squads_type"; then
+  error "VDS common wrapper must defer the squads job type"
 fi
 
 expected_sudoers=(
@@ -279,6 +303,7 @@ printf 'run_job_staging_matches_whitelisted=true\n'
 printf 'run_job_staging_standings_whitelisted=true\n'
 printf 'run_job_production_matches_rejected=true\n'
 printf 'run_job_production_standings_rejected=true\n'
+printf 'run_job_squads_operationally_deferred=true\n'
 printf 'run_job_staging_forced_command_contract=true\n'
 printf 'run_job_staging_sudoers_contract=true\n'
 printf 'run_job_staging_wrapper_generic=true\n'

@@ -298,3 +298,60 @@ export const footballStandings = footballSchema.table(
     ),
   }),
 );
+
+export const footballPlayers = footballSchema.table(
+  "players",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    provider: text("provider").notNull(),
+    providerPlayerId: integer("provider_player_id").notNull(),
+    providerName: text("provider_name").notNull(),
+    age: integer("age"),
+    providerPhotoUrl: text("provider_photo_url"),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (table) => ({
+    providerPlayerUnique: uniqueIndex("players_provider_player_id_unique").on(
+      table.provider,
+      table.providerPlayerId,
+    ),
+    agePositiveCheck: check(
+      "players_age_positive_check",
+      sql`${table.age} is null or ${table.age} > 0`,
+    ),
+  }),
+);
+
+export const footballSquadMemberships = footballSchema.table(
+  "squad_memberships",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    clubId: text("club_id")
+      .notNull()
+      .references(() => footballClubs.id, { onDelete: "restrict" }),
+    playerId: text("player_id")
+      .notNull()
+      .references(() => footballPlayers.id, { onDelete: "restrict" }),
+    shirtNumber: integer("shirt_number"),
+    position: text("position").notNull(),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (table) => ({
+    clubPlayerUnique: uniqueIndex("squad_memberships_club_player_unique").on(
+      table.clubId,
+      table.playerId,
+    ),
+    playerIndex: index("squad_memberships_player_id_idx").on(table.playerId),
+    shirtNumberNonnegativeCheck: check(
+      "squad_memberships_shirt_number_nonnegative_check",
+      sql`${table.shirtNumber} is null or ${table.shirtNumber} >= 0`,
+    ),
+  }),
+);

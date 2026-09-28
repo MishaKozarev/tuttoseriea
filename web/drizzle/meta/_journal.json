@@ -50,6 +50,13 @@
       "when": 1790530869791,
       "tag": "0006_chief_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790542436519,
+      "tag": "0007_lean_madame_hydra",
+      "breakpoints": true
     }
   ]
 }

@@ -292,7 +292,7 @@ async function assertNoUnexpectedFootballTablePrivileges(
           join pg_namespace n on n.oid = c.relnamespace
           where n.nspname = 'football'
             and c.relkind in ('r', 'p', 'v', 'm', 'f')
-            and c.relname not in ('competitions', 'seasons', 'clubs', 'season_clubs', 'matches', 'standings')
+            and c.relname not in ('competitions', 'seasons', 'clubs', 'season_clubs', 'matches', 'standings', 'players', 'squad_memberships')
             and (
               has_table_privilege(current_user, c.oid, 'SELECT')
               or has_table_privilege(current_user, c.oid, 'INSERT')
@@ -322,6 +322,7 @@ async function assertFootballAccess(db: ReturnType<typeof getDb>): Promise<void>
     "season_clubs",
     "matches",
     "standings",
+    "players",
   ]) {
     await assertExactTablePrivileges(db, "football", tableName, [
       "SELECT",
@@ -329,6 +330,13 @@ async function assertFootballAccess(db: ReturnType<typeof getDb>): Promise<void>
       "UPDATE",
     ]);
   }
+
+  await assertExactTablePrivileges(db, "football", "squad_memberships", [
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+  ]);
 
   await assertNoUnexpectedFootballTablePrivileges(db);
 }
@@ -474,7 +482,7 @@ async function main(): Promise<void> {
   console.log("runtime_role_ddl_denied=true");
   console.log("identity_role_table_grants=select_only");
   console.log("jobs_role_table_grants=select_insert_update");
-  console.log("football_role_table_grants=select_insert_update");
+  console.log("football_role_table_grants=exact");
 }
 
 main()

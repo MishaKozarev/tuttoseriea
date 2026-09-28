@@ -80,6 +80,14 @@ const footballTablePrivileges = [
     tableName: "standings",
     privileges: ["SELECT", "INSERT", "UPDATE"],
   },
+  {
+    tableName: "players",
+    privileges: ["SELECT", "INSERT", "UPDATE"],
+  },
+  {
+    tableName: "squad_memberships",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+  },
 ];
 
 async function loadLocalEnvFiles() {
@@ -732,7 +740,7 @@ async function main() {
     console.log("auth_table_grants=exact");
     console.log("identity_table_grants=select_only");
     console.log("jobs_table_grants=select_insert_update");
-    console.log("football_table_grants=select_insert_update");
+    console.log("football_table_grants=exact");
     console.log("application_role_superuser=false");
     console.log("application_role_create_schema=false");
     console.log("application_role_default_privileges=false");

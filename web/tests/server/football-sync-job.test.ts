@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   syncSerieAStandings: vi.fn(async () => {
     throw new Error("forced standings failure");
   }),
+  syncSerieASquads: vi.fn(async () => ({ status: "success" as const })),
 }));
 
 vi.mock("pg", () => ({
@@ -31,7 +32,14 @@ vi.mock("@/src/football/serie-a-standings-sync", () => ({
   syncSerieAStandings: mocks.syncSerieAStandings,
 }));
 
-import { syncSerieAStandingsJob } from "@/src/jobs/football-sync";
+vi.mock("@/src/football/serie-a-squads-sync", () => ({
+  syncSerieASquads: mocks.syncSerieASquads,
+}));
+
+import {
+  syncSerieASquadsJob,
+  syncSerieAStandingsJob,
+} from "@/src/jobs/football-sync";
 import type { JobExecutionContext } from "@/src/jobs/types";
 
 describe("Football sync job request accounting", () => {
@@ -45,7 +53,27 @@ describe("Football sync job request accounting", () => {
     mocks.createApiFootballClient.mockClear();
     mocks.end.mockClear();
     mocks.getRequestAttemptCount.mockClear();
+    mocks.getRequestAttemptCount.mockReturnValue(3);
     mocks.syncSerieAStandings.mockClear();
+    mocks.syncSerieASquads.mockClear();
+  });
+
+  it("logs the 20-request current-squads total exactly once on success", async () => {
+    mocks.getRequestAttemptCount.mockReturnValue(20);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const context = {
+      heartbeat: vi.fn(async () => undefined),
+    } as unknown as JobExecutionContext;
+
+    await expect(syncSerieASquadsJob.handle(context)).resolves.toEqual({
+      status: "success",
+    });
+
+    expect(mocks.syncSerieASquads).toHaveBeenCalledOnce();
+    expect(mocks.getRequestAttemptCount).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("api_football_requests=20");
+    expect(mocks.end).toHaveBeenCalledOnce();
   });
 
   afterEach(() => {

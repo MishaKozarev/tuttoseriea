@@ -178,6 +178,23 @@ Stage 4.4 LOCAL implementation. The accepted starting refresh policy is
 approximately hourly through future controlled scheduling; Stage 4.4 stores
 only current state and adds no standings history or snapshot timeline.
 
+Stage 4.5 adds stable provider player entities in `football.players` and the
+latest known current-club membership state in `football.squad_memberships`.
+The fixed-argument `football.sync-serie-a-squads` job resolves the exact 20
+clubs from the persisted Serie A 2026 season scope, then calls only
+`/players/squads?team=<provider_team_id>` once per club on a clean run. The
+provider endpoint is not season-aware: season `2026` scopes the clubs to sync
+but does not make a membership historical season evidence.
+
+All 20 provider responses are fetched and validated before mutation. Players
+are upserted by provider identity and current memberships are reconciled in one
+transaction; stale memberships are deleted while stable player rows remain.
+Membership `position` is retained as the provider-owned string after runtime
+type/structure validation, without a closed application enum or normalization.
+Each membership retains the complete player object in non-null `provider_raw`.
+No historical squad snapshots, player statistics or public player/club squad
+pages are introduced in this stage.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 
@@ -213,8 +230,10 @@ For `jobs.executions`, the runtime role receives only `SELECT`, `INSERT` and
 `UPDATE`. It does not receive `DELETE`, schema `CREATE`, sequence privileges or
 default privileges.
 
-For the managed Football tables, the runtime role receives only `SELECT`,
-`INSERT` and `UPDATE`. It does not receive `DELETE`, schema `CREATE`, sequence
+For the managed Football tables, the runtime role receives only the exact DML
+needed by each table. `football.squad_memberships` additionally receives
+`DELETE` for current-state reconciliation; unrelated Football tables, including
+`football.players`, do not. The role does not receive schema `CREATE`, sequence
 privileges or default privileges.
 
 The production image contains the migration runner and Drizzle migration
@@ -382,11 +401,12 @@ verify shared job create/claim/finalize, retry scheduling, duplicate active
 no-op behavior, stale recovery and heartbeat/fencing loss.
 
 `db:football:check` uses fake API-Football responses against real PostgreSQL to
-verify the competition/season/club foundation and full-season match sync,
-repeated sync idempotency, provider identity uniqueness, ownership rules,
-provider-field and complete snapshot updates, all-or-nothing behavior, public
-listing queries, runtime grants and the shared job runner path. It rolls back
-its domain fixtures and does not call the real provider.
+verify the competition/season/club foundation, matches, standings and current
+squads. It covers repeated-sync idempotency, provider identity uniqueness,
+ownership rules, provider-field and complete snapshot updates, current
+membership reconciliation, real `Pool` rollback paths, exact runtime grants,
+public listing queries and the shared job runner path. It cleans or rolls back
+its controlled domain fixtures and does not call the real provider.
 
 ## Operational Jobs
 
