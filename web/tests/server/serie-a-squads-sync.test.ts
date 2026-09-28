@@ -168,10 +168,37 @@ describe("Serie A current squads synchronization", () => {
 
     expect(values[3]).toBeNull();
     expect(values[4]).toBe("  Provider Owned Position  ");
-    expect(JSON.parse(String(values[5]))).toMatchObject({
+    const providerRaw = JSON.parse(String(values[5])) as Record<string, unknown>[];
+    expect(providerRaw).toHaveLength(1);
+    expect(providerRaw[0]).toMatchObject({
       providerMarker: "raw-900000",
       position: "  Provider Owned Position  ",
     });
+  });
+
+  it("retains an unambiguous shirt number and a one-record raw array", async () => {
+    const database = transactionClient();
+    const player = createPlayer(900_000, { number: 74 });
+    const fake = createFakeClient((providerClubId) =>
+      createSquadResponse(
+        providerClubId,
+        providerClubId === 900_000 ? [player] : [createPlayer(providerClubId)],
+      ),
+    );
+
+    await expect(
+      syncSerieASquads({ client: fake.client, transactionClient: database.client }),
+    ).resolves.toMatchObject({ status: "success" });
+
+    const membershipCall = database.query.mock.calls.find(
+      ([queryText, values]) =>
+        queryText.includes("insert into football.squad_memberships") &&
+        (values as readonly unknown[] | undefined)?.[1] === "club-0",
+    );
+    const values = membershipCall?.[1] as readonly unknown[];
+
+    expect(values[3]).toBe(74);
+    expect(JSON.parse(String(values[5]))).toEqual([player]);
   });
 
   it.each([null, {}])("fails cleanly for malformed response: %j", async (response) => {
@@ -242,13 +269,56 @@ describe("Serie A current squads synchronization", () => {
         (values as readonly unknown[] | undefined)?.[1] === "club-0",
     );
     expect(firstClubMemberships).toHaveLength(1);
+    const values = firstClubMemberships[0]?.[1] as readonly unknown[];
+    expect(values[3]).toBe(10);
+    expect(JSON.parse(String(values[5]))).toEqual([
+      createPlayer(900_000),
+      createPlayer(900_000),
+    ]);
   });
 
-  it("rejects conflicting complete player objects and logs only safe diagnostic context", async () => {
+  it.each([
+    { label: "two", numbers: [74, 50] },
+    { label: "more than two", numbers: [74, 50, 62] },
+  ])(
+    "collapses $label number-only variants and preserves every raw record",
+    async ({ numbers }) => {
+      const database = transactionClient();
+      const players = numbers.map((number) => createPlayer(900_000, { number }));
+      const fake = createFakeClient((providerClubId) =>
+        createSquadResponse(
+          providerClubId,
+          providerClubId === 900_000 ? players : [createPlayer(providerClubId)],
+        ),
+      );
+
+      await expect(
+        syncSerieASquads({ client: fake.client, transactionClient: database.client }),
+      ).resolves.toEqual({
+        status: "success",
+        clubCount: 20,
+        playerCount: 20,
+        membershipCount: 20,
+      });
+
+      const firstClubMemberships = database.query.mock.calls.filter(
+        ([queryText, values]) =>
+          queryText.includes("insert into football.squad_memberships") &&
+          (values as readonly unknown[] | undefined)?.[1] === "club-0",
+      );
+      expect(firstClubMemberships).toHaveLength(1);
+
+      const values = firstClubMemberships[0]?.[1] as readonly unknown[];
+      expect(values[3]).toBeNull();
+      expect(JSON.parse(String(values[5]))).toEqual(players);
+    },
+  );
+
+  it("rejects conflicting non-number fields and logs only safe diagnostic context", async () => {
     const database = transactionClient();
-    const firstPlayer = createPlayer(900_000, { futureProviderField: "first" });
+    const firstPlayer = createPlayer(900_000, { position: "Goalkeeper" });
     const conflictingPlayer = createPlayer(900_000, {
-      futureProviderField: "conflicting",
+      position: "Midfielder",
     });
     const fake = createFakeClient((providerClubId) =>
       createSquadResponse(providerClubId, [firstPlayer, conflictingPlayer]),

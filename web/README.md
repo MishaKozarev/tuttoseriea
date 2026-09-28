@@ -191,7 +191,11 @@ are upserted by provider identity and current memberships are reconciled in one
 transaction; stale memberships are deleted while stable player rows remain.
 Membership `position` is retained as the provider-owned string after runtime
 type/structure validation, without a closed application enum or normalization.
-Each membership retains the complete player object in non-null `provider_raw`.
+Each membership retains a non-null `provider_raw` array containing every
+complete provider player record for that club/player group. A single record or
+fully identical duplicates preserve their common shirt number; duplicates that
+differ only by `number` produce one membership with a null shirt number. Any
+other difference is a terminal provider data-contract failure.
 No historical squad snapshots, player statistics or public player/club squad
 pages are introduced in this stage.
 
