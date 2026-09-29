@@ -19,7 +19,7 @@ const standing: CurrentSerieAStanding = {
   goalsDiff: 24,
   form: "WWDLW",
   providerStatus: "same",
-  description: "Champions League",
+  description: "Champions League league stage",
   overall: { played: 25, wins: 19, draws: 6, losses: 0, goalsFor: 50, goalsAgainst: 26 },
   home: { played: 13, wins: 10, draws: 3, losses: 0, goalsFor: 30, goalsAgainst: 12 },
   away: { played: 12, wins: 9, draws: 3, losses: 0, goalsFor: 20, goalsAgainst: 14 },

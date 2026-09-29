@@ -150,6 +150,7 @@ export function formatMatchRound(providerRound: string): string {
 
 const standingsDescriptionLabelsRu = new Map([
   ["Champions League", "Лига чемпионов"],
+  ["Champions League league stage", "Лига чемпионов"],
   ["Europa League", "Лига Европы"],
 ]);
 
