@@ -308,7 +308,16 @@ export const footballPlayers = footballSchema.table(
     provider: text("provider").notNull(),
     providerPlayerId: integer("provider_player_id").notNull(),
     providerName: text("provider_name").notNull(),
+    firstname: text("firstname"),
+    lastname: text("lastname"),
     age: integer("age"),
+    birthDate: date("birth_date", { mode: "string" }),
+    birthPlace: text("birth_place"),
+    birthCountry: text("birth_country"),
+    nationality: text("nationality"),
+    height: text("height"),
+    weight: text("weight"),
+    injured: boolean("injured"),
     providerPhotoUrl: text("provider_photo_url"),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
@@ -322,6 +331,76 @@ export const footballPlayers = footballSchema.table(
       "players_age_positive_check",
       sql`${table.age} is null or ${table.age} > 0`,
     ),
+  }),
+);
+
+export const footballPlayerStatistics = footballSchema.table(
+  "player_statistics",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    seasonId: text("season_id").notNull(),
+    clubId: text("club_id").notNull(),
+    playerId: text("player_id")
+      .notNull()
+      .references(() => footballPlayers.id, { onDelete: "restrict" }),
+    appearances: integer("appearances"),
+    lineups: integer("lineups"),
+    minutes: integer("minutes"),
+    shirtNumber: integer("shirt_number"),
+    position: text("position"),
+    rating: text("rating"),
+    captain: boolean("captain"),
+    substitutesIn: integer("substitutes_in"),
+    substitutesOut: integer("substitutes_out"),
+    substitutesBench: integer("substitutes_bench"),
+    shotsTotal: integer("shots_total"),
+    shotsOn: integer("shots_on"),
+    goalsTotal: integer("goals_total"),
+    goalsConceded: integer("goals_conceded"),
+    goalsAssists: integer("goals_assists"),
+    passesTotal: integer("passes_total"),
+    passesKey: integer("passes_key"),
+    passesAccuracy: integer("passes_accuracy"),
+    tacklesTotal: integer("tackles_total"),
+    tacklesBlocks: integer("tackles_blocks"),
+    tacklesInterceptions: integer("tackles_interceptions"),
+    duelsTotal: integer("duels_total"),
+    duelsWon: integer("duels_won"),
+    dribblesAttempts: integer("dribbles_attempts"),
+    dribblesSuccess: integer("dribbles_success"),
+    foulsDrawn: integer("fouls_drawn"),
+    foulsCommitted: integer("fouls_committed"),
+    cardsYellow: integer("cards_yellow"),
+    cardsYellowRed: integer("cards_yellow_red"),
+    cardsRed: integer("cards_red"),
+    penaltyCommitted: integer("penalty_committed"),
+    penaltyScored: integer("penalty_scored"),
+    penaltyMissed: integer("penalty_missed"),
+    playerRaw: jsonb("player_raw").$type<Record<string, unknown>>().notNull(),
+    statisticsRaw: jsonb("statistics_raw")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (table) => ({
+    seasonClubPlayerUnique: uniqueIndex(
+      "player_statistics_season_club_player_unique",
+    ).on(table.seasonId, table.clubId, table.playerId),
+    playerIndex: index("player_statistics_player_id_idx").on(table.playerId),
+    clubIndex: index("player_statistics_club_id_idx").on(table.clubId),
+    seasonFk: foreignKey({
+      name: "player_statistics_season_id_seasons_id_fk",
+      columns: [table.seasonId],
+      foreignColumns: [footballSeasons.id],
+    }).onDelete("restrict"),
+    seasonClubFk: foreignKey({
+      name: "player_statistics_season_club_fk",
+      columns: [table.seasonId, table.clubId],
+      foreignColumns: [footballSeasonClubs.seasonId, footballSeasonClubs.clubId],
+    }).onDelete("restrict"),
   }),
 );
 

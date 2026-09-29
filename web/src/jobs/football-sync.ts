@@ -10,6 +10,8 @@ import {
   SERIE_A_FOUNDATION_JOB_TYPE,
   SERIE_A_MATCHES_IDEMPOTENCY_KEY,
   SERIE_A_MATCHES_JOB_TYPE,
+  SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
+  SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
   SERIE_A_PROVIDER_LEAGUE_ID,
   SERIE_A_SQUADS_IDEMPOTENCY_KEY,
   SERIE_A_SQUADS_JOB_TYPE,
@@ -18,6 +20,7 @@ import {
 } from "../football/foundation";
 import { syncSerieAFoundation } from "../football/serie-a-foundation-sync";
 import { syncSerieAMatches } from "../football/serie-a-matches-sync";
+import { syncSerieAPlayerStatistics } from "../football/serie-a-player-statistics-sync";
 import { syncSerieASquads } from "../football/serie-a-squads-sync";
 import { syncSerieAStandings } from "../football/serie-a-standings-sync";
 import {
@@ -170,6 +173,35 @@ export const syncSerieASquadsJob: JobDefinition = {
   handle: async (context) =>
     runFootballSync(async (client, pool) => {
       return syncSerieASquads({
+        client,
+        pool,
+        heartbeat: context.heartbeat,
+      });
+    }),
+};
+
+export const syncSerieAPlayerStatisticsJob: JobDefinition = {
+  type: SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
+  parseArguments: (args) => {
+    if (args.length !== 0) {
+      throw new JobUsageError(
+        `${SERIE_A_PLAYER_STATISTICS_JOB_TYPE} does not accept job arguments`,
+      );
+    }
+
+    return {
+      idempotencyKey: SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
+      payload: {
+        provider: "api-football",
+        leagueId: SERIE_A_PROVIDER_LEAGUE_ID,
+        season: SERIE_A_CURRENT_SEASON,
+        scope: "player-statistics",
+      },
+    };
+  },
+  handle: async (context) =>
+    runFootballSync(async (client, pool) => {
+      return syncSerieAPlayerStatistics({
         client,
         pool,
         heartbeat: context.heartbeat,

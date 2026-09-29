@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     throw new Error("forced standings failure");
   }),
   syncSerieASquads: vi.fn(async () => ({ status: "success" as const })),
+  syncSerieAPlayerStatistics: vi.fn(async () => ({ status: "success" as const })),
 }));
 
 vi.mock("pg", () => ({
@@ -28,6 +29,10 @@ vi.mock("@/src/football/serie-a-matches-sync", () => ({
   syncSerieAMatches: vi.fn(),
 }));
 
+vi.mock("@/src/football/serie-a-player-statistics-sync", () => ({
+  syncSerieAPlayerStatistics: mocks.syncSerieAPlayerStatistics,
+}));
+
 vi.mock("@/src/football/serie-a-standings-sync", () => ({
   syncSerieAStandings: mocks.syncSerieAStandings,
 }));
@@ -37,6 +42,7 @@ vi.mock("@/src/football/serie-a-squads-sync", () => ({
 }));
 
 import {
+  syncSerieAPlayerStatisticsJob,
   syncSerieASquadsJob,
   syncSerieAStandingsJob,
 } from "@/src/jobs/football-sync";
@@ -56,6 +62,25 @@ describe("Football sync job request accounting", () => {
     mocks.getRequestAttemptCount.mockReturnValue(3);
     mocks.syncSerieAStandings.mockClear();
     mocks.syncSerieASquads.mockClear();
+    mocks.syncSerieAPlayerStatistics.mockClear();
+  });
+
+  it("logs the paginated player-statistics request total exactly once", async () => {
+    mocks.getRequestAttemptCount.mockReturnValue(7);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const context = {
+      heartbeat: vi.fn(async () => undefined),
+    } as unknown as JobExecutionContext;
+
+    await expect(syncSerieAPlayerStatisticsJob.handle(context)).resolves.toEqual({
+      status: "success",
+    });
+
+    expect(mocks.syncSerieAPlayerStatistics).toHaveBeenCalledOnce();
+    expect(mocks.getRequestAttemptCount).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("api_football_requests=7");
+    expect(mocks.end).toHaveBeenCalledOnce();
   });
 
   it("logs the 20-request current-squads total exactly once on success", async () => {
