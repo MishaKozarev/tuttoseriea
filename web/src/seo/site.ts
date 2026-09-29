@@ -113,6 +113,20 @@ export const tableMetadata: Metadata = {
   },
 };
 
+export function buildClubMetadata(club: {
+  slug: string;
+  displayName: string;
+  seasonLabel: string;
+}): Metadata {
+  return {
+    title: club.displayName,
+    description: `${club.displayName}: состав, матчи и статистика в Серии A ${club.seasonLabel}.`,
+    alternates: {
+      canonical: `/clubs/${club.slug}`,
+    },
+  };
+}
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -135,7 +149,10 @@ export function buildRobots(env: RuntimeEnv = process.env): MetadataRoute.Robots
   };
 }
 
-export function buildSitemap(env: RuntimeEnv = process.env): MetadataRoute.Sitemap {
+export function buildSitemap(
+  env: RuntimeEnv = process.env,
+  clubSlugs: readonly string[] = [],
+): MetadataRoute.Sitemap {
   return [
     {
       url: createSiteUrl("/", env),
@@ -149,5 +166,8 @@ export function buildSitemap(env: RuntimeEnv = process.env): MetadataRoute.Sitem
     {
       url: createSiteUrl("/table", env),
     },
+    ...clubSlugs.map((slug) => ({
+      url: createSiteUrl(`/clubs/${slug}`, env),
+    })),
   ];
 }

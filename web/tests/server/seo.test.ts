@@ -10,6 +10,7 @@ import { metadata as tablePageMetadata } from "@/app/(public)/table/page";
 import {
   SITE_DESCRIPTION,
   SITE_NAME,
+  buildClubMetadata,
   buildRobots,
   buildRootMetadata,
   buildSitemap,
@@ -99,6 +100,22 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("builds indexable metadata for a canonical club slug", () => {
+    expect(
+      buildClubMetadata({
+        slug: "ac-milan-489",
+        displayName: "Милан",
+        seasonLabel: "2026/27",
+      }),
+    ).toEqual({
+      title: "Милан",
+      description: "Милан: состав, матчи и статистика в Серии A 2026/27.",
+      alternates: {
+        canonical: "/clubs/ac-milan-489",
+      },
+    });
+  });
+
   it("marks the admin subtree as noindex and nofollow", () => {
     expect(adminMetadata.robots).toEqual({
       index: false,
@@ -127,19 +144,26 @@ describe("site SEO configuration", () => {
   });
 
   it("includes only existing preferred public URLs in the sitemap", () => {
-    const sitemap = buildSitemap({
-      AUTH_URL: "https://tuttoseriea.com",
-      NODE_ENV: "production",
-    });
+    const sitemap = buildSitemap(
+      {
+        AUTH_URL: "https://tuttoseriea.com",
+        NODE_ENV: "production",
+      },
+      ["ac-milan-489", "inter-505"],
+    );
 
     expect(sitemap).toEqual([
       { url: "https://tuttoseriea.com/" },
       { url: "https://tuttoseriea.com/clubs" },
       { url: "https://tuttoseriea.com/calendar" },
       { url: "https://tuttoseriea.com/table" },
+      { url: "https://tuttoseriea.com/clubs/ac-milan-489" },
+      { url: "https://tuttoseriea.com/clubs/inter-505" },
     ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",
     );
+    expect(sitemap.some((entry) => entry.url.includes("/players/"))).toBe(false);
+    expect(sitemap.some((entry) => entry.url.includes("/matches/"))).toBe(false);
   });
 });

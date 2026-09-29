@@ -45,6 +45,12 @@ test("web public shell smoke", async ({ page, request }) => {
   expect(sitemap).not.toContain("/news");
   expect(sitemap).not.toContain("/articles");
 
+  const unknownClubResponse = await request.get("/clubs/not-a-real-club");
+  const unknownClubHtml = await unknownClubResponse.text();
+
+  expect(unknownClubResponse.status()).toBe(404);
+  expect(unknownClubHtml).toContain('name="robots" content="noindex"');
+
   await page.goto("/calendar");
 
   await expect(page.getByRole("heading", { name: "Календарь Серии А" })).toBeVisible();

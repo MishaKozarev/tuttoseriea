@@ -242,6 +242,19 @@ use bounded formatters while preserving unknown provider values. No generic
 translation table, AI localization, admin/editorial localization workflow,
 city/venue localization or Stage 4.7/4.8 UI is introduced here.
 
+Stage 4.7.1 adds the indexable DB-only Club Page at `/clubs/[slug]`. It uses the
+stable application-owned club slug and is explicitly scoped to the persisted
+Serie A league `135` / season `2026` participation. The page combines the club
+profile, optional current standing, five recent and five upcoming fixtures, and
+the current `squad_memberships` roster with a small matching current-season
+statistics set. Every dataset degrades independently, and public requests never
+call API-Football. Current squad membership remains current-state data rather
+than historical season evidence. Player and Match detail links are not added. A
+route-specific Next.js Proxy existence check runs only for one-segment Club
+detail paths so an unknown slug receives a real HTTP `404` before the root
+loading boundary starts streaming; the page still owns the authoritative read
+and `notFound()` behavior.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 
@@ -617,10 +630,11 @@ appropriate layer per view without changing the baseline shell.
 The Stage 3 site-level SEO foundation uses Next.js Metadata API, `robots.ts` and
 `sitemap.ts`. Root layout metadata defines only site-wide defaults such as
 `metadataBase`, title template and Russian description. The current public home
-route owns canonical `/`; the Clubs and Calendar listings own canonical
-`/clubs` and `/calendar`. Admin/private surfaces under `/admin` are explicitly
-`noindex`/`nofollow`, and the sitemap currently contains only existing preferred
-public URLs: `/`, `/clubs` and `/calendar`.
+route owns canonical `/`; the Clubs, Calendar and Table listings own their page
+canonicals. Club entity pages own canonical `/clubs/[slug]`. Admin/private
+surfaces under `/admin` are explicitly `noindex`/`nofollow`. The dynamic sitemap
+contains the static public routes `/`, `/clubs`, `/calendar` and `/table`, plus
+current Serie A club URLs read from PostgreSQL rather than a hardcoded list.
 
 No product features, business seed data, real auth provider, registration flow,
 AI business workflows or service-specific domain logic are part of this

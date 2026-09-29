@@ -5,6 +5,11 @@ import pg from "pg";
 
 import type { ApiFootballClient, ApiFootballResult } from "../src/football/api-football/node";
 import {
+  currentSerieAClubSlugExists,
+  getCurrentSerieAClubPageData,
+  listCurrentSerieAClubSlugs,
+} from "../src/football/club-page-repository";
+import {
   SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
   SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
 } from "../src/football/foundation";
@@ -1898,6 +1903,46 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
       listedMatches.some((match) => match.homeClub.displayName === "Милан"),
       "public match listing did not use application-owned club display name",
     );
+
+    const clubPageData = await getCurrentSerieAClubPageData(client, "milan-manual");
+
+    assertCondition(clubPageData, "current Serie A Club Page read model was not found");
+    assertCondition(
+      clubPageData.club.displayName === "Милан" &&
+        clubPageData.competition.displayName === "Серия А" &&
+        clubPageData.season.displayLabel === "2026/27",
+      "Club Page profile did not preserve reviewed localization or current season scope",
+    );
+    assertCondition(
+      clubPageData.standing?.rank === listedMilanStanding.rank,
+      "Club Page standing mismatch",
+    );
+    assertCondition(
+      clubPageData.recentMatches.length > 0 && clubPageData.upcomingMatches.length > 0,
+      "Club Page bounded match sections were not populated",
+    );
+    assertCondition(clubPageData.squad.length > 0, "Club Page current squad was not populated");
+    assertCondition(
+      await getCurrentSerieAClubPageData(client, "unknown-club") === null,
+      "unknown Club Page slug did not return null",
+    );
+    assertCondition(
+      await currentSerieAClubSlugExists(client, "milan-manual"),
+      "current Serie A Club Page slug existence check failed",
+    );
+    assertCondition(
+      !(await currentSerieAClubSlugExists(client, "unknown-club")),
+      "unknown Club Page slug passed the existence check",
+    );
+
+    const clubPageSlugs = await listCurrentSerieAClubSlugs(client);
+
+    assertCondition(
+      clubPageSlugs.length === listedClubs.length &&
+        clubPageSlugs.includes("milan-manual") &&
+        clubPageSlugs.includes("missing-provider-club-999999"),
+      "Club Page sitemap slug scope mismatch",
+    );
   } finally {
     if (transactionStarted) {
       await client.query("rollback");
@@ -3028,6 +3073,8 @@ async function main(): Promise<void> {
     console.log("football_player_statistics_snapshot_reconciled=true");
     console.log("football_player_statistics_complete_raw_snapshot=true");
     console.log("football_player_statistics_production_pool_rollback=true");
+    console.log("football_club_page_read_model=true");
+    console.log("football_club_page_sitemap_scope=true");
     console.log("football_runtime_grants_exact=true");
     console.log("football_runtime_membership_delete=true");
     console.log("football_runtime_player_statistics_delete=true");

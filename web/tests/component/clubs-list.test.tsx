@@ -38,5 +38,8 @@ describe("ClubsList", () => {
 
     expect(screen.getByText("Милан")).toBeTruthy();
     expect(screen.getByText("MIL · Италия")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Милан/u }).getAttribute("href")).toBe(
+      "/clubs/milan-manual",
+    );
   });
 });
