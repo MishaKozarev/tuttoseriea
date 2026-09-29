@@ -11,6 +11,7 @@ foundation_type="football.sync-serie-a-foundation"
 matches_type="football.sync-serie-a-matches"
 standings_type="football.sync-serie-a-standings"
 squads_type="football.sync-serie-a-squads"
+player_statistics_type="football.sync-serie-a-player-statistics"
 vds_common="${SCRIPT_DIR}/vds/tuttoseriea-run-job-common.sh"
 vds_reader="${SCRIPT_DIR}/vds/tuttoseriea-read-current-staging"
 vds_staging_dispatcher="${SCRIPT_DIR}/vds/tuttoseriea-ssh-staging"
@@ -22,6 +23,7 @@ invalid_types=(
   "football.sync-serie-a-matches --round 1"
   "football.sync-serie-a-standings --season 2025"
   "football.sync-serie-a-squads --team 1"
+  "football.sync-serie-a-player-statistics --page 1"
   "football.sync-serie-a-foundation;uname"
   "football.sync-serie-a-foundation$(printf '\n')echo"
   "football.sync-other"
@@ -35,11 +37,13 @@ validate_run_job_type_for_environment staging "$standings_type" ||
   error "STAGING standings run-job type was rejected"
 validate_run_job_type_for_environment staging "$squads_type" ||
   error "STAGING squads run-job type was rejected"
+validate_run_job_type_for_environment staging "$player_statistics_type" ||
+  error "STAGING player-statistics run-job type was rejected"
 validate_run_job_type_for_environment production "$foundation_type" ||
   error "PRODUCTION foundation run-job type was rejected"
 
-[[ "${#RUN_JOB_STAGING_ALLOWED_TYPES[@]}" -eq 4 ]] ||
-  error "STAGING repository allowlist must contain exactly four job types"
+[[ "${#RUN_JOB_STAGING_ALLOWED_TYPES[@]}" -eq 5 ]] ||
+  error "STAGING repository allowlist must contain exactly five job types"
 [[ "${#RUN_JOB_PRODUCTION_ALLOWED_TYPES[@]}" -eq 1 ]] ||
   error "PRODUCTION repository allowlist must contain exactly one job type"
 
@@ -53,6 +57,10 @@ fi
 
 if validate_run_job_type_for_environment production "$squads_type"; then
   error "PRODUCTION unexpectedly accepted the STAGING-only squads job type"
+fi
+
+if validate_run_job_type_for_environment production "$player_statistics_type"; then
+  error "PRODUCTION unexpectedly accepted the STAGING-only player-statistics job type"
 fi
 
 for invalid_type in "${invalid_types[@]}"; do
@@ -86,6 +94,8 @@ grep -q 'football.sync-serie-a-standings' "${SCRIPT_DIR}/../.github/workflows/ru
   error "Staging run-job workflow does not whitelist the standings sync job"
 grep -q 'football.sync-serie-a-squads' "${SCRIPT_DIR}/../.github/workflows/run-job-staging.yml" ||
   error "Staging run-job workflow does not whitelist the squads sync job"
+grep -q 'football.sync-serie-a-player-statistics' "${SCRIPT_DIR}/../.github/workflows/run-job-staging.yml" ||
+  error "Staging run-job workflow does not whitelist the player-statistics sync job"
 grep -q 'type: choice' "${SCRIPT_DIR}/../.github/workflows/run-job-production.yml" ||
   error "Production run-job workflow must use a choice input"
 grep -q 'football.sync-serie-a-foundation' "${SCRIPT_DIR}/../.github/workflows/run-job-production.yml" ||
@@ -103,6 +113,10 @@ if grep -q 'football.sync-serie-a-squads' "${SCRIPT_DIR}/../.github/workflows/ru
   error "Production run-job workflow must not whitelist the STAGING-only squads sync job"
 fi
 
+if grep -q 'football.sync-serie-a-player-statistics' "${SCRIPT_DIR}/../.github/workflows/run-job-production.yml"; then
+  error "Production run-job workflow must not whitelist the STAGING-only player-statistics sync job"
+fi
+
 for required_fragment in \
   "read_current_release" \
   "/usr/local/sbin/tuttoseriea-read-current-staging" \
@@ -110,6 +124,7 @@ for required_fragment in \
   "football.sync-serie-a-matches" \
   "football.sync-serie-a-standings" \
   "football.sync-serie-a-squads" \
+  "football.sync-serie-a-player-statistics" \
   "ghcr.io/mishakozarev/tuttoseriea/web" \
   "--pull never" \
   "--env-file \"\$runtime_env\"" \
@@ -185,6 +200,9 @@ assert_staging_dispatch \
   "run-job ${squads_type}" \
   $'-n\n/usr/local/sbin/tuttoseriea-run-job-staging\nfootball.sync-serie-a-squads'
 assert_staging_dispatch \
+  "run-job ${player_statistics_type}" \
+  $'-n\n/usr/local/sbin/tuttoseriea-run-job-staging\nfootball.sync-serie-a-player-statistics'
+assert_staging_dispatch \
   "deploy ${sha} ${web_digest}" \
   "$(printf '%s\n' -n /usr/local/sbin/tuttoseriea-deploy-staging "$sha" "$web_digest")"
 assert_staging_dispatch \
@@ -203,6 +221,7 @@ for forbidden_command in \
   "run-job ${matches_type} extra" \
   "run-job ${standings_type} extra" \
   "run-job ${squads_type} extra" \
+  "run-job ${player_statistics_type} extra" \
   "run-job ${foundation_type};uname" \
   "run-job ${foundation_type} && uname"; do
   reject_staging_dispatch "$forbidden_command"
@@ -228,6 +247,8 @@ validate_job_type staging "$standings_type" ||
   error "VDS common wrapper rejected the STAGING standings type"
 validate_job_type staging "$squads_type" ||
   error "VDS common wrapper rejected the STAGING squads type"
+validate_job_type staging "$player_statistics_type" ||
+  error "VDS common wrapper rejected the STAGING player-statistics type"
 validate_job_type production "$foundation_type" ||
   error "VDS common wrapper rejected the PRODUCTION foundation type"
 
@@ -250,6 +271,10 @@ if validate_job_type production "$squads_type"; then
   error "VDS common wrapper expanded the PRODUCTION allowlist to squads"
 fi
 
+if validate_job_type production "$player_statistics_type"; then
+  error "VDS common wrapper expanded the PRODUCTION allowlist to player statistics"
+fi
+
 expected_sudoers=(
   'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}$'
   'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-deploy-staging ^[0-9a-f]{40}[[:space:]]sha256:[0-9a-f]{64}[[:space:]]sha256:[0-9a-f]{64}$'
@@ -266,6 +291,7 @@ expected_sudoers=(
   'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-matches'
   'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-standings'
   'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-squads'
+  'deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-player-statistics'
 )
 mapfile -t actual_sudoers < "$vds_sudoers"
 
@@ -304,9 +330,11 @@ printf 'run_job_staging_reader_contract=true\n'
 printf 'run_job_staging_matches_whitelisted=true\n'
 printf 'run_job_staging_standings_whitelisted=true\n'
 printf 'run_job_staging_squads_whitelisted=true\n'
+printf 'run_job_staging_player_statistics_whitelisted=true\n'
 printf 'run_job_production_matches_rejected=true\n'
 printf 'run_job_production_standings_rejected=true\n'
 printf 'run_job_production_squads_rejected=true\n'
+printf 'run_job_production_player_statistics_rejected=true\n'
 printf 'run_job_staging_forced_command_contract=true\n'
 printf 'run_job_staging_sudoers_contract=true\n'
 printf 'run_job_staging_wrapper_generic=true\n'

@@ -14,6 +14,7 @@ on:
           - football.sync-serie-a-matches
           - football.sync-serie-a-standings
           - football.sync-serie-a-squads
+          - football.sync-serie-a-player-statistics
 
 permissions:
   contents: read
