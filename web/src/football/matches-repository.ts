@@ -7,6 +7,7 @@ import {
   SERIE_A_CURRENT_SEASON,
   SERIE_A_PROVIDER_LEAGUE_ID,
 } from "./foundation";
+import { resolveFootballProperName } from "./localization";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
@@ -35,8 +36,12 @@ type MatchListRow = {
   status_extra: number | null;
   home_goals: number | null;
   away_goals: number | null;
-  home_display_name: string;
-  away_display_name: string;
+  home_provider_name: string;
+  away_provider_name: string;
+  home_name_ru: string | null;
+  away_name_ru: string | null;
+  home_name_ru_review_status: string | null;
+  away_name_ru_review_status: string | null;
   home_code: string | null;
   away_code: string | null;
   home_logo_url: string | null;
@@ -340,8 +345,12 @@ export async function listCurrentSerieAMatches(
         m.status_extra,
         m.home_goals,
         m.away_goals,
-        coalesce(home.name_ru, home.provider_name) as home_display_name,
-        coalesce(away.name_ru, away.provider_name) as away_display_name,
+        home.provider_name as home_provider_name,
+        away.provider_name as away_provider_name,
+        home.name_ru as home_name_ru,
+        away.name_ru as away_name_ru,
+        home.name_ru_review_status as home_name_ru_review_status,
+        away.name_ru_review_status as away_name_ru_review_status,
         home.code as home_code,
         away.code as away_code,
         home.provider_logo_url as home_logo_url,
@@ -379,12 +388,20 @@ export async function listCurrentSerieAMatches(
     homeGoals: row.home_goals,
     awayGoals: row.away_goals,
     homeClub: {
-      displayName: row.home_display_name,
+      displayName: resolveFootballProperName({
+        providerName: row.home_provider_name,
+        nameRu: row.home_name_ru,
+        reviewStatus: row.home_name_ru_review_status,
+      }),
       code: row.home_code,
       providerLogoUrl: row.home_logo_url,
     },
     awayClub: {
-      displayName: row.away_display_name,
+      displayName: resolveFootballProperName({
+        providerName: row.away_provider_name,
+        nameRu: row.away_name_ru,
+        reviewStatus: row.away_name_ru_review_status,
+      }),
       code: row.away_code,
       providerLogoUrl: row.away_logo_url,
     },

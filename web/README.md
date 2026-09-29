@@ -222,6 +222,26 @@ memberships and other Football tables are not deleted or reconciled by this
 job. Stage 4.6 adds no public player/statistics UI, scheduler or operational
 STAGING/PRODUCTION allowlist entry.
 
+The Football localization foundation stores application-owned Russian proper
+names and review state directly on `football.competitions`, `football.clubs`
+and `football.players`. A Russian name is either absent together with its
+status, or present with status `unreviewed` or `reviewed`; database constraints
+enforce that pair. Existing Competition and Club Russian names migrate as
+`unreviewed`, never as reviewed canonical data. Provider syncs continue to
+update provider-owned fields but do not write either localization field, and a
+new provider Competition starts without an automatic Russian name.
+
+Public Football name resolution uses a non-empty Russian value only when its
+status is `reviewed`; all other states fall back to the persisted provider
+name. Geography first resolves an exact provider alias or football-specific
+override to a normalized identity, then uses Russian `Intl.DisplayNames` for
+known regions, with the original provider value as the fallback. Fixture
+statuses, common player positions and player-statistics labels use deterministic
+Russian dictionaries. Match rounds, standings descriptions and standings form
+use bounded formatters while preserving unknown provider values. No generic
+translation table, AI localization, admin/editorial localization workflow,
+city/venue localization or Stage 4.7/4.8 UI is introduced here.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 

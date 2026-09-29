@@ -6,10 +6,10 @@ import {
   API_FOOTBALL_PROVIDER,
   SERIE_A_CURRENT_SEASON,
   SERIE_A_CURRENT_SEASON_LABEL,
-  SERIE_A_NAME_RU,
   SERIE_A_PROVIDER_LEAGUE_ID,
   SERIE_A_SLUG,
 } from "./foundation";
+import { resolveFootballProperName } from "./localization";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
@@ -20,9 +20,9 @@ type IdRow = {
 type ClubListRow = {
   id: string;
   slug: string;
-  display_name: string;
   provider_name: string;
   name_ru: string | null;
+  name_ru_review_status: string | null;
   code: string | null;
   country: string | null;
   provider_logo_url: string | null;
@@ -100,10 +100,9 @@ export async function upsertSerieACompetition(
           country,
           type,
           provider_logo_url,
-          slug,
-          name_ru
+          slug
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        values ($1, $2, $3, $4, $5, $6, $7, $8)
         on conflict (provider, provider_competition_id)
         do update set
           provider_name = excluded.provider_name,
@@ -122,7 +121,6 @@ export async function upsertSerieACompetition(
         input.type,
         input.providerLogoUrl,
         SERIE_A_SLUG,
-        SERIE_A_NAME_RU,
       ],
     ),
     "competition upsert",
@@ -244,9 +242,9 @@ export async function listCurrentSerieAClubs(
       select
         c.id,
         c.slug,
-        coalesce(c.name_ru, c.provider_name) as display_name,
         c.provider_name,
         c.name_ru,
+        c.name_ru_review_status,
         c.code,
         c.country,
         c.provider_logo_url
@@ -258,19 +256,29 @@ export async function listCurrentSerieAClubs(
         and comp.provider_competition_id = $2
         and s.provider = $1
         and s.provider_season_year = $3
-      order by coalesce(c.name_ru, c.provider_name), c.provider_club_id
+      order by c.provider_name, c.provider_club_id
     `,
     [API_FOOTBALL_PROVIDER, SERIE_A_PROVIDER_LEAGUE_ID, SERIE_A_CURRENT_SEASON],
   );
 
-  return result.rows.map((row) => ({
-    id: row.id,
-    slug: row.slug,
-    displayName: row.display_name,
-    providerName: row.provider_name,
-    nameRu: row.name_ru,
-    code: row.code,
-    country: row.country,
-    providerLogoUrl: row.provider_logo_url,
-  }));
+  return result.rows
+    .map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      displayName: resolveFootballProperName({
+        providerName: row.provider_name,
+        nameRu: row.name_ru,
+        reviewStatus: row.name_ru_review_status,
+      }),
+      providerName: row.provider_name,
+      nameRu: row.name_ru,
+      code: row.code,
+      country: row.country,
+      providerLogoUrl: row.provider_logo_url,
+    }))
+    .sort(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName, "ru") ||
+        left.id.localeCompare(right.id),
+    );
 }

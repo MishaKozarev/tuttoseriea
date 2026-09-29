@@ -44,8 +44,8 @@ describe("StandingsTable", () => {
 
     expect(screen.getByRole("table", { name: "Таблица Серии А сезона 2026/27" })).toBeTruthy();
     expect(screen.getByText("Милан")).toBeTruthy();
-    expect(screen.getByText("Champions League")).toBeTruthy();
-    expect(screen.getByText("WWDLW")).toBeTruthy();
+    expect(screen.getByText("Лига чемпионов")).toBeTruthy();
+    expect(screen.getByText("ВВНПВ")).toBeTruthy();
     expect(screen.getByText("50:26")).toBeTruthy();
     expect(screen.getByText("+24")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();

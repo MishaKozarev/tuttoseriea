@@ -1,4 +1,8 @@
 import type { CurrentSerieAStanding } from "@/src/football/standings-repository";
+import {
+  formatStandingsForm,
+  resolveStandingsDescription,
+} from "@/src/football/localization";
 
 function safeImageUrl(value: string | null): string | null {
   if (!value) {
@@ -20,6 +24,7 @@ function formatGoalsDifference(value: number): string {
 
 function Club({ standing }: { standing: CurrentSerieAStanding }) {
   const logoUrl = safeImageUrl(standing.club.providerLogoUrl);
+  const description = resolveStandingsDescription(standing.description);
 
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -35,9 +40,9 @@ function Club({ standing }: { standing: CurrentSerieAStanding }) {
         <span className="block truncate font-medium text-foreground">
           {standing.club.displayName}
         </span>
-        {standing.description ? (
+        {description ? (
           <span className="block truncate text-xs text-muted-foreground">
-            {standing.description}
+            {description}
           </span>
         ) : null}
       </span>
@@ -112,7 +117,7 @@ export function StandingsTable({ standings }: { standings: CurrentSerieAStanding
                 {formatGoalsDifference(standing.goalsDiff)}
               </td>
               <td className="px-3 py-3 text-center font-medium tabular-nums">
-                {standing.form ?? "-"}
+                {formatStandingsForm(standing.form) ?? "-"}
               </td>
               <td className="px-3 py-3 text-center text-base font-semibold tabular-nums">
                 {standing.points}

@@ -31,7 +31,8 @@ export const footballCompetitions = footballSchema.table(
     type: text("type"),
     providerLogoUrl: text("provider_logo_url"),
     slug: text("slug").notNull(),
-    nameRu: text("name_ru").notNull(),
+    nameRu: text("name_ru"),
+    nameRuReviewStatus: text("name_ru_review_status"),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
   },
@@ -40,6 +41,18 @@ export const footballCompetitions = footballSchema.table(
       "competitions_provider_competition_id_unique",
     ).on(table.provider, table.providerCompetitionId),
     slugUnique: uniqueIndex("competitions_slug_unique").on(table.slug),
+    nameRuReviewConsistencyCheck: check(
+      "competitions_name_ru_review_consistency_check",
+      sql`(
+        (${table.nameRu} is null and ${table.nameRuReviewStatus} is null)
+        or
+        (
+          ${table.nameRu} is not null
+          and ${table.nameRuReviewStatus} is not null
+          and ${table.nameRuReviewStatus} in ('unreviewed', 'reviewed')
+        )
+      )`,
+    ),
   }),
 );
 
@@ -87,6 +100,7 @@ export const footballClubs = footballSchema.table(
     providerLogoUrl: text("provider_logo_url"),
     slug: text("slug").notNull(),
     nameRu: text("name_ru"),
+    nameRuReviewStatus: text("name_ru_review_status"),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
   },
@@ -96,6 +110,18 @@ export const footballClubs = footballSchema.table(
       table.providerClubId,
     ),
     slugUnique: uniqueIndex("clubs_slug_unique").on(table.slug),
+    nameRuReviewConsistencyCheck: check(
+      "clubs_name_ru_review_consistency_check",
+      sql`(
+        (${table.nameRu} is null and ${table.nameRuReviewStatus} is null)
+        or
+        (
+          ${table.nameRu} is not null
+          and ${table.nameRuReviewStatus} is not null
+          and ${table.nameRuReviewStatus} in ('unreviewed', 'reviewed')
+        )
+      )`,
+    ),
   }),
 );
 
@@ -308,6 +334,8 @@ export const footballPlayers = footballSchema.table(
     provider: text("provider").notNull(),
     providerPlayerId: integer("provider_player_id").notNull(),
     providerName: text("provider_name").notNull(),
+    nameRu: text("name_ru"),
+    nameRuReviewStatus: text("name_ru_review_status"),
     firstname: text("firstname"),
     lastname: text("lastname"),
     age: integer("age"),
@@ -330,6 +358,18 @@ export const footballPlayers = footballSchema.table(
     agePositiveCheck: check(
       "players_age_positive_check",
       sql`${table.age} is null or ${table.age} > 0`,
+    ),
+    nameRuReviewConsistencyCheck: check(
+      "players_name_ru_review_consistency_check",
+      sql`(
+        (${table.nameRu} is null and ${table.nameRuReviewStatus} is null)
+        or
+        (
+          ${table.nameRu} is not null
+          and ${table.nameRuReviewStatus} is not null
+          and ${table.nameRuReviewStatus} in ('unreviewed', 'reviewed')
+        )
+      )`,
     ),
   }),
 );
