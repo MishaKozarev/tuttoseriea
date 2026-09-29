@@ -85,6 +85,12 @@ describe("Football bounded and semi-structured localization", () => {
 
   it("resolves known standings descriptions and preserves unknown text", () => {
     expect(resolveStandingsDescription("  Champions League  ")).toBe("Лига чемпионов");
+    expect(resolveStandingsDescription("Champions League league stage")).toBe(
+      "Лига чемпионов",
+    );
+    expect(resolveStandingsDescription("Champions League something unexpected")).toBe(
+      "Champions League something unexpected",
+    );
     expect(resolveStandingsDescription("Custom provider note")).toBe(
       "Custom provider note",
     );
