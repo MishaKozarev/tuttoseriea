@@ -1,4 +1,8 @@
 import type { CurrentSerieAMatch } from "@/src/football/matches-repository";
+import {
+  formatMatchRound,
+  resolveFixtureStatusLabel,
+} from "@/src/football/localization";
 
 const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
   dateStyle: "medium",
@@ -33,27 +37,10 @@ function statusLabel(match: CurrentSerieAMatch): string {
     return `${match.statusElapsed}${extra}'`;
   }
 
-  if (match.status === "scheduled") {
-    return "Не начался";
-  }
-
-  if (match.status === "finished") {
-    return "Завершён";
-  }
-
-  if (match.status === "paused") {
-    return "Перерыв";
-  }
-
-  if (match.status === "postponed") {
-    return "Перенесён";
-  }
-
-  if (match.status === "cancelled") {
-    return "Отменён";
-  }
-
-  return match.providerStatusLong ?? match.providerStatusShort;
+  return resolveFixtureStatusLabel(
+    match.status,
+    match.providerStatusLong ?? match.providerStatusShort,
+  );
 }
 
 function safeImageUrl(value: string | null): string | null {
@@ -130,7 +117,7 @@ export function MatchesCalendar({ matches }: { matches: CurrentSerieAMatch[] }) 
             id={`calendar-round-${roundIndex}`}
             className="text-lg font-semibold text-foreground"
           >
-            {round}
+            {formatMatchRound(round)}
           </h2>
           <ul className="divide-y rounded-lg border bg-card text-card-foreground">
             {roundMatches.map((match) => {

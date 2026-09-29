@@ -18,7 +18,7 @@ describe("ClubsList", () => {
     ).toBeTruthy();
   });
 
-  it("renders persisted clubs using name_ru when available", () => {
+  it("renders resolved club names and localized geography", () => {
     render(
       <ClubsList
         clubs={[
@@ -37,6 +37,6 @@ describe("ClubsList", () => {
     );
 
     expect(screen.getByText("Милан")).toBeTruthy();
-    expect(screen.getByText("MIL · Italy")).toBeTruthy();
+    expect(screen.getByText("MIL · Италия")).toBeTruthy();
   });
 });

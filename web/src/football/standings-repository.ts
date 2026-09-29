@@ -7,6 +7,7 @@ import {
   SERIE_A_CURRENT_SEASON,
   SERIE_A_PROVIDER_LEAGUE_ID,
 } from "./foundation";
+import { resolveFootballProperName } from "./localization";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
@@ -48,7 +49,9 @@ type StandingListRow = {
   away_goals_for: number;
   away_goals_against: number;
   club_id: string;
-  display_name: string;
+  provider_name: string;
+  name_ru: string | null;
+  name_ru_review_status: string | null;
   code: string | null;
   provider_logo_url: string | null;
 };
@@ -298,7 +301,9 @@ export async function listCurrentSerieAStandings(
         st.away_goals_for,
         st.away_goals_against,
         c.id as club_id,
-        coalesce(c.name_ru, c.provider_name) as display_name,
+        c.provider_name,
+        c.name_ru,
+        c.name_ru_review_status,
         c.code,
         c.provider_logo_url
       from football.competitions comp
@@ -349,7 +354,11 @@ export async function listCurrentSerieAStandings(
       goalsAgainst: row.away_goals_against,
     },
     club: {
-      displayName: row.display_name,
+      displayName: resolveFootballProperName({
+        providerName: row.provider_name,
+        nameRu: row.name_ru,
+        reviewStatus: row.name_ru_review_status,
+      }),
       code: row.code,
       providerLogoUrl: row.provider_logo_url,
     },

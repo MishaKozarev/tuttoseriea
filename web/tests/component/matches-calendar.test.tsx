@@ -51,11 +51,29 @@ describe("MatchesCalendar", () => {
   it("renders persisted matches without linking to premature detail routes", () => {
     render(<MatchesCalendar matches={[match]} />);
 
-    expect(screen.getByRole("heading", { name: "Regular Season - 1" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "1-й тур" })).toBeTruthy();
     expect(screen.getByText("Милан")).toBeTruthy();
     expect(screen.getByText("Интер")).toBeTruthy();
     expect(screen.getByText("Не начался")).toBeTruthy();
     expect(screen.getByText("San Siro, Milano")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("uses normalized Russian status labels instead of provider English", () => {
+    render(
+      <MatchesCalendar
+        matches={[
+          {
+            ...match,
+            status: "suspended",
+            providerStatusLong: "Match Suspended",
+            providerStatusShort: "SUSP",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Приостановлен")).toBeTruthy();
+    expect(screen.queryByText("Match Suspended")).toBeNull();
   });
 });

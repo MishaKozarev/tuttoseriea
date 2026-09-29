@@ -1,4 +1,5 @@
 import type { CurrentSerieAClub } from "@/src/football/repository";
+import { resolveFootballGeography } from "@/src/football/localization";
 
 function safeImageUrl(value: string | null): string | null {
   if (!value) {
@@ -37,6 +38,7 @@ export function ClubsList({ clubs }: { clubs: CurrentSerieAClub[] }) {
     <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {clubs.map((club) => {
         const logoUrl = safeImageUrl(club.providerLogoUrl);
+        const country = resolveFootballGeography(club.country);
 
         return (
           <li
@@ -61,7 +63,7 @@ export function ClubsList({ clubs }: { clubs: CurrentSerieAClub[] }) {
                 <p className="truncate text-sm font-semibold">{club.displayName}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {club.code ? `${club.code} · ` : ""}
-                  {club.country ?? club.providerName}
+                  {country ?? club.providerName}
                 </p>
               </div>
             </div>

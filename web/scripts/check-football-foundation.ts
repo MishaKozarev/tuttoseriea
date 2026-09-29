@@ -37,6 +37,13 @@ type CountRow = {
 type ClubOwnershipRow = {
   slug: string;
   nameRu: string | null;
+  nameRuReviewStatus: string | null;
+  providerName: string;
+};
+
+type LocalizationOwnershipRow = {
+  nameRu: string | null;
+  nameRuReviewStatus: string | null;
   providerName: string;
 };
 
@@ -82,6 +89,8 @@ type StandingFactsRow = {
 type PlayerFactsRow = {
   id: string;
   providerName: string;
+  nameRu: string | null;
+  nameRuReviewStatus: string | null;
   age: number | null;
   providerPhotoUrl: string | null;
 };
@@ -134,6 +143,36 @@ function postgresErrorCode(error: unknown): string | undefined {
   }
 
   return postgresErrorCode((error as { cause?: unknown }).cause);
+}
+
+async function assertCheckConstraintViolation(
+  client: pg.PoolClient,
+  savepointName: string,
+  operation: () => Promise<unknown>,
+  message: string,
+): Promise<void> {
+  assertCondition(
+    /^[a-z][a-z0-9_]*$/u.test(savepointName),
+    "invalid integration-test savepoint name",
+  );
+
+  await client.query(`savepoint ${savepointName}`);
+  let checkViolation = false;
+
+  try {
+    await operation();
+  } catch (error) {
+    if (postgresErrorCode(error) !== "23514") {
+      throw error;
+    }
+
+    checkViolation = true;
+  } finally {
+    await client.query(`rollback to savepoint ${savepointName}`);
+    await client.query(`release savepoint ${savepointName}`);
+  }
+
+  assertCondition(checkViolation, message);
 }
 
 function createTeams(nameSuffix = "") {
@@ -752,6 +791,8 @@ async function getFakePlayerFacts(
       select
         id,
         provider_name as "providerName",
+        name_ru as "nameRu",
+        name_ru_review_status as "nameRuReviewStatus",
         age,
         provider_photo_url as "providerPhotoUrl"
       from football.players
@@ -950,6 +991,66 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(await countFakeClubs(client) === 20, "club count mismatch");
     assertCondition(await countFakeSeasonClubs(client) === 20, "season membership count mismatch");
 
+    const initialCompetitionLocalization = await client.query<LocalizationOwnershipRow>(
+      `
+        select
+          provider_name as "providerName",
+          name_ru as "nameRu",
+          name_ru_review_status as "nameRuReviewStatus"
+        from football.competitions
+        where provider = 'api-football'
+          and provider_competition_id = 135
+      `,
+    );
+
+    assertCondition(
+      initialCompetitionLocalization.rows[0]?.nameRu === null &&
+        initialCompetitionLocalization.rows[0]?.nameRuReviewStatus === null,
+      "foundation sync automatically created competition localization",
+    );
+
+    const localizationConstraints = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from pg_constraint
+        where conname in (
+          'competitions_name_ru_review_consistency_check',
+          'clubs_name_ru_review_consistency_check',
+          'players_name_ru_review_consistency_check'
+        )
+      `,
+    );
+
+    assertCondition(
+      localizationConstraints.rows[0]?.count === 3,
+      "Football proper-name review consistency constraints are missing",
+    );
+
+    await client.query(
+      `
+        update football.competitions
+        set name_ru = 'Серия А', name_ru_review_status = 'reviewed'
+        where provider = 'api-football'
+          and provider_competition_id = 135
+      `,
+    );
+    await client.query(
+      `
+        update football.clubs
+        set name_ru = 'Милан', name_ru_review_status = 'reviewed', slug = 'milan-manual'
+        where provider = 'api-football'
+          and provider_club_id = 900000
+      `,
+    );
+    await client.query(
+      `
+        update football.clubs
+        set name_ru = 'Черновик клуба', name_ru_review_status = 'unreviewed'
+        where provider = 'api-football'
+          and provider_club_id = 900001
+      `,
+    );
+
     const repeatedSync = await syncSerieAFoundation({
       client: createFakeClient(),
       queryable: client,
@@ -963,6 +1064,24 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       await countFakeSeasonClubs(client) === 20,
       "repeated sync created duplicate memberships",
+    );
+
+    const repeatedCompetitionLocalization = await client.query<LocalizationOwnershipRow>(
+      `
+        select
+          provider_name as "providerName",
+          name_ru as "nameRu",
+          name_ru_review_status as "nameRuReviewStatus"
+        from football.competitions
+        where provider = 'api-football'
+          and provider_competition_id = 135
+      `,
+    );
+
+    assertCondition(
+      repeatedCompetitionLocalization.rows[0]?.nameRu === "Серия А" &&
+        repeatedCompetitionLocalization.rows[0]?.nameRuReviewStatus === "reviewed",
+      "foundation sync overwrote competition localization or review status",
     );
 
     const seasonId = (
@@ -1137,6 +1256,15 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
       "current squad membership fields or raw player snapshot were not persisted",
     );
 
+    await client.query(
+      `
+        update football.players
+        set name_ru = 'Игрок состава', name_ru_review_status = 'reviewed'
+        where provider = 'api-football'
+          and provider_player_id = 1100000
+      `,
+    );
+
     const repeatedSquadsSync = await syncSerieASquads({
       client: createFakeClient(),
       transactionClient: client,
@@ -1201,6 +1329,11 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
         updatedPlayerFacts.age === 25 &&
         updatedPlayerFacts.providerPhotoUrl?.endsWith("/1100000-updated.png") === true,
       "existing player provider-owned profile fields did not update",
+    );
+    assertCondition(
+      updatedPlayerFacts.nameRu === "Игрок состава" &&
+        updatedPlayerFacts.nameRuReviewStatus === "reviewed",
+      "squads sync overwrote player localization or review status",
     );
     assertCondition(
       updatedMembershipFacts?.shirtNumber === null &&
@@ -1276,6 +1409,100 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
           | { saves?: unknown }
           | undefined)?.saves === 9,
       "complete player/statistics raw snapshots were not persisted",
+    );
+
+    await assertCheckConstraintViolation(
+      client,
+      "competition_status_without_name",
+      () =>
+        client.query(
+          `
+            update football.competitions
+            set name_ru = null, name_ru_review_status = 'reviewed'
+            where provider = 'api-football'
+              and provider_competition_id = 135
+          `,
+        ),
+      "competition accepted review status without a Russian name",
+    );
+    await assertCheckConstraintViolation(
+      client,
+      "competition_name_without_status",
+      () =>
+        client.query(
+          `
+            update football.competitions
+            set name_ru = 'Серия А', name_ru_review_status = null
+            where provider = 'api-football'
+              and provider_competition_id = 135
+          `,
+        ),
+      "competition accepted a Russian name without review status",
+    );
+    await assertCheckConstraintViolation(
+      client,
+      "club_status_without_name",
+      () =>
+        client.query(
+          `
+            update football.clubs
+            set name_ru = null, name_ru_review_status = 'reviewed'
+            where provider = 'api-football'
+              and provider_club_id = 900000
+          `,
+        ),
+      "club accepted review status without a Russian name",
+    );
+    await assertCheckConstraintViolation(
+      client,
+      "club_name_without_status",
+      () =>
+        client.query(
+          `
+            update football.clubs
+            set name_ru = 'Милан', name_ru_review_status = null
+            where provider = 'api-football'
+              and provider_club_id = 900000
+          `,
+        ),
+      "club accepted a Russian name without review status",
+    );
+    await assertCheckConstraintViolation(
+      client,
+      "player_status_without_name",
+      () =>
+        client.query(
+          `
+            update football.players
+            set name_ru = null, name_ru_review_status = 'reviewed'
+            where provider = 'api-football'
+              and provider_player_id = 1300000
+          `,
+        ),
+      "player accepted review status without a Russian name",
+    );
+    await assertCheckConstraintViolation(
+      client,
+      "player_name_without_status",
+      () =>
+        client.query(
+          `
+            update football.players
+            set name_ru = 'Игрок статистики', name_ru_review_status = null
+            where provider = 'api-football'
+              and provider_player_id = 1300000
+          `,
+        ),
+      "player accepted a Russian name without review status",
+    );
+
+    await client.query(
+      `
+        update football.players
+        set name_ru = 'Игрок статистики', name_ru_review_status = 'reviewed'
+        where provider = 'api-football'
+          and provider_player_id = 1300000
+      `,
     );
 
     const repeatedPlayerStatisticsSync = await syncSerieAPlayerStatistics({
@@ -1358,6 +1585,14 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
           | undefined)?.marker === "updated",
       "player profile/statistics provider snapshots did not update",
     );
+
+    const localizedStatisticsPlayer = await getFakePlayerFacts(client, 1_300_000);
+
+    assertCondition(
+      localizedStatisticsPlayer.nameRu === "Игрок статистики" &&
+        localizedStatisticsPlayer.nameRuReviewStatus === "reviewed",
+      "player-statistics sync overwrote player localization or review status",
+    );
     assertCondition(
       (await client.query<CountRow>(
         `
@@ -1426,7 +1661,7 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     await client.query(
       `
         update football.clubs
-        set name_ru = 'Милан', slug = 'milan-manual'
+        set slug = 'milan-manual'
         where provider = 'api-football'
           and provider_club_id = 900000
       `,
@@ -1444,7 +1679,11 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
 
     const ownership = await client.query<ClubOwnershipRow>(
       `
-        select slug, name_ru as "nameRu", provider_name as "providerName"
+        select
+          slug,
+          name_ru as "nameRu",
+          name_ru_review_status as "nameRuReviewStatus",
+          provider_name as "providerName"
         from football.clubs
         where provider = 'api-football'
           and provider_club_id = 900000
@@ -1455,8 +1694,30 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(row?.slug === "milan-manual", "club slug was overwritten");
     assertCondition(row.nameRu === "Милан", "club name_ru was overwritten");
     assertCondition(
+      row.nameRuReviewStatus === "reviewed",
+      "club name_ru_review_status was overwritten",
+    );
+    assertCondition(
       row.providerName === "AC Milan Updated",
       "provider-owned club name did not update",
+    );
+
+    const competitionOwnership = await client.query<LocalizationOwnershipRow>(
+      `
+        select
+          provider_name as "providerName",
+          name_ru as "nameRu",
+          name_ru_review_status as "nameRuReviewStatus"
+        from football.competitions
+        where provider = 'api-football'
+          and provider_competition_id = 135
+      `,
+    );
+
+    assertCondition(
+      competitionOwnership.rows[0]?.nameRu === "Серия А" &&
+        competitionOwnership.rows[0]?.nameRuReviewStatus === "reviewed",
+      "foundation sync overwrote competition localization or review status",
     );
 
     const listedClubs = await listCurrentSerieAClubs(client);
@@ -1464,6 +1725,11 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       listedClubs.some((club) => club.displayName === "Милан"),
       "public club listing did not use application display name",
+    );
+    assertCondition(
+      listedClubs.some((club) => club.displayName === "Serie A Club 2") &&
+        !listedClubs.some((club) => club.displayName === "Черновик клуба"),
+      "public club listing exposed unreviewed application localization",
     );
 
     const listedStandings = await listCurrentSerieAStandings(client);
@@ -2724,6 +2990,9 @@ async function main(): Promise<void> {
     console.log("football_fake_provider_sync=true");
     console.log("football_repeated_sync_idempotent=true");
     console.log("football_application_owned_fields_protected=true");
+    console.log("football_localization_review_constraints=true");
+    console.log("football_localization_reviewed_display=true");
+    console.log("football_localization_unreviewed_fallback=true");
     console.log("football_provider_owned_fields_update=true");
     console.log("football_missing_provider_rows_preserved=true");
     console.log("football_public_listing_reads_postgres=true");
