@@ -49,11 +49,12 @@ run-job football.sync-serie-a-foundation
 run-job football.sync-serie-a-matches
 run-job football.sync-serie-a-standings
 run-job football.sync-serie-a-squads
+run-job football.sync-serie-a-player-statistics
 ```
 
 PRODUCTION remains limited to `run-job football.sync-serie-a-foundation`;
-the STAGING matches, standings and squads extensions do not add Production
-provisioning, sudo allowance, or execution.
+the STAGING matches, standings, squads and player-statistics extensions do not
+add Production provisioning, sudo allowance, or execution.
 
 The deploy user must not receive Docker group membership, direct Docker socket
 access, arbitrary sudo, a free shell, arbitrary image selection, arbitrary
