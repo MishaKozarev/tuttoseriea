@@ -8,6 +8,7 @@ const foundationJobType = "football.sync-serie-a-foundation";
 const matchesJobType = "football.sync-serie-a-matches";
 const standingsJobType = "football.sync-serie-a-standings";
 const squadsJobType = "football.sync-serie-a-squads";
+const playerStatisticsJobType = "football.sync-serie-a-player-statistics";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(path.join(repoRoot, relativePath), "utf8");
@@ -36,6 +37,8 @@ for (const invalidType of [
   `${matchesJobType} --round 1`,
   `${standingsJobType} --season 2025`,
   `${squadsJobType} --team 1`,
+  playerStatisticsJobType,
+  `${playerStatisticsJobType} --page 1`,
   `${foundationJobType};uname`,
   `${foundationJobType}\necho`,
   "football.sync-other",
@@ -69,6 +72,11 @@ assert(
 assert(
   !validateRunJobType("production", squadsJobType),
   "PRODUCTION unexpectedly accepted the STAGING-only squads job type",
+);
+assert(
+  !validateRunJobType("staging", playerStatisticsJobType) &&
+    !validateRunJobType("production", playerStatisticsJobType),
+  "Player statistics job must remain outside restricted operational allowlists",
 );
 
 for (const relativePath of [
@@ -309,6 +317,7 @@ console.log("run_job_staging_squads_whitelisted=true");
 console.log("run_job_production_matches_rejected=true");
 console.log("run_job_production_standings_rejected=true");
 console.log("run_job_production_squads_rejected=true");
+console.log("run_job_player_statistics_not_whitelisted=true");
 console.log("run_job_staging_forced_command_contract=true");
 console.log("run_job_staging_sudoers_contract=true");
 console.log("run_job_staging_wrapper_generic=true");

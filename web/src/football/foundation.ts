@@ -23,3 +23,8 @@ export const SERIE_A_STANDINGS_IDEMPOTENCY_KEY =
 export const SERIE_A_SQUADS_JOB_TYPE = "football.sync-serie-a-squads";
 export const SERIE_A_SQUADS_IDEMPOTENCY_KEY =
   "api-football:league:135:season:2026:squads";
+
+export const SERIE_A_PLAYER_STATISTICS_JOB_TYPE =
+  "football.sync-serie-a-player-statistics";
+export const SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY =
+  "api-football:league:135:season:2026:player-statistics";

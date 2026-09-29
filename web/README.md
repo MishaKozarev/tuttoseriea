@@ -197,7 +197,30 @@ fully identical duplicates preserve their common shirt number; duplicates that
 differ only by `number` produce one membership with a null shirt number. Any
 other difference is a terminal provider data-contract failure.
 No historical squad snapshots, player statistics or public player/club squad
-pages are introduced in this stage.
+pages are introduced in Stage 4.5.
+
+Stage 4.6 enriches stable `football.players` profiles and adds the current
+season snapshot in `football.player_statistics`, uniquely identified by
+`(season_id, club_id, player_id)`. The fixed-argument
+`football.sync-serie-a-player-statistics` job calls only
+`/players?league=135&season=2026&page=<N>`. Page 1 establishes a positive total
+page count; every page must report the requested current page and the same
+total. All pages are fetched and validated before database mutation. The
+provider does not guarantee a point-in-time snapshot across those sequential
+requests, which is an accepted integration limitation; this job must not be
+split into independently polled pages.
+
+Complete player and individual statistics provider objects are retained in
+non-null `player_raw` and `statistics_raw` JSONB. Provider nullable values stay
+null and are not coerced. One player may have separate rows for different clubs
+in the same season. Fully identical duplicate player/team/league/season entries
+are collapsed globally across pages; conflicting statistics or conflicting
+stable player profiles fail terminally before mutation. A successful run
+upserts player profiles and statistics and removes stale statistics only for
+the current season in one transaction. Stable players, current squad
+memberships and other Football tables are not deleted or reconciled by this
+job. Stage 4.6 adds no public player/statistics UI, scheduler or operational
+STAGING/PRODUCTION allowlist entry.
 
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
@@ -239,6 +262,10 @@ needed by each table. `football.squad_memberships` additionally receives
 `DELETE` for current-state reconciliation; unrelated Football tables, including
 `football.players`, do not. The role does not receive schema `CREATE`, sequence
 privileges or default privileges.
+
+`football.player_statistics` receives `SELECT`, `INSERT`, `UPDATE` and `DELETE`;
+`DELETE` is limited to current-season snapshot reconciliation. The related
+stable `football.players` table remains without `DELETE`.
 
 The production image contains the migration runner and Drizzle migration
 artifacts, but the normal Next.js container process does not run migrations on
@@ -405,12 +432,14 @@ verify shared job create/claim/finalize, retry scheduling, duplicate active
 no-op behavior, stale recovery and heartbeat/fencing loss.
 
 `db:football:check` uses fake API-Football responses against real PostgreSQL to
-verify the competition/season/club foundation, matches, standings and current
-squads. It covers repeated-sync idempotency, provider identity uniqueness,
+verify the competition/season/club foundation, matches, standings, current
+squads and paginated player statistics. It covers repeated-sync idempotency,
+provider identity uniqueness,
 ownership rules, provider-field and complete snapshot updates, current
-membership reconciliation, real `Pool` rollback paths, exact runtime grants,
-public listing queries and the shared job runner path. It cleans or rolls back
-its controlled domain fixtures and does not call the real provider.
+membership/statistics reconciliation, real LOCAL PostgreSQL `Pool` rollback
+paths, exact runtime grants, public listing queries and the shared job runner
+path. It cleans or rolls back its controlled domain fixtures and does not call
+the real provider.
 
 ## Operational Jobs
 

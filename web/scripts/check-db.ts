@@ -292,7 +292,7 @@ async function assertNoUnexpectedFootballTablePrivileges(
           join pg_namespace n on n.oid = c.relnamespace
           where n.nspname = 'football'
             and c.relkind in ('r', 'p', 'v', 'm', 'f')
-            and c.relname not in ('competitions', 'seasons', 'clubs', 'season_clubs', 'matches', 'standings', 'players', 'squad_memberships')
+            and c.relname not in ('competitions', 'seasons', 'clubs', 'season_clubs', 'matches', 'standings', 'players', 'player_statistics', 'squad_memberships')
             and (
               has_table_privilege(current_user, c.oid, 'SELECT')
               or has_table_privilege(current_user, c.oid, 'INSERT')
@@ -332,6 +332,13 @@ async function assertFootballAccess(db: ReturnType<typeof getDb>): Promise<void>
   }
 
   await assertExactTablePrivileges(db, "football", "squad_memberships", [
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+  ]);
+
+  await assertExactTablePrivileges(db, "football", "player_statistics", [
     "SELECT",
     "INSERT",
     "UPDATE",

@@ -57,6 +57,13 @@
       "when": 1790542436519,
       "tag": "0007_lean_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790677456156,
+      "tag": "0008_mean_mastermind",
+      "breakpoints": true
     }
   ]
 }
