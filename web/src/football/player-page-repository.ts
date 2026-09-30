@@ -18,7 +18,7 @@ type PlayerScopeRow = {
   firstname: string | null;
   lastname: string | null;
   age: number | null;
-  birth_date: string | null;
+  birth_date: Date | string | null;
   birth_place: string | null;
   birth_country: string | null;
   nationality: string | null;
@@ -75,6 +75,14 @@ type StatisticsRow = {
 type SlugRow = {
   slug: string;
 };
+
+function normalizeDateOnly(value: Date | string | null): string | null {
+  if (!(value instanceof Date)) {
+    return value;
+  }
+
+  return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+}
 
 export type PlayerPageClub = {
   id: string;
@@ -291,7 +299,7 @@ export async function getCurrentSerieAPlayerPageData(
       firstname: scope.firstname,
       lastname: scope.lastname,
       age: scope.age,
-      birthDate: scope.birth_date,
+      birthDate: normalizeDateOnly(scope.birth_date),
       birthPlace: scope.birth_place,
       birthCountry: scope.birth_country,
       nationality: scope.nationality,
