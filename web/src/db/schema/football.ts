@@ -334,6 +334,7 @@ export const footballPlayers = footballSchema.table(
     provider: text("provider").notNull(),
     providerPlayerId: integer("provider_player_id").notNull(),
     providerName: text("provider_name").notNull(),
+    slug: text("slug").notNull(),
     nameRu: text("name_ru"),
     nameRuReviewStatus: text("name_ru_review_status"),
     firstname: text("firstname"),
@@ -355,6 +356,7 @@ export const footballPlayers = footballSchema.table(
       table.provider,
       table.providerPlayerId,
     ),
+    slugUnique: uniqueIndex("players_slug_unique").on(table.slug),
     agePositiveCheck: check(
       "players_age_positive_check",
       sql`${table.age} is null or ${table.age} > 0`,

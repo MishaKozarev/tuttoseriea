@@ -11,6 +11,7 @@ import {
   SITE_DESCRIPTION,
   SITE_NAME,
   buildClubMetadata,
+  buildPlayerMetadata,
   buildRobots,
   buildRootMetadata,
   buildSitemap,
@@ -116,6 +117,23 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("builds indexable metadata for a canonical eligible Player slug", () => {
+    expect(
+      buildPlayerMetadata({
+        slug: "rafael-leao-276",
+        displayName: "Рафаэл Леау",
+        seasonLabel: "2026/27",
+      }),
+    ).toEqual({
+      title: "Рафаэл Леау",
+      description:
+        "Рафаэл Леау: профиль, текущий клуб и статистика в Серии A 2026/27.",
+      alternates: {
+        canonical: "/players/rafael-leao-276",
+      },
+    });
+  });
+
   it("marks the admin subtree as noindex and nofollow", () => {
     expect(adminMetadata.robots).toEqual({
       index: false,
@@ -150,6 +168,7 @@ describe("site SEO configuration", () => {
         NODE_ENV: "production",
       },
       ["ac-milan-489", "inter-505"],
+      ["membership-only-1", "statistics-only-2"],
     );
 
     expect(sitemap).toEqual([
@@ -159,11 +178,13 @@ describe("site SEO configuration", () => {
       { url: "https://tuttoseriea.com/table" },
       { url: "https://tuttoseriea.com/clubs/ac-milan-489" },
       { url: "https://tuttoseriea.com/clubs/inter-505" },
+      { url: "https://tuttoseriea.com/players/membership-only-1" },
+      { url: "https://tuttoseriea.com/players/statistics-only-2" },
     ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",
     );
-    expect(sitemap.some((entry) => entry.url.includes("/players/"))).toBe(false);
+    expect(sitemap.filter((entry) => entry.url.includes("/players/"))).toHaveLength(2);
     expect(sitemap.some((entry) => entry.url.includes("/matches/"))).toBe(false);
   });
 });

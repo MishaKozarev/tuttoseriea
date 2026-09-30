@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   currentSerieAClubSlugExists: vi.fn(),
+  currentSerieAPlayerSlugExists: vi.fn(),
   pool: { query: vi.fn() },
 }));
 
@@ -12,10 +13,13 @@ vi.mock("@/src/db", () => ({ getDbPool: vi.fn(() => mocks.pool) }));
 vi.mock("@/src/football/club-page-repository", () => ({
   currentSerieAClubSlugExists: mocks.currentSerieAClubSlugExists,
 }));
+vi.mock("@/src/football/player-page-repository", () => ({
+  currentSerieAPlayerSlugExists: mocks.currentSerieAPlayerSlugExists,
+}));
 
 import { config, proxy } from "@/proxy";
 
-describe("Club Page proxy", () => {
+describe("Football detail Page proxy", () => {
   it("continues a known current Club route normally", async () => {
     mocks.currentSerieAClubSlugExists.mockResolvedValue(true);
 
@@ -42,8 +46,34 @@ describe("Club Page proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("matches one Club slug segment only", () => {
-    expect(config).toEqual({ matcher: "/clubs/:slug" });
+  it("continues an eligible Player route normally", async () => {
+    mocks.currentSerieAPlayerSlugExists.mockResolvedValue(true);
+
+    const response = await proxy(
+      new NextRequest("https://tuttoseriea.com/players/rafael-leao-276"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(mocks.currentSerieAPlayerSlugExists).toHaveBeenCalledWith(
+      mocks.pool,
+      "rafael-leao-276",
+    );
+  });
+
+  it("sets a real 404 for unknown and stale Player routes", async () => {
+    mocks.currentSerieAPlayerSlugExists.mockResolvedValue(false);
+
+    const response = await proxy(
+      new NextRequest("https://tuttoseriea.com/players/stale-player-1"),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("matches exactly one Club or Player slug segment", () => {
+    expect(config).toEqual({ matcher: ["/clubs/:slug", "/players/:slug"] });
     expect(
       unstable_doesMiddlewareMatch({
         config,
@@ -63,6 +93,27 @@ describe("Club Page proxy", () => {
         config,
         nextConfig: {},
         url: "/clubs/ac-milan-489/extra",
+      }),
+    ).toBe(false);
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig: {},
+        url: "/players/rafael-leao-276",
+      }),
+    ).toBe(true);
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig: {},
+        url: "/players",
+      }),
+    ).toBe(false);
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig: {},
+        url: "/players/rafael-leao-276/extra",
       }),
     ).toBe(false);
   });

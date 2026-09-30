@@ -113,6 +113,31 @@ describe("Football foundation", () => {
   });
 
   it("creates stable one-time club slugs from provider identity", () => {
+    const legacyCreateClubSlug = (providerName: string, providerClubId: number) => {
+      const base = providerName
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/gu, "")
+        .toLowerCase()
+        .replace(/&/gu, " and ")
+        .replace(/[^a-z0-9]+/gu, "-")
+        .replace(/^-+|-+$/gu, "")
+        .replace(/-{2,}/gu, "-");
+
+      return `${base || "club"}-${providerClubId}`;
+    };
+    const representativeClubs = [
+      ["AC Milan", 489],
+      ["Internazionale & Friends", 505],
+      ["  Hellas Vérona / FC  ", 504],
+      ["Ж", 777],
+    ] as const;
+
+    for (const [providerName, providerClubId] of representativeClubs) {
+      expect(createClubSlug(providerName, providerClubId)).toBe(
+        legacyCreateClubSlug(providerName, providerClubId),
+      );
+    }
+
     expect(createClubSlug("AC Milan", 489)).toBe("ac-milan-489");
     expect(createClubSlug("Internazionale & Friends", 505)).toBe(
       "internazionale-and-friends-505",

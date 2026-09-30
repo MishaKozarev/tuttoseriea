@@ -337,7 +337,8 @@ describe("Serie A player statistics synchronization", () => {
       sql.includes("insert into football.players"),
     );
     const playerValues = playerCall?.[1] as readonly unknown[];
-    expect(playerValues.slice(4, 15)).toEqual([
+    expect(playerValues[4]).toBe("player-1-1");
+    expect(playerValues.slice(5, 16)).toEqual([
       null,
       null,
       null,
@@ -350,6 +351,7 @@ describe("Serie A player statistics synchronization", () => {
       null,
       null,
     ]);
+    expect(String(playerCall?.[0]).split("do update set")[1]).not.toContain("slug");
 
     const statisticsCall = db.query.mock.calls.find(([sql]) =>
       sql.includes("insert into football.player_statistics"),
