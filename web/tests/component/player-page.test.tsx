@@ -42,6 +42,32 @@ describe("PlayerPage", () => {
     expect(screen.queryByText(/итого/iu)).toBeNull();
   });
 
+  it("renders a normalized birth date and known USA geography without runtime objects", () => {
+    const data = playerPageFixture();
+    const expectedBirthDate = new Intl.DateTimeFormat("ru-RU", {
+      dateStyle: "long",
+      timeZone: "UTC",
+    }).format(new Date("1999-06-10T00:00:00.000Z"));
+
+    render(
+      <PlayerPage
+        data={{
+          ...data,
+          player: {
+            ...data.player,
+            birthPlace: "Hershey",
+            birthCountry: "USA",
+            nationality: "USA",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText(expectedBirthDate)).toBeTruthy();
+    expect(screen.getByText("Hershey, США")).toBeTruthy();
+    expect(screen.getByText("США")).toBeTruthy();
+  });
+
   it("shows independent empty states for current membership and statistics", () => {
     const data = playerPageFixture();
 

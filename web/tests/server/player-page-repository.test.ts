@@ -135,6 +135,31 @@ describe("Player Page repository", () => {
     ]);
   });
 
+  it("normalizes a runtime Date birth value to a timezone-stable date-only string", async () => {
+    const db = database({
+      scope: [{ ...scopeRow, birth_date: new Date("1999-06-10T00:00:00.000Z") }],
+    });
+
+    const result = await getCurrentSerieAPlayerPageData(
+      db.pool,
+      "rafael-leao-276",
+    );
+
+    expect(result?.player.birthDate).toBe("1999-06-10");
+    expect(result?.player.birthDate).not.toBeInstanceOf(Date);
+  });
+
+  it("preserves a missing birth date as null", async () => {
+    const db = database({ scope: [{ ...scopeRow, birth_date: null }] });
+
+    const result = await getCurrentSerieAPlayerPageData(
+      db.pool,
+      "rafael-leao-276",
+    );
+
+    expect(result?.player.birthDate).toBeNull();
+  });
+
   it("returns null for an unknown or stale player without related reads", async () => {
     const db = database({ scope: [] });
 

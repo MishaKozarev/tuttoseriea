@@ -27,6 +27,7 @@ type GeographyIdentity =
 
 const providerGeographyAliases = new Map<string, GeographyIdentity>([
   ["Italy", { kind: "region", regionCode: "IT" }],
+  ["USA", { kind: "region", regionCode: "US" }],
   ["England", { kind: "football", key: "england" }],
   ["Scotland", { kind: "football", key: "scotland" }],
   ["Wales", { kind: "football", key: "wales" }],
@@ -37,6 +38,8 @@ const footballGeographyLabelsRu = {
   scotland: "Шотландия",
   wales: "Уэльс",
 } satisfies Record<Extract<GeographyIdentity, { kind: "football" }>["key"], string>;
+
+const regionLabelsRu = new Map([["US", "США"]]);
 
 const russianRegionNames = new Intl.DisplayNames(["ru"], { type: "region" });
 
@@ -57,7 +60,8 @@ export function resolveFootballGeography(
     return footballGeographyLabelsRu[identity.key];
   }
 
-  const displayName = russianRegionNames.of(identity.regionCode);
+  const displayName =
+    regionLabelsRu.get(identity.regionCode) ?? russianRegionNames.of(identity.regionCode);
 
   return displayName && displayName !== identity.regionCode ? displayName : providerValue;
 }

@@ -49,6 +49,10 @@ describe("Football geography localization", () => {
     expect(resolveFootballGeography("Italy")).toBe("Италия");
   });
 
+  it("normalizes the exact USA provider alias through a region key", () => {
+    expect(resolveFootballGeography("USA")).toBe("США");
+  });
+
   it("uses an explicit football identity override", () => {
     expect(resolveFootballGeography("England")).toBe("Англия");
   });
