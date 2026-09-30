@@ -174,6 +174,12 @@ describe("Serie A current squads synchronization", () => {
       providerMarker: "raw-900000",
       position: "  Provider Owned Position  ",
     });
+    const playerCall = database.query.mock.calls.find(([queryText]) =>
+      queryText.includes("insert into football.players"),
+    );
+    const playerValues = playerCall?.[1] as readonly unknown[];
+    expect(playerValues[4]).toBe("player-900000-1000000");
+    expect(String(playerCall?.[0]).split("do update set")[1]).not.toContain("slug");
   });
 
   it("retains an unambiguous shirt number and a one-record raw array", async () => {

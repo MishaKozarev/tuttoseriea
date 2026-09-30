@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { config as loadEnv } from "dotenv";
 import pg from "pg";
@@ -14,12 +15,18 @@ import {
   SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
 } from "../src/football/foundation";
 import { listCurrentSerieAMatches } from "../src/football/matches-repository";
+import {
+  currentSerieAPlayerSlugExists,
+  getCurrentSerieAPlayerPageData,
+  listCurrentSerieAEligiblePlayerSlugs,
+} from "../src/football/player-page-repository";
 import { listCurrentSerieAClubs } from "../src/football/repository";
 import { syncSerieAFoundation } from "../src/football/serie-a-foundation-sync";
 import { syncSerieAMatches } from "../src/football/serie-a-matches-sync";
 import { syncSerieAPlayerStatistics } from "../src/football/serie-a-player-statistics-sync";
 import { syncSerieASquads } from "../src/football/serie-a-squads-sync";
 import { syncSerieAStandings } from "../src/football/serie-a-standings-sync";
+import { createPlayerSlug } from "../src/football/slug";
 import { listCurrentSerieAStandings } from "../src/football/standings-repository";
 import {
   createJobRegistry,
@@ -93,6 +100,7 @@ type StandingFactsRow = {
 
 type PlayerFactsRow = {
   id: string;
+  slug: string;
   providerName: string;
   nameRu: string | null;
   nameRuReviewStatus: string | null;
@@ -120,6 +128,11 @@ type PlayerStatisticsFactsRow = {
   statisticsRaw: Record<string, unknown>;
 };
 
+type PlayerSlugParityRow = {
+  providerPlayerId: number;
+  slug: string;
+};
+
 function requireEnv(name: string): string {
   const value = process.env[name];
 
@@ -128,6 +141,55 @@ function requireEnv(name: string): string {
   }
 
   return value;
+}
+
+async function verifyPlayerSlugSqlTypeScriptParity(
+  queryable: Pick<pg.Pool | pg.PoolClient, "query">,
+): Promise<void> {
+  const migration = readFileSync(
+    new URL("../drizzle/0010_aberrant_colleen_wing.sql", import.meta.url),
+    "utf8",
+  );
+  const expressionMatch = /SET "slug" = ([\s\S]*?);--> statement-breakpoint/u.exec(
+    migration,
+  );
+  const expression = expressionMatch?.[1]?.trim();
+
+  assertCondition(expression, "Player slug migration backfill expression was not found");
+
+  const cases = [
+    { providerName: "Rafael Leao", providerPlayerId: 276 },
+    { providerName: "  João Félix & Co.  ", providerPlayerId: 123 },
+    { providerName: "Ж", providerPlayerId: 456 },
+  ] as const;
+  const placeholders = cases
+    .map((_, index) => `($${index * 2 + 1}::text, $${index * 2 + 2}::integer)`)
+    .join(", ");
+  const values = cases.flatMap(({ providerName, providerPlayerId }) => [
+    providerName,
+    providerPlayerId,
+  ]);
+  const result = await queryable.query<PlayerSlugParityRow>(
+    `
+      select
+        "provider_player_id" as "providerPlayerId",
+        ${expression} as slug
+      from (values ${placeholders}) as input("provider_name", "provider_player_id")
+      order by "provider_player_id"
+    `,
+    values,
+  );
+  const sqlSlugsByProviderId = new Map(
+    result.rows.map((row) => [row.providerPlayerId, row.slug]),
+  );
+
+  for (const testCase of cases) {
+    assertCondition(
+      sqlSlugsByProviderId.get(testCase.providerPlayerId) ===
+        createPlayerSlug(testCase.providerName, testCase.providerPlayerId),
+      `Player slug SQL/TypeScript parity mismatch for provider player ${testCase.providerPlayerId}`,
+    );
+  }
 }
 
 function assertCondition(condition: unknown, message: string): asserts condition {
@@ -795,6 +857,7 @@ async function getFakePlayerFacts(
     `
       select
         id,
+        slug,
         provider_name as "providerName",
         name_ru as "nameRu",
         name_ru_review_status as "nameRuReviewStatus",
@@ -985,6 +1048,8 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     await client.query("begin");
     transactionStarted = true;
 
+    await verifyPlayerSlugSqlTypeScriptParity(client);
+
     const firstSync = await syncSerieAFoundation({
       client: createFakeClient(),
       queryable: client,
@@ -1029,6 +1094,33 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       localizationConstraints.rows[0]?.count === 3,
       "Football proper-name review consistency constraints are missing",
+    );
+
+    const playerSlugContract = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from information_schema.columns
+        where table_schema = 'football'
+          and table_name = 'players'
+          and column_name = 'slug'
+          and is_nullable = 'NO'
+      `,
+    );
+    const playerSlugUniqueIndex = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from pg_indexes
+        where schemaname = 'football'
+          and tablename = 'players'
+          and indexname = 'players_slug_unique'
+          and indexdef ilike 'create unique index%'
+      `,
+    );
+
+    assertCondition(
+      playerSlugContract.rows[0]?.count === 1 &&
+        playerSlugUniqueIndex.rows[0]?.count === 1,
+      "Player slug non-null/unique contract is missing",
     );
 
     await client.query(
@@ -1247,6 +1339,7 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
 
     assertCondition(
       initialPlayerFacts.providerName === "Player 1100000" &&
+        initialPlayerFacts.slug === "player-1100000-1100000" &&
         initialPlayerFacts.age === 24 &&
         initialPlayerFacts.providerPhotoUrl?.endsWith("/1100000.png") === true,
       "player provider-owned profile fields were not persisted",
@@ -1331,6 +1424,7 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
 
     assertCondition(
       updatedPlayerFacts.providerName === "Player 1100000 Updated" &&
+        updatedPlayerFacts.slug === "player-1100000-1100000" &&
         updatedPlayerFacts.age === 25 &&
         updatedPlayerFacts.providerPhotoUrl?.endsWith("/1100000-updated.png") === true,
       "existing player provider-owned profile fields did not update",
@@ -1942,6 +2036,71 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
         clubPageSlugs.includes("milan-manual") &&
         clubPageSlugs.includes("missing-provider-club-999999"),
       "Club Page sitemap slug scope mismatch",
+    );
+
+    await client.query(
+      `
+        insert into football.players (
+          id,
+          provider,
+          provider_player_id,
+          provider_name,
+          slug
+        )
+        values ($1, 'api-football', 1999999, 'Stale Player', 'stale-player-1999999')
+      `,
+      [crypto.randomUUID()],
+    );
+
+    const membershipOnlyPlayer = await getCurrentSerieAPlayerPageData(
+      client,
+      "player-1100000-1100000",
+    );
+    const statisticsOnlyPlayer = await getCurrentSerieAPlayerPageData(
+      client,
+      "statistics-player-1300000-1300000",
+    );
+
+    assertCondition(
+      membershipOnlyPlayer?.memberships.length === 2 &&
+        membershipOnlyPlayer.statistics.length === 0 &&
+        membershipOnlyPlayer.player.displayName === "Игрок состава",
+      "Player Page membership-only eligibility/read model mismatch",
+    );
+    assertCondition(
+      statisticsOnlyPlayer?.memberships.length === 0 &&
+        statisticsOnlyPlayer.statistics.length === 1 &&
+        statisticsOnlyPlayer.player.displayName === "Игрок статистики",
+      "Player Page statistics-only eligibility/read model mismatch",
+    );
+    assertCondition(
+      (await getCurrentSerieAPlayerPageData(client, "stale-player-1999999")) === null,
+      "stale Player Page slug was treated as eligible",
+    );
+    assertCondition(
+      await currentSerieAPlayerSlugExists(client, "player-1100000-1100000"),
+      "membership-only Player Page slug existence check failed",
+    );
+    assertCondition(
+      await currentSerieAPlayerSlugExists(
+        client,
+        "statistics-player-1300000-1300000",
+      ),
+      "statistics-only Player Page slug existence check failed",
+    );
+    assertCondition(
+      !(await currentSerieAPlayerSlugExists(client, "stale-player-1999999")),
+      "stale Player Page slug passed the existence check",
+    );
+
+    const eligiblePlayerSlugs = await listCurrentSerieAEligiblePlayerSlugs(client);
+
+    assertCondition(
+      eligiblePlayerSlugs.includes("player-1100000-1100000") &&
+        eligiblePlayerSlugs.includes("statistics-player-1300000-1300000") &&
+        !eligiblePlayerSlugs.includes("stale-player-1999999") &&
+        new Set(eligiblePlayerSlugs).size === eligiblePlayerSlugs.length,
+      "Player Page sitemap eligibility scope mismatch",
     );
   } finally {
     if (transactionStarted) {
@@ -3075,6 +3234,11 @@ async function main(): Promise<void> {
     console.log("football_player_statistics_production_pool_rollback=true");
     console.log("football_club_page_read_model=true");
     console.log("football_club_page_sitemap_scope=true");
+    console.log("football_player_slug_stable=true");
+    console.log("football_player_slug_sql_typescript_parity=true");
+    console.log("football_player_page_read_model=true");
+    console.log("football_player_page_membership_or_statistics_eligibility=true");
+    console.log("football_player_page_sitemap_scope=true");
     console.log("football_runtime_grants_exact=true");
     console.log("football_runtime_membership_delete=true");
     console.log("football_runtime_player_statistics_delete=true");

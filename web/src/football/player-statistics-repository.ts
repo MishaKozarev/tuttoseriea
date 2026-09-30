@@ -7,6 +7,7 @@ import {
   SERIE_A_CURRENT_SEASON,
   SERIE_A_PROVIDER_LEAGUE_ID,
 } from "./foundation";
+import { createPlayerSlug } from "./slug";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
@@ -144,6 +145,7 @@ export async function upsertPlayerProfile(
             provider,
             provider_player_id,
             provider_name,
+            slug,
             firstname,
             lastname,
             age,
@@ -158,7 +160,7 @@ export async function upsertPlayerProfile(
           )
           values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15
+            $11, $12, $13, $14, $15, $16
           )
           on conflict (provider, provider_player_id)
           do update set
@@ -182,6 +184,7 @@ export async function upsertPlayerProfile(
           API_FOOTBALL_PROVIDER,
           input.providerPlayerId,
           input.providerName,
+          createPlayerSlug(input.providerName, input.providerPlayerId),
           input.firstname,
           input.lastname,
           input.age,

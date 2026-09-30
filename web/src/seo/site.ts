@@ -127,6 +127,20 @@ export function buildClubMetadata(club: {
   };
 }
 
+export function buildPlayerMetadata(player: {
+  slug: string;
+  displayName: string;
+  seasonLabel: string;
+}): Metadata {
+  return {
+    title: player.displayName,
+    description: `${player.displayName}: профиль, текущий клуб и статистика в Серии A ${player.seasonLabel}.`,
+    alternates: {
+      canonical: `/players/${player.slug}`,
+    },
+  };
+}
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -152,6 +166,7 @@ export function buildRobots(env: RuntimeEnv = process.env): MetadataRoute.Robots
 export function buildSitemap(
   env: RuntimeEnv = process.env,
   clubSlugs: readonly string[] = [],
+  playerSlugs: readonly string[] = [],
 ): MetadataRoute.Sitemap {
   return [
     {
@@ -168,6 +183,9 @@ export function buildSitemap(
     },
     ...clubSlugs.map((slug) => ({
       url: createSiteUrl(`/clubs/${slug}`, env),
+    })),
+    ...playerSlugs.map((slug) => ({
+      url: createSiteUrl(`/players/${slug}`, env),
     })),
   ];
 }
