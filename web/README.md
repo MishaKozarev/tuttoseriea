@@ -255,6 +255,19 @@ detail paths so an unknown slug receives a real HTTP `404` before the root
 loading boundary starts streaming; the page still owns the authoritative read
 and `notFound()` behavior.
 
+Stage 4.7.3 adds the indexable DB-only General Statistics page at
+`/statistics`, explicitly scoped to API-Football league `135` and season
+`2026`. Player leaderboards aggregate typed `football.player_statistics`
+values across every contributing club row so a transferred player appears
+once while retaining canonical links to every contributing club. Additive
+metrics use conservative null semantics: all contributing values must be known
+before they are summed, and null is never coerced to zero. Goals, assists,
+appearances and minutes use stable competition ranking with equal displayed
+ranks and deterministic provider-identity ordering inside ties. The page also
+reads all current team overall/home/away values from `football.standings`.
+Each section has an independent empty state. The route adds no provider call,
+sync, schema, migration, scheduler or freshness timestamp.
+
 The foundation does not add product registration, OAuth, Credentials, WebAuthn
 functionality, PublicProfile, FastAPI integration or public Identity onboarding.
 

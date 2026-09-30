@@ -24,6 +24,7 @@ const standing: CurrentSerieAStanding = {
   home: { played: 13, wins: 10, draws: 3, losses: 0, goalsFor: 30, goalsAgainst: 12 },
   away: { played: 12, wins: 9, draws: 3, losses: 0, goalsFor: 20, goalsAgainst: 14 },
   club: {
+    slug: "ac-milan-489",
     displayName: "Милан",
     code: "MIL",
     providerLogoUrl: null,

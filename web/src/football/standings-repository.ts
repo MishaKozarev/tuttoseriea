@@ -49,6 +49,7 @@ type StandingListRow = {
   away_goals_for: number;
   away_goals_against: number;
   club_id: string;
+  club_slug: string;
   provider_name: string;
   name_ru: string | null;
   name_ru_review_status: string | null;
@@ -89,6 +90,7 @@ export type SerieAStandingsContext = {
 export type CurrentSerieAStanding = Omit<UpsertStandingInput, "providerRaw" | "seasonId"> & {
   id: string;
   club: {
+    slug: string;
     displayName: string;
     code: string | null;
     providerLogoUrl: string | null;
@@ -301,6 +303,7 @@ export async function listCurrentSerieAStandings(
         st.away_goals_for,
         st.away_goals_against,
         c.id as club_id,
+        c.slug as club_slug,
         c.provider_name,
         c.name_ru,
         c.name_ru_review_status,
@@ -354,6 +357,7 @@ export async function listCurrentSerieAStandings(
       goalsAgainst: row.away_goals_against,
     },
     club: {
+      slug: row.club_slug,
       displayName: resolveFootballProperName({
         providerName: row.provider_name,
         nameRu: row.name_ru,

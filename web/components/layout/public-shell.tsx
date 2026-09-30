@@ -16,13 +16,13 @@ export function PublicShell({ children }: { children: ReactNode }) {
             className="inline-flex items-baseline gap-2 text-sm font-semibold text-foreground transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <span>tuttoseriea.com</span>
-            <span className="hidden text-sm font-normal text-muted-foreground sm:inline">
+            <span className="hidden text-sm font-normal text-muted-foreground lg:inline">
               Serie A на русском
             </span>
           </Link>
           <nav
             aria-label="Основная навигация"
-            className="hidden items-center gap-5 sm:flex"
+            className="hidden items-center gap-3 sm:flex lg:gap-5"
           >
             <Link
               href="/"
@@ -47,6 +47,12 @@ export function PublicShell({ children }: { children: ReactNode }) {
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               Таблица
+            </Link>
+            <Link
+              href="/statistics"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              Статистика
             </Link>
           </nav>
         </Container>
