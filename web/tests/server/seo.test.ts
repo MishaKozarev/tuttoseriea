@@ -7,6 +7,7 @@ import { metadata as calendarPageMetadata } from "@/app/(public)/calendar/page";
 import { metadata as clubsPageMetadata } from "@/app/(public)/clubs/page";
 import { metadata as homePageMetadata } from "@/app/(public)/page";
 import { metadata as tablePageMetadata } from "@/app/(public)/table/page";
+import { metadata as statisticsPageMetadata } from "@/app/(public)/statistics/page";
 import {
   SITE_DESCRIPTION,
   SITE_NAME,
@@ -101,6 +102,12 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("sets the General Statistics canonical at the page level", () => {
+    expect(statisticsPageMetadata.alternates).toEqual({
+      canonical: "/statistics",
+    });
+  });
+
   it("builds indexable metadata for a canonical club slug", () => {
     expect(
       buildClubMetadata({
@@ -176,6 +183,7 @@ describe("site SEO configuration", () => {
       { url: "https://tuttoseriea.com/clubs" },
       { url: "https://tuttoseriea.com/calendar" },
       { url: "https://tuttoseriea.com/table" },
+      { url: "https://tuttoseriea.com/statistics" },
       { url: "https://tuttoseriea.com/clubs/ac-milan-489" },
       { url: "https://tuttoseriea.com/clubs/inter-505" },
       { url: "https://tuttoseriea.com/players/membership-only-1" },

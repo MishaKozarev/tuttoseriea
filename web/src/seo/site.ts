@@ -113,6 +113,15 @@ export const tableMetadata: Metadata = {
   },
 };
 
+export const statisticsMetadata: Metadata = {
+  title: "Статистика Серии А",
+  description:
+    "Лидеры игроков и статистика команд Серии А сезона 2026/27 на tuttoseriea.com.",
+  alternates: {
+    canonical: "/statistics",
+  },
+};
+
 export function buildClubMetadata(club: {
   slug: string;
   displayName: string;
@@ -180,6 +189,9 @@ export function buildSitemap(
     },
     {
       url: createSiteUrl("/table", env),
+    },
+    {
+      url: createSiteUrl("/statistics", env),
     },
     ...clubSlugs.map((slug) => ({
       url: createSiteUrl(`/clubs/${slug}`, env),

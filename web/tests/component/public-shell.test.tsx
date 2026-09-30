@@ -27,5 +27,8 @@ describe("PublicShell", () => {
     expect(screen.getByRole("link", { name: "Таблица" }).getAttribute("href")).toBe(
       "/table",
     );
+    expect(
+      screen.getByRole("link", { name: "Статистика" }).getAttribute("href"),
+    ).toBe("/statistics");
   });
 });

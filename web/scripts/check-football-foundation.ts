@@ -27,6 +27,7 @@ import { syncSerieAPlayerStatistics } from "../src/football/serie-a-player-stati
 import { syncSerieASquads } from "../src/football/serie-a-squads-sync";
 import { syncSerieAStandings } from "../src/football/serie-a-standings-sync";
 import { createPlayerSlug } from "../src/football/slug";
+import { listCurrentSerieAPlayerAggregates } from "../src/football/statistics-page-repository";
 import { listCurrentSerieAStandings } from "../src/football/standings-repository";
 import {
   createJobRegistry,
@@ -1508,6 +1509,22 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
           | { saves?: unknown }
           | undefined)?.saves === 9,
       "complete player/statistics raw snapshots were not persisted",
+    );
+
+    const initialStatisticsPageAggregates =
+      await listCurrentSerieAPlayerAggregates(client);
+    const transferAggregate = initialStatisticsPageAggregates.find(
+      (aggregate) => aggregate.player.providerPlayerId === 1_300_000,
+    );
+
+    assertCondition(
+      initialStatisticsPageAggregates.length === 20 &&
+        transferAggregate?.clubs.length === 2 &&
+        transferAggregate.goals === 6 &&
+        transferAggregate.assists === 8 &&
+        transferAggregate.appearances === 0 &&
+        transferAggregate.minutes === null,
+      "General Statistics aggregation did not preserve transfer or conservative NULL semantics",
     );
 
     await assertCheckConstraintViolation(
@@ -3232,6 +3249,7 @@ async function main(): Promise<void> {
     console.log("football_player_statistics_snapshot_reconciled=true");
     console.log("football_player_statistics_complete_raw_snapshot=true");
     console.log("football_player_statistics_production_pool_rollback=true");
+    console.log("football_general_statistics_aggregation=true");
     console.log("football_club_page_read_model=true");
     console.log("football_club_page_sitemap_scope=true");
     console.log("football_player_slug_stable=true");

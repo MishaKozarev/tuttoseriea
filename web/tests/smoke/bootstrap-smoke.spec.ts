@@ -40,6 +40,7 @@ test("web public shell smoke", async ({ page, request }) => {
   expect(sitemap).toContain(`<loc>${siteOrigin}/clubs</loc>`);
   expect(sitemap).toContain(`<loc>${siteOrigin}/calendar</loc>`);
   expect(sitemap).toContain(`<loc>${siteOrigin}/table</loc>`);
+  expect(sitemap).toContain(`<loc>${siteOrigin}/statistics</loc>`);
   expect(sitemap).not.toContain("/admin");
   expect(sitemap).not.toContain("/api/");
   expect(sitemap).not.toContain("/news");
@@ -73,5 +74,18 @@ test("web public shell smoke", async ({ page, request }) => {
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     "href",
     `${siteOrigin}/table`,
+  );
+
+  await page.goto("/statistics");
+
+  await expect(page.getByRole("heading", { name: "Статистика Серии А" })).toBeVisible();
+  await expect(page.getByText("Данные о бомбардирах пока отсутствуют.")).toBeVisible();
+  await expect(page.getByText("Данные о голевых передачах пока отсутствуют.")).toBeVisible();
+  await expect(page.getByText("Данные о сыгранных матчах пока отсутствуют.")).toBeVisible();
+  await expect(page.getByText("Данные о сыгранных минутах пока отсутствуют.")).toBeVisible();
+  await expect(page.getByText("Статистика команд пока отсутствует.")).toBeVisible();
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    `${siteOrigin}/statistics`,
   );
 });
