@@ -54,11 +54,13 @@ type MatchRow = {
   status_extra: number | null;
   home_goals: number | null;
   away_goals: number | null;
+  home_slug: string;
   home_provider_name: string;
   home_name_ru: string | null;
   home_name_ru_review_status: string | null;
   home_code: string | null;
   home_logo_url: string | null;
+  away_slug: string;
   away_provider_name: string;
   away_name_ru: string | null;
   away_name_ru_review_status: string | null;
@@ -71,6 +73,7 @@ type SquadRow = {
   shirt_number: number | null;
   position: string;
   player_id: string;
+  public_player_slug: string | null;
   provider_name: string;
   name_ru: string | null;
   name_ru_review_status: string | null;
@@ -119,6 +122,7 @@ export type ClubPageMatch = {
 };
 
 type ClubPageMatchClub = {
+  slug: string;
   displayName: string;
   code: string | null;
   providerLogoUrl: string | null;
@@ -136,6 +140,7 @@ export type ClubPagePlayerStatistics = {
 export type ClubPageSquadPlayer = {
   membershipId: string;
   playerId: string;
+  publicPlayerSlug: string | null;
   displayName: string;
   providerPhotoUrl: string | null;
   shirtNumber: number | null;
@@ -181,6 +186,7 @@ function mapMatch(row: MatchRow): ClubPageMatch {
     homeGoals: row.home_goals,
     awayGoals: row.away_goals,
     homeClub: {
+      slug: row.home_slug,
       displayName: resolveFootballProperName({
         providerName: row.home_provider_name,
         nameRu: row.home_name_ru,
@@ -190,6 +196,7 @@ function mapMatch(row: MatchRow): ClubPageMatch {
       providerLogoUrl: row.home_logo_url,
     },
     awayClub: {
+      slug: row.away_slug,
       displayName: resolveFootballProperName({
         providerName: row.away_provider_name,
         nameRu: row.away_name_ru,
@@ -229,11 +236,13 @@ async function listClubMatches(
         m.status_extra,
         m.home_goals,
         m.away_goals,
+        home.slug as home_slug,
         home.provider_name as home_provider_name,
         home.name_ru as home_name_ru,
         home.name_ru_review_status as home_name_ru_review_status,
         home.code as home_code,
         home.provider_logo_url as home_logo_url,
+        away.slug as away_slug,
         away.provider_name as away_provider_name,
         away.name_ru as away_name_ru,
         away.name_ru_review_status as away_name_ru_review_status,
@@ -333,6 +342,27 @@ export async function getCurrentSerieAClubPageData(
         sm.shirt_number,
         sm.position,
         p.id as player_id,
+        case
+          when p.provider = $3
+            and (
+              exists (
+                select 1
+                from football.squad_memberships eligible_sm
+                join football.season_clubs eligible_sc
+                  on eligible_sc.club_id = eligible_sm.club_id
+                  and eligible_sc.season_id = $1
+                where eligible_sm.player_id = p.id
+              )
+              or exists (
+                select 1
+                from football.player_statistics eligible_ps
+                where eligible_ps.player_id = p.id
+                  and eligible_ps.season_id = $1
+              )
+            )
+          then p.slug
+          else null
+        end as public_player_slug,
         p.provider_name,
         p.name_ru,
         p.name_ru_review_status,
@@ -357,7 +387,7 @@ export async function getCurrentSerieAClubPageData(
         p.provider_name,
         p.provider_player_id
     `,
-    [scope.season_id, scope.id],
+    [scope.season_id, scope.id, API_FOOTBALL_PROVIDER],
   );
   const standing = standingResult.rows[0];
 
@@ -407,6 +437,7 @@ export async function getCurrentSerieAClubPageData(
     squad: squadResult.rows.map((row) => ({
       membershipId: row.membership_id,
       playerId: row.player_id,
+      publicPlayerSlug: row.public_player_slug,
       displayName: resolveFootballProperName({
         providerName: row.provider_name,
         nameRu: row.name_ru,

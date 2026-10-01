@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { CurrentSerieAStanding } from "@/src/football/standings-repository";
 import {
   formatStandingsForm,
@@ -27,8 +29,14 @@ function Club({ standing }: { standing: CurrentSerieAStanding }) {
   const description = resolveStandingsDescription(standing.description);
 
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background text-[11px] font-semibold text-muted-foreground">
+    <Link
+      href={`/clubs/${standing.club.slug}`}
+      className="flex min-w-0 items-center gap-3 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <span
+        aria-hidden="true"
+        className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background text-[11px] font-semibold text-muted-foreground"
+      >
         {logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt="" className="size-7 object-contain" loading="lazy" />
@@ -46,7 +54,7 @@ function Club({ standing }: { standing: CurrentSerieAStanding }) {
           </span>
         ) : null}
       </span>
-    </div>
+    </Link>
   );
 }
 

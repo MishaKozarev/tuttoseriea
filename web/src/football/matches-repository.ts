@@ -36,7 +36,9 @@ type MatchListRow = {
   status_extra: number | null;
   home_goals: number | null;
   away_goals: number | null;
+  home_slug: string;
   home_provider_name: string;
+  away_slug: string;
   away_provider_name: string;
   home_name_ru: string | null;
   away_name_ru: string | null;
@@ -105,11 +107,13 @@ export type CurrentSerieAMatch = {
   homeGoals: number | null;
   awayGoals: number | null;
   homeClub: {
+    slug: string;
     displayName: string;
     code: string | null;
     providerLogoUrl: string | null;
   };
   awayClub: {
+    slug: string;
     displayName: string;
     code: string | null;
     providerLogoUrl: string | null;
@@ -345,7 +349,9 @@ export async function listCurrentSerieAMatches(
         m.status_extra,
         m.home_goals,
         m.away_goals,
+        home.slug as home_slug,
         home.provider_name as home_provider_name,
+        away.slug as away_slug,
         away.provider_name as away_provider_name,
         home.name_ru as home_name_ru,
         away.name_ru as away_name_ru,
@@ -388,6 +394,7 @@ export async function listCurrentSerieAMatches(
     homeGoals: row.home_goals,
     awayGoals: row.away_goals,
     homeClub: {
+      slug: row.home_slug,
       displayName: resolveFootballProperName({
         providerName: row.home_provider_name,
         nameRu: row.home_name_ru,
@@ -397,6 +404,7 @@ export async function listCurrentSerieAMatches(
       providerLogoUrl: row.home_logo_url,
     },
     awayClub: {
+      slug: row.away_slug,
       displayName: resolveFootballProperName({
         providerName: row.away_provider_name,
         nameRu: row.away_name_ru,

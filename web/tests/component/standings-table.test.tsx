@@ -49,6 +49,8 @@ describe("StandingsTable", () => {
     expect(screen.getByText("ВВНПВ")).toBeTruthy();
     expect(screen.getByText("50:26")).toBeTruthy();
     expect(screen.getByText("+24")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByRole("link", { name: /Милан/u }).getAttribute("href")).toBe(
+      "/clubs/ac-milan-489",
+    );
   });
 });

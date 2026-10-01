@@ -12,7 +12,7 @@ afterEach(() => {
 
 describe("ClubPage", () => {
   it("renders the club profile, localized summaries, matches and current squad", () => {
-    render(<ClubPage data={clubPageFixture()} />);
+    const { container } = render(<ClubPage data={clubPageFixture()} />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Милан" })).toBeTruthy();
     expect(screen.getByText("Serie A · 2026/27")).toBeTruthy();
@@ -27,7 +27,22 @@ describe("ClubPage", () => {
     expect(within(playerRow).getByText("25")).toBeTruthy();
     expect(within(playerRow).getByText("1940")).toBeTruthy();
     expect(within(playerRow).getByText("7.20")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    const playerLink = within(playerRow).getByRole("link", { name: /Игрок Один/u });
+    expect(playerLink.getAttribute("href")).toBe("/players/player-one-101");
+    expect(within(playerLink).getByText("ИО")).toBeTruthy();
+
+    expect(screen.getByRole("link", { name: "Интер" }).getAttribute("href")).toBe(
+      "/clubs/inter-505",
+    );
+    expect(screen.getByRole("link", { name: "Ювентус" }).getAttribute("href")).toBe(
+      "/clubs/juventus-496",
+    );
+    expect(screen.getAllByRole("link", { name: "Милан" })).toHaveLength(2);
+    expect(container.querySelector('a[href^="/matches/"]')).toBeNull();
+    expect(container.querySelector("a a")).toBeNull();
+    expect(
+      screen.getAllByRole("listitem").every((row) => row.closest("a") === null),
+    ).toBe(true);
   });
 
   it("renders every optional section independently when data is absent", () => {
@@ -56,5 +71,25 @@ describe("ClubPage", () => {
     const playerRow = screen.getByRole("row", { name: /Player Two/u });
     expect(within(playerRow).getByText("Защитник")).toBeTruthy();
     expect(within(playerRow).getAllByText("—")).toHaveLength(7);
+  });
+
+  it("keeps an anomalous non-public squad player as plain display", () => {
+    const data = clubPageFixture();
+
+    render(
+      <ClubPage
+        data={{
+          ...data,
+          squad: data.squad.map((player, index) =>
+            index === 0 ? { ...player, publicPlayerSlug: null } : player,
+          ),
+        }}
+      />,
+    );
+
+    const playerRow = screen.getByRole("row", { name: /Игрок Один/u });
+    expect(within(playerRow).getByText("Игрок Один")).toBeTruthy();
+    expect(within(playerRow).queryByRole("link", { name: /Игрок Один/u })).toBeNull();
+    expect(document.querySelector('a[href="/players/player-one-101"]')).toBeNull();
   });
 });

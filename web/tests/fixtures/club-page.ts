@@ -46,11 +46,13 @@ export function clubPageFixture(): CurrentSerieAClubPageData {
         homeGoals: 2,
         awayGoals: 1,
         homeClub: {
+          slug: "ac-milan-489",
           displayName: "Милан",
           code: "MIL",
           providerLogoUrl: null,
         },
         awayClub: {
+          slug: "inter-505",
           displayName: "Интер",
           code: "INT",
           providerLogoUrl: null,
@@ -71,11 +73,13 @@ export function clubPageFixture(): CurrentSerieAClubPageData {
         homeGoals: null,
         awayGoals: null,
         homeClub: {
+          slug: "juventus-496",
           displayName: "Ювентус",
           code: "JUV",
           providerLogoUrl: null,
         },
         awayClub: {
+          slug: "ac-milan-489",
           displayName: "Милан",
           code: "MIL",
           providerLogoUrl: null,
@@ -86,6 +90,7 @@ export function clubPageFixture(): CurrentSerieAClubPageData {
       {
         membershipId: "membership-1",
         playerId: "player-1",
+        publicPlayerSlug: "player-one-101",
         displayName: "Игрок Один",
         providerPhotoUrl: null,
         shirtNumber: 10,
@@ -102,6 +107,7 @@ export function clubPageFixture(): CurrentSerieAClubPageData {
       {
         membershipId: "membership-2",
         playerId: "player-2",
+        publicPlayerSlug: "player-two-102",
         displayName: "Player Two",
         providerPhotoUrl: null,
         shirtNumber: null,

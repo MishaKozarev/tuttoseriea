@@ -4,6 +4,7 @@ import {
   Shield,
   Trophy,
 } from "lucide-react";
+import Link from "next/link";
 
 import {
   formatMatchRound,
@@ -119,10 +120,12 @@ function matchScore(match: ClubPageMatch): string {
 }
 
 function TeamMark({
+  slug,
   code,
   logoUrl,
   name,
 }: {
+  slug: string;
   code: string | null;
   logoUrl: string | null;
   name: string;
@@ -130,8 +133,14 @@ function TeamMark({
   const imageUrl = safeImageUrl(logoUrl);
 
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-[10px] font-semibold text-muted-foreground">
+    <Link
+      href={`/clubs/${slug}`}
+      className="flex min-w-0 items-center gap-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <span
+        aria-hidden="true"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-[10px] font-semibold text-muted-foreground"
+      >
         {imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={imageUrl} alt="" className="size-6 object-contain" loading="lazy" />
@@ -140,7 +149,7 @@ function TeamMark({
         )}
       </span>
       <span className="truncate text-sm font-medium">{name}</span>
-    </span>
+    </Link>
   );
 }
 
@@ -163,6 +172,7 @@ function ClubMatches({ matches }: { matches: ClubPageMatch[] }) {
           </div>
           <div className="grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
             <TeamMark
+              slug={match.homeClub.slug}
               code={match.homeClub.code}
               logoUrl={match.homeClub.providerLogoUrl}
               name={match.homeClub.displayName}
@@ -172,6 +182,7 @@ function ClubMatches({ matches }: { matches: ClubPageMatch[] }) {
             </span>
             <span className="flex justify-end">
               <TeamMark
+                slug={match.awayClub.slug}
                 code={match.awayClub.code}
                 logoUrl={match.awayClub.providerLogoUrl}
                 name={match.awayClub.displayName}
@@ -215,23 +226,40 @@ function SquadTable({ data }: { data: CurrentSerieAClubPageData }) {
         <tbody className="divide-y">
           {data.squad.map((player) => {
             const photoUrl = safeImageUrl(player.providerPhotoUrl);
+            const playerIdentity = (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background text-xs font-semibold text-muted-foreground"
+                >
+                  {photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoUrl} alt="" className="size-full object-cover" loading="lazy" />
+                  ) : (
+                    initials(player.displayName)
+                  )}
+                </span>
+                <span className="truncate font-medium text-foreground">
+                  {player.displayName}
+                </span>
+              </>
+            );
 
             return (
               <tr key={player.membershipId}>
                 <th scope="row" className="px-4 py-3 text-left font-normal">
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background text-xs font-semibold text-muted-foreground">
-                      {photoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={photoUrl} alt="" className="size-full object-cover" loading="lazy" />
-                      ) : (
-                        initials(player.displayName)
-                      )}
+                  {player.publicPlayerSlug ? (
+                    <Link
+                      href={`/players/${player.publicPlayerSlug}`}
+                      className="flex min-w-0 items-center gap-3 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      {playerIdentity}
+                    </Link>
+                  ) : (
+                    <span className="flex min-w-0 items-center gap-3">
+                      {playerIdentity}
                     </span>
-                    <span className="truncate font-medium text-foreground">
-                      {player.displayName}
-                    </span>
-                  </span>
+                  )}
                 </th>
                 <td className="px-2 py-3 text-center tabular-nums">
                   {formatStatistic(player.shirtNumber)}
