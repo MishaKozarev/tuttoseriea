@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { CurrentSerieAMatch } from "@/src/football/matches-repository";
 import {
   formatMatchRound,
@@ -71,17 +73,25 @@ function groupMatchesByRound(matches: CurrentSerieAMatch[]): [string, CurrentSer
 }
 
 function ClubBadge({
+  slug,
   code,
   logoUrl,
   name,
 }: {
+  slug: string;
   code: string | null;
   logoUrl: string | null;
   name: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-[11px] font-semibold text-muted-foreground">
+    <Link
+      href={`/clubs/${slug}`}
+      className="flex min-w-0 items-center gap-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <span
+        aria-hidden="true"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-[11px] font-semibold text-muted-foreground"
+      >
         {logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt="" className="size-6 object-contain" loading="lazy" />
@@ -90,7 +100,7 @@ function ClubBadge({
         )}
       </span>
       <span className="truncate text-sm font-medium text-foreground">{name}</span>
-    </div>
+    </Link>
   );
 }
 
@@ -140,6 +150,7 @@ export function MatchesCalendar({ matches }: { matches: CurrentSerieAMatch[] }) 
                   </div>
                   <div className="grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
                     <ClubBadge
+                      slug={match.homeClub.slug}
                       code={match.homeClub.code}
                       logoUrl={homeLogoUrl}
                       name={match.homeClub.displayName}
@@ -149,6 +160,7 @@ export function MatchesCalendar({ matches }: { matches: CurrentSerieAMatch[] }) 
                     </span>
                     <div className="flex justify-end">
                       <ClubBadge
+                        slug={match.awayClub.slug}
                         code={match.awayClub.code}
                         logoUrl={awayLogoUrl}
                         name={match.awayClub.displayName}

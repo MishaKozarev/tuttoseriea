@@ -26,11 +26,13 @@ const match: CurrentSerieAMatch = {
   homeGoals: null,
   awayGoals: null,
   homeClub: {
+    slug: "ac-milan-489",
     displayName: "Милан",
     code: "MIL",
     providerLogoUrl: null,
   },
   awayClub: {
+    slug: "inter-505",
     displayName: "Интер",
     code: "INT",
     providerLogoUrl: null,
@@ -49,14 +51,22 @@ describe("MatchesCalendar", () => {
   });
 
   it("renders persisted matches without linking to premature detail routes", () => {
-    render(<MatchesCalendar matches={[match]} />);
+    const { container } = render(<MatchesCalendar matches={[match]} />);
 
     expect(screen.getByRole("heading", { name: "1-й тур" })).toBeTruthy();
     expect(screen.getByText("Милан")).toBeTruthy();
     expect(screen.getByText("Интер")).toBeTruthy();
     expect(screen.getByText("Не начался")).toBeTruthy();
     expect(screen.getByText("San Siro, Milano")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByRole("link", { name: "Милан" }).getAttribute("href")).toBe(
+      "/clubs/ac-milan-489",
+    );
+    expect(screen.getByRole("link", { name: "Интер" }).getAttribute("href")).toBe(
+      "/clubs/inter-505",
+    );
+    expect(screen.getByRole("listitem").closest("a")).toBeNull();
+    expect(container.querySelector('a[href^="/matches/"]')).toBeNull();
+    expect(container.querySelector("a a")).toBeNull();
   });
 
   it("uses normalized Russian status labels instead of provider English", () => {

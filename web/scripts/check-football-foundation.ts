@@ -2011,8 +2011,13 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
 
     assertCondition(listedMatches.length === 381, "public match listing count mismatch");
     assertCondition(
-      listedMatches.some((match) => match.homeClub.displayName === "Милан"),
-      "public match listing did not use application-owned club display name",
+      listedMatches.some(
+        (match) =>
+          match.homeClub.displayName === "Милан" &&
+          match.homeClub.slug === "milan-manual" &&
+          Boolean(match.awayClub.slug),
+      ),
+      "public match listing did not expose canonical Club identities",
     );
 
     const clubPageData = await getCurrentSerieAClubPageData(client, "milan-manual");
@@ -2032,7 +2037,17 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
       clubPageData.recentMatches.length > 0 && clubPageData.upcomingMatches.length > 0,
       "Club Page bounded match sections were not populated",
     );
+    assertCondition(
+      [...clubPageData.recentMatches, ...clubPageData.upcomingMatches].every(
+        (match) => Boolean(match.homeClub.slug) && Boolean(match.awayClub.slug),
+      ),
+      "Club Page matches did not expose canonical Club identities",
+    );
     assertCondition(clubPageData.squad.length > 0, "Club Page current squad was not populated");
+    assertCondition(
+      clubPageData.squad.every((player) => Boolean(player.publicPlayerSlug)),
+      "Club Page eligible current squad did not expose canonical Player identities",
+    );
     assertCondition(
       await getCurrentSerieAClubPageData(client, "unknown-club") === null,
       "unknown Club Page slug did not return null",

@@ -38,11 +38,13 @@ const matchRow = {
   status_extra: null,
   home_goals: 2,
   away_goals: 1,
+  home_slug: "ac-milan-489",
   home_provider_name: "AC Milan",
   home_name_ru: "Милан",
   home_name_ru_review_status: "reviewed",
   home_code: "MIL",
   home_logo_url: null,
+  away_slug: "inter-505",
   away_provider_name: "Inter",
   away_name_ru: "Интер",
   away_name_ru_review_status: "unreviewed",
@@ -117,6 +119,7 @@ describe("Club Page read model", () => {
           shirt_number: 10,
           position: "Midfielder",
           player_id: "player-1",
+          public_player_slug: "player-one-101",
           provider_name: "Player One",
           name_ru: "Игрок Один",
           name_ru_review_status: "reviewed",
@@ -139,8 +142,15 @@ describe("Club Page read model", () => {
       competition: { displayName: "Serie A" },
       season: { id: "season-2026", displayLabel: "2026/27" },
       standing: { rank: 2, points: 61 },
-      recentMatches: [{ homeClub: { displayName: "Милан" }, awayClub: { displayName: "Inter" } }],
-      squad: [{ displayName: "Игрок Один", statistics: { appearances: 25, goals: 8 } }],
+      recentMatches: [{
+        homeClub: { slug: "ac-milan-489", displayName: "Милан" },
+        awayClub: { slug: "inter-505", displayName: "Inter" },
+      }],
+      squad: [{
+        publicPlayerSlug: "player-one-101",
+        displayName: "Игрок Один",
+        statistics: { appearances: 25, goals: 8 },
+      }],
     });
     expect(db.query).toHaveBeenCalledTimes(5);
 
@@ -163,6 +173,14 @@ describe("Club Page read model", () => {
     expect(squadSql).toContain("ps.season_id = $1");
     expect(squadSql).toContain("ps.club_id = sm.club_id");
     expect(squadSql).toContain("ps.player_id = sm.player_id");
+    expect(squadSql).toContain("p.provider = $3");
+    expect(squadSql).toContain("from football.squad_memberships eligible_sm");
+    expect(squadSql).toContain("join football.season_clubs eligible_sc");
+    expect(squadSql).toContain("from football.player_statistics eligible_ps");
+    const squadCall = db.query.mock.calls.find(([sql]) =>
+      sql.includes("from football.squad_memberships sm"),
+    );
+    expect(squadCall?.[1]).toEqual(["season-2026", "club-1", "api-football"]);
   });
 
   it("returns null for an unknown or out-of-scope slug without related reads", async () => {
@@ -183,6 +201,7 @@ describe("Club Page read model", () => {
           shirt_number: null,
           position: "Defender",
           player_id: "player-2",
+          public_player_slug: "player-two-102",
           provider_name: "Player Two",
           name_ru: null,
           name_ru_review_status: null,
@@ -204,8 +223,44 @@ describe("Club Page read model", () => {
     expect(result?.squad).toEqual([
       expect.objectContaining({
         playerId: "player-2",
+        publicPlayerSlug: "player-two-102",
         displayName: "Player Two",
         statistics: null,
+      }),
+    ]);
+  });
+
+  it("keeps an anomalous non-public squad player displayable without a public slug", async () => {
+    const db = database({
+      squad: [
+        {
+          membership_id: "membership-anomalous",
+          shirt_number: 99,
+          position: "Defender",
+          player_id: "player-anomalous",
+          public_player_slug: null,
+          provider_name: "Anomalous Player",
+          name_ru: null,
+          name_ru_review_status: null,
+          provider_photo_url: null,
+          statistics_id: null,
+          appearances: null,
+          lineups: null,
+          minutes: null,
+          goals_total: null,
+          goals_assists: null,
+          rating: null,
+        },
+      ],
+    });
+
+    const result = await getCurrentSerieAClubPageData(db.pool, "ac-milan-489");
+
+    expect(result?.squad).toEqual([
+      expect.objectContaining({
+        playerId: "player-anomalous",
+        publicPlayerSlug: null,
+        displayName: "Anomalous Player",
       }),
     ]);
   });
