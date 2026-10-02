@@ -16,6 +16,7 @@ import {
   type SerieASeasonClubContext,
   type UpsertMatchInput,
 } from "./matches-repository";
+import { createMatchSlug } from "./slug";
 
 type ApiFootballFixtureResponse = {
   fixture?: {
@@ -79,7 +80,10 @@ type ApiFootballFixtureResponse = {
   };
 };
 
-type ParsedProviderMatch = Omit<UpsertMatchInput, "homeClubId" | "awayClubId" | "seasonId"> & {
+type ParsedProviderMatch = Omit<
+  UpsertMatchInput,
+  "homeClubId" | "awayClubId" | "seasonId" | "slug"
+> & {
   homeProviderClubId: number;
   awayProviderClubId: number;
 };
@@ -318,8 +322,14 @@ function resolveMatches(
   for (const match of matches) {
     const homeClubId = context.clubIdsByProviderId.get(match.homeProviderClubId);
     const awayClubId = context.clubIdsByProviderId.get(match.awayProviderClubId);
+    const homeProviderName = context.clubProviderNamesByProviderId.get(
+      match.homeProviderClubId,
+    );
+    const awayProviderName = context.clubProviderNamesByProviderId.get(
+      match.awayProviderClubId,
+    );
 
-    if (!homeClubId || !awayClubId) {
+    if (!homeClubId || !awayClubId || !homeProviderName || !awayProviderName) {
       return failed(
         "api_football_fixture_club_not_found",
         "API-Football returned a fixture for a club outside the persisted Serie A season.",
@@ -328,6 +338,11 @@ function resolveMatches(
 
     resolvedMatches.push({
       providerFixtureId: match.providerFixtureId,
+      slug: createMatchSlug(
+        homeProviderName,
+        awayProviderName,
+        match.providerFixtureId,
+      ),
       round: match.round,
       kickoffAt: match.kickoffAt,
       providerTimezone: match.providerTimezone,

@@ -154,6 +154,7 @@ export const footballMatches = footballSchema.table(
       .$defaultFn(() => randomUUID()),
     provider: text("provider").notNull(),
     providerFixtureId: integer("provider_fixture_id").notNull(),
+    slug: text("slug").notNull(),
     seasonId: text("season_id").notNull(),
     homeClubId: text("home_club_id").notNull(),
     awayClubId: text("away_club_id").notNull(),
@@ -194,6 +195,7 @@ export const footballMatches = footballSchema.table(
       table.provider,
       table.providerFixtureId,
     ),
+    slugUnique: uniqueIndex("matches_slug_unique").on(table.slug),
     seasonKickoffIndex: index("matches_season_kickoff_idx").on(
       table.seasonId,
       table.kickoffAt,

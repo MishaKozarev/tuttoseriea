@@ -150,6 +150,26 @@ export function buildPlayerMetadata(player: {
   };
 }
 
+export function buildMatchMetadata(match: {
+  slug: string;
+  homeClubName: string;
+  awayClubName: string;
+  competitionName: string;
+  seasonLabel: string;
+}): Metadata {
+  return {
+    title: `${match.homeClubName} — ${match.awayClubName}`,
+    description: `${match.homeClubName} — ${match.awayClubName}: матч ${match.competitionName} ${match.seasonLabel}.`,
+    alternates: {
+      canonical: `/matches/${match.slug}`,
+    },
+    robots: {
+      index: true,
+      follow: true,
+    },
+  };
+}
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -176,6 +196,7 @@ export function buildSitemap(
   env: RuntimeEnv = process.env,
   clubSlugs: readonly string[] = [],
   playerSlugs: readonly string[] = [],
+  matchSlugs: readonly string[] = [],
 ): MetadataRoute.Sitemap {
   return [
     {
@@ -198,6 +219,9 @@ export function buildSitemap(
     })),
     ...playerSlugs.map((slug) => ({
       url: createSiteUrl(`/players/${slug}`, env),
+    })),
+    ...matchSlugs.map((slug) => ({
+      url: createSiteUrl(`/matches/${slug}`, env),
     })),
   ];
 }

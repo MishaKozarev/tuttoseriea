@@ -12,6 +12,7 @@ import {
   SITE_DESCRIPTION,
   SITE_NAME,
   buildClubMetadata,
+  buildMatchMetadata,
   buildPlayerMetadata,
   buildRobots,
   buildRootMetadata,
@@ -141,6 +142,28 @@ describe("site SEO configuration", () => {
     });
   });
 
+  it("builds indexable metadata for a canonical current Match slug", () => {
+    expect(
+      buildMatchMetadata({
+        slug: "ac-milan-inter-12345",
+        homeClubName: "Милан",
+        awayClubName: "Интер",
+        competitionName: "Serie A",
+        seasonLabel: "2026/27",
+      }),
+    ).toEqual({
+      title: "Милан — Интер",
+      description: "Милан — Интер: матч Serie A 2026/27.",
+      alternates: {
+        canonical: "/matches/ac-milan-inter-12345",
+      },
+      robots: {
+        index: true,
+        follow: true,
+      },
+    });
+  });
+
   it("marks the admin subtree as noindex and nofollow", () => {
     expect(adminMetadata.robots).toEqual({
       index: false,
@@ -176,6 +199,7 @@ describe("site SEO configuration", () => {
       },
       ["ac-milan-489", "inter-505"],
       ["membership-only-1", "statistics-only-2"],
+      ["ac-milan-inter-12345", "juventus-roma-12346"],
     );
 
     expect(sitemap).toEqual([
@@ -188,11 +212,13 @@ describe("site SEO configuration", () => {
       { url: "https://tuttoseriea.com/clubs/inter-505" },
       { url: "https://tuttoseriea.com/players/membership-only-1" },
       { url: "https://tuttoseriea.com/players/statistics-only-2" },
+      { url: "https://tuttoseriea.com/matches/ac-milan-inter-12345" },
+      { url: "https://tuttoseriea.com/matches/juventus-roma-12346" },
     ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",
     );
     expect(sitemap.filter((entry) => entry.url.includes("/players/"))).toHaveLength(2);
-    expect(sitemap.some((entry) => entry.url.includes("/matches/"))).toBe(false);
+    expect(sitemap.filter((entry) => entry.url.includes("/matches/"))).toHaveLength(2);
   });
 });
