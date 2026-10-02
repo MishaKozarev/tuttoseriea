@@ -58,6 +58,12 @@ test("web public shell smoke", async ({ page, request }) => {
   expect(unknownPlayerResponse.status()).toBe(404);
   expect(unknownPlayerHtml).toContain('name="robots" content="noindex"');
 
+  const unknownMatchResponse = await request.get("/matches/not-a-real-match");
+  const unknownMatchHtml = await unknownMatchResponse.text();
+
+  expect(unknownMatchResponse.status()).toBe(404);
+  expect(unknownMatchHtml).toContain('name="robots" content="noindex"');
+
   await page.goto("/calendar");
 
   await expect(page.getByRole("heading", { name: "Календарь Серии А" })).toBeVisible();

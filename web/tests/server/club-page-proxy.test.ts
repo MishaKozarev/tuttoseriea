@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   currentSerieAClubSlugExists: vi.fn(),
+  currentSerieAMatchSlugExists: vi.fn(),
   currentSerieAPlayerSlugExists: vi.fn(),
   pool: { query: vi.fn() },
 }));
@@ -15,6 +16,9 @@ vi.mock("@/src/football/club-page-repository", () => ({
 }));
 vi.mock("@/src/football/player-page-repository", () => ({
   currentSerieAPlayerSlugExists: mocks.currentSerieAPlayerSlugExists,
+}));
+vi.mock("@/src/football/match-page-repository", () => ({
+  currentSerieAMatchSlugExists: mocks.currentSerieAMatchSlugExists,
 }));
 
 import { config, proxy } from "@/proxy";
@@ -72,8 +76,36 @@ describe("Football detail Page proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("matches exactly one Club or Player slug segment", () => {
-    expect(config).toEqual({ matcher: ["/clubs/:slug", "/players/:slug"] });
+  it("continues a known current Match route normally", async () => {
+    mocks.currentSerieAMatchSlugExists.mockResolvedValue(true);
+
+    const response = await proxy(
+      new NextRequest("https://tuttoseriea.com/matches/ac-milan-inter-12345"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(mocks.currentSerieAMatchSlugExists).toHaveBeenCalledWith(
+      mocks.pool,
+      "ac-milan-inter-12345",
+    );
+  });
+
+  it("sets a real 404 before an unknown Match route starts streaming", async () => {
+    mocks.currentSerieAMatchSlugExists.mockResolvedValue(false);
+
+    const response = await proxy(
+      new NextRequest("https://tuttoseriea.com/matches/not-a-real-match"),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("matches exactly one Club, Player or Match slug segment", () => {
+    expect(config).toEqual({
+      matcher: ["/clubs/:slug", "/players/:slug", "/matches/:slug"],
+    });
     expect(
       unstable_doesMiddlewareMatch({
         config,
@@ -114,6 +146,27 @@ describe("Football detail Page proxy", () => {
         config,
         nextConfig: {},
         url: "/players/rafael-leao-276/extra",
+      }),
+    ).toBe(false);
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig: {},
+        url: "/matches/ac-milan-inter-12345",
+      }),
+    ).toBe(true);
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig: {},
+        url: "/matches",
+      }),
+    ).toBe(false);
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig: {},
+        url: "/matches/ac-milan-inter-12345/extra",
       }),
     ).toBe(false);
   });

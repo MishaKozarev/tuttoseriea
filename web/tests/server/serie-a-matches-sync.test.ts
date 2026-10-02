@@ -65,8 +65,10 @@ function successfulTransactionClient() {
     season_id: "season-2026",
     provider_club_id: 900_000 + index,
     club_id: `club-${index}`,
+    provider_name: index === 0 ? "AC Milan" : `Club ${index}`,
   }));
-  const query = vi.fn(async (queryText: string) => {
+  const query = vi.fn(async (queryText: string, values?: readonly unknown[]) => {
+    void values;
     if (queryText.includes("from football.competitions comp")) {
       return { rows: seasonClubRows };
     }
@@ -106,6 +108,12 @@ describe("Serie A matches synchronization validation", () => {
       }),
     ).resolves.toEqual({ status: "success", matchCount: 380 });
     expect(database.query).toHaveBeenCalledTimes(381);
+    expect(database.query.mock.calls[1]?.[1]?.[3]).toBe(
+      "ac-milan-club-1-100000",
+    );
+    expect(database.query.mock.calls[1]?.[0]).not.toContain(
+      "slug = excluded.slug",
+    );
   });
 
   it.each([null, {}])(

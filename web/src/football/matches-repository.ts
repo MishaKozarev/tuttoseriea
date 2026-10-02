@@ -19,6 +19,7 @@ type SeasonClubRow = {
   season_id: string;
   provider_club_id: number;
   club_id: string;
+  provider_name: string;
 };
 
 type MatchListRow = {
@@ -52,6 +53,7 @@ type MatchListRow = {
 
 export type UpsertMatchInput = {
   providerFixtureId: number;
+  slug: string;
   seasonId: string;
   homeClubId: string;
   awayClubId: string;
@@ -89,6 +91,7 @@ export type UpsertMatchInput = {
 export type SerieASeasonClubContext = {
   seasonId: string;
   clubIdsByProviderId: Map<number, string>;
+  clubProviderNamesByProviderId: Map<number, string>;
 };
 
 export type CurrentSerieAMatch = {
@@ -138,7 +141,8 @@ export async function getSerieASeasonClubContext(
       select
         s.id as season_id,
         c.provider_club_id,
-        c.id as club_id
+        c.id as club_id,
+        c.provider_name
       from football.competitions comp
       join football.seasons s on s.competition_id = comp.id
       join football.season_clubs sc on sc.season_id = s.id
@@ -164,6 +168,9 @@ export async function getSerieASeasonClubContext(
     clubIdsByProviderId: new Map(
       result.rows.map((row) => [row.provider_club_id, row.club_id]),
     ),
+    clubProviderNamesByProviderId: new Map(
+      result.rows.map((row) => [row.provider_club_id, row.provider_name]),
+    ),
   };
 }
 
@@ -179,6 +186,7 @@ export async function upsertMatch(
             id,
             provider,
             provider_fixture_id,
+            slug,
             season_id,
             home_club_id,
             away_club_id,
@@ -247,7 +255,8 @@ export async function upsertMatch(
             $32,
             $33,
             $34,
-            $35::jsonb
+            $35,
+            $36::jsonb
           )
           on conflict (provider, provider_fixture_id)
           do update set
@@ -290,6 +299,7 @@ export async function upsertMatch(
           randomUUID(),
           API_FOOTBALL_PROVIDER,
           input.providerFixtureId,
+          input.slug,
           input.seasonId,
           input.homeClubId,
           input.awayClubId,

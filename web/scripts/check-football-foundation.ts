@@ -14,6 +14,11 @@ import {
   SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
   SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
 } from "../src/football/foundation";
+import {
+  currentSerieAMatchSlugExists,
+  getCurrentSerieAMatchPageData,
+  listCurrentSerieAMatchSlugs,
+} from "../src/football/match-page-repository";
 import { listCurrentSerieAMatches } from "../src/football/matches-repository";
 import {
   currentSerieAPlayerSlugExists,
@@ -26,7 +31,7 @@ import { syncSerieAMatches } from "../src/football/serie-a-matches-sync";
 import { syncSerieAPlayerStatistics } from "../src/football/serie-a-player-statistics-sync";
 import { syncSerieASquads } from "../src/football/serie-a-squads-sync";
 import { syncSerieAStandings } from "../src/football/serie-a-standings-sync";
-import { createPlayerSlug } from "../src/football/slug";
+import { createMatchSlug, createPlayerSlug } from "../src/football/slug";
 import { listCurrentSerieAPlayerAggregates } from "../src/football/statistics-page-repository";
 import { listCurrentSerieAStandings } from "../src/football/standings-repository";
 import {
@@ -65,6 +70,7 @@ type IdRow = {
 };
 
 type MatchFactsRow = {
+  slug: string;
   kickoffAt: Date | null;
   referee: string | null;
   providerVenueId: number | null;
@@ -134,6 +140,11 @@ type PlayerSlugParityRow = {
   slug: string;
 };
 
+type MatchSlugParityRow = {
+  providerFixtureId: number;
+  slug: string;
+};
+
 function requireEnv(name: string): string {
   const value = process.env[name];
 
@@ -189,6 +200,83 @@ async function verifyPlayerSlugSqlTypeScriptParity(
       sqlSlugsByProviderId.get(testCase.providerPlayerId) ===
         createPlayerSlug(testCase.providerName, testCase.providerPlayerId),
       `Player slug SQL/TypeScript parity mismatch for provider player ${testCase.providerPlayerId}`,
+    );
+  }
+}
+
+async function verifyMatchSlugSqlTypeScriptParity(
+  queryable: Pick<pg.Pool | pg.PoolClient, "query">,
+): Promise<void> {
+  const migration = readFileSync(
+    new URL("../drizzle/0011_brief_random.sql", import.meta.url),
+    "utf8",
+  );
+  const expressionMatch = /SET "slug" =\s*([\s\S]*?)\r?\nFROM/u.exec(migration);
+  const expression = expressionMatch?.[1]
+    ?.trim()
+    .replaceAll('"home_club"."provider_name"', '"home_provider_name"')
+    .replaceAll('"away_club"."provider_name"', '"away_provider_name"')
+    .replaceAll('"match"."provider_fixture_id"', '"provider_fixture_id"');
+
+  assertCondition(expression, "Match slug migration backfill expression was not found");
+
+  const cases = [
+    {
+      homeProviderName: "AC Milan",
+      awayProviderName: "Inter",
+      providerFixtureId: 12345,
+    },
+    {
+      homeProviderName: "  AC Mílan & Co.  ",
+      awayProviderName: "Inter / Milano",
+      providerFixtureId: 23456,
+    },
+    {
+      homeProviderName: "Ж",
+      awayProviderName: "Ю",
+      providerFixtureId: 34567,
+    },
+  ] as const;
+  const placeholders = cases
+    .map(
+      (_, index) =>
+        `($${index * 3 + 1}::text, $${index * 3 + 2}::text, $${index * 3 + 3}::integer)`,
+    )
+    .join(", ");
+  const values = cases.flatMap(
+    ({ homeProviderName, awayProviderName, providerFixtureId }) => [
+      homeProviderName,
+      awayProviderName,
+      providerFixtureId,
+    ],
+  );
+  const result = await queryable.query<MatchSlugParityRow>(
+    `
+      select
+        "provider_fixture_id" as "providerFixtureId",
+        ${expression} as slug
+      from (values ${placeholders}) as input(
+        "home_provider_name",
+        "away_provider_name",
+        "provider_fixture_id"
+      )
+      order by "provider_fixture_id"
+    `,
+    values,
+  );
+  const sqlSlugsByFixtureId = new Map(
+    result.rows.map((row) => [row.providerFixtureId, row.slug]),
+  );
+
+  for (const testCase of cases) {
+    assertCondition(
+      sqlSlugsByFixtureId.get(testCase.providerFixtureId) ===
+        createMatchSlug(
+          testCase.homeProviderName,
+          testCase.awayProviderName,
+          testCase.providerFixtureId,
+        ),
+      `Match slug SQL/TypeScript parity mismatch for fixture ${testCase.providerFixtureId}`,
     );
   }
 }
@@ -956,6 +1044,7 @@ async function getFirstMatchFacts(client: pg.PoolClient): Promise<MatchFactsRow>
   const result = await client.query<MatchFactsRow>(
     `
       select
+        slug,
         kickoff_at as "kickoffAt",
         referee,
         provider_venue_id as "providerVenueId",
@@ -1050,6 +1139,7 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     transactionStarted = true;
 
     await verifyPlayerSlugSqlTypeScriptParity(client);
+    await verifyMatchSlugSqlTypeScriptParity(client);
 
     const firstSync = await syncSerieAFoundation({
       client: createFakeClient(),
@@ -1122,6 +1212,33 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
       playerSlugContract.rows[0]?.count === 1 &&
         playerSlugUniqueIndex.rows[0]?.count === 1,
       "Player slug non-null/unique contract is missing",
+    );
+
+    const matchSlugContract = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from information_schema.columns
+        where table_schema = 'football'
+          and table_name = 'matches'
+          and column_name = 'slug'
+          and is_nullable = 'NO'
+      `,
+    );
+    const matchSlugUniqueIndex = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from pg_indexes
+        where schemaname = 'football'
+          and tablename = 'matches'
+          and indexname = 'matches_slug_unique'
+          and indexdef ilike 'create unique index%'
+      `,
+    );
+
+    assertCondition(
+      matchSlugContract.rows[0]?.count === 1 &&
+        matchSlugUniqueIndex.rows[0]?.count === 1,
+      "Match slug non-null/unique contract is missing",
     );
 
     await client.query(
@@ -1915,6 +2032,21 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
         ?.marker === "initial",
       "complete provider snapshot was not persisted",
     );
+    assertCondition(
+      initialMatchFacts.slug ===
+        createMatchSlug("AC Milan Updated", "Serie A Club 2", 910000),
+      "initial Match slug was not created from persisted provider Club names",
+    );
+    const initialMatchSlug = initialMatchFacts.slug;
+
+    await client.query(
+      `
+        update football.clubs
+        set provider_name = 'AC Milan Renamed'
+        where provider = 'api-football'
+          and provider_club_id = 900000
+      `,
+    );
 
     const repeatedMatchesSync = await syncSerieAMatches({
       client: createFakeClient(),
@@ -1925,6 +2057,10 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       await countFakeMatches(client) === 380,
       "repeated matches sync created duplicate rows",
+    );
+    assertCondition(
+      (await getFirstMatchFacts(client)).slug === initialMatchSlug,
+      "repeated fixture sync changed the immutable Match slug",
     );
 
     const updatedMatchesSync = await syncSerieAMatches({
@@ -2018,6 +2154,36 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
           Boolean(match.awayClub.slug),
       ),
       "public match listing did not expose canonical Club identities",
+    );
+
+    const matchPageData = await getCurrentSerieAMatchPageData(
+      client,
+      initialMatchSlug,
+    );
+
+    assertCondition(
+      matchPageData?.match.slug === initialMatchSlug &&
+        matchPageData.competition.displayName === "Серия А" &&
+        matchPageData.homeClub.slug === "milan-manual" &&
+        Boolean(matchPageData.awayClub.slug),
+      "Match Page read model or current Serie A scope mismatch",
+    );
+    assertCondition(
+      await currentSerieAMatchSlugExists(client, initialMatchSlug),
+      "current Serie A Match slug existence check failed",
+    );
+    assertCondition(
+      !(await currentSerieAMatchSlugExists(client, "not-a-real-match")),
+      "unknown Match slug passed the existence check",
+    );
+
+    const matchPageSlugs = await listCurrentSerieAMatchSlugs(client);
+
+    assertCondition(
+      matchPageSlugs.length === 381 &&
+        matchPageSlugs.includes(initialMatchSlug) &&
+        new Set(matchPageSlugs).size === matchPageSlugs.length,
+      "Match Page sitemap slug scope mismatch",
     );
 
     const clubPageData = await getCurrentSerieAClubPageData(client, "milan-manual");
@@ -3235,12 +3401,16 @@ async function main(): Promise<void> {
     console.log("football_matches_full_season_count=380");
     console.log("football_matches_provider_identity_unique=true");
     console.log("football_matches_repeated_sync_idempotent=true");
+    console.log("football_match_slug_stable=true");
+    console.log("football_match_slug_sql_typescript_parity=true");
     console.log("football_matches_provider_fields_update=true");
     console.log("football_matches_complete_raw_snapshot=true");
     console.log("football_matches_missing_provider_rows_preserved=true");
     console.log("football_matches_all_or_nothing=true");
     console.log("football_matches_production_pool_rollback=true");
     console.log("football_calendar_query_reads_postgres=true");
+    console.log("football_match_page_read_model=true");
+    console.log("football_match_page_sitemap_scope=true");
     console.log("football_standings_current_rows=20");
     console.log("football_standings_repeated_sync_idempotent=true");
     console.log("football_standings_provider_fields_update=true");
