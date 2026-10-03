@@ -10,6 +10,7 @@ import {
   SERIE_A_FOUNDATION_JOB_TYPE,
   SERIE_A_MATCHES_IDEMPOTENCY_KEY,
   SERIE_A_MATCHES_JOB_TYPE,
+  SERIE_A_MATCH_EVENTS_JOB_TYPE,
   SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
   SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
   SERIE_A_PROVIDER_LEAGUE_ID,
@@ -17,18 +18,24 @@ import {
   SERIE_A_SQUADS_JOB_TYPE,
   SERIE_A_STANDINGS_IDEMPOTENCY_KEY,
   SERIE_A_STANDINGS_JOB_TYPE,
+  createSerieAMatchEventsIdempotencyKey,
 } from "../football/foundation";
+import { syncMatchEvents } from "../football/match-events-sync";
 import { syncSerieAFoundation } from "../football/serie-a-foundation-sync";
 import { syncSerieAMatches } from "../football/serie-a-matches-sync";
 import { syncSerieAPlayerStatistics } from "../football/serie-a-player-statistics-sync";
 import { syncSerieASquads } from "../football/serie-a-squads-sync";
 import { syncSerieAStandings } from "../football/serie-a-standings-sync";
+import { logger } from "../logging/logger-core";
 import {
   JobConfigError,
   JobUsageError,
   type JobDefinition,
   type JobHandlerResult,
 } from "./types";
+
+const lowercaseUuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 function requireDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -207,4 +214,64 @@ export const syncSerieAPlayerStatisticsJob: JobDefinition = {
         heartbeat: context.heartbeat,
       });
     }),
+};
+
+export const syncSerieAMatchEventsJob: JobDefinition = {
+  type: SERIE_A_MATCH_EVENTS_JOB_TYPE,
+  parseArguments: (args) => {
+    const matchId = args[1];
+
+    if (
+      args.length !== 2 ||
+      args[0] !== "--match-id" ||
+      !matchId ||
+      !lowercaseUuidPattern.test(matchId)
+    ) {
+      throw new JobUsageError(
+        `${SERIE_A_MATCH_EVENTS_JOB_TYPE} requires exactly --match-id <lowercase-uuid>`,
+      );
+    }
+
+    return {
+      idempotencyKey: createSerieAMatchEventsIdempotencyKey(matchId),
+      payload: {
+        provider: "api-football",
+        leagueId: SERIE_A_PROVIDER_LEAGUE_ID,
+        season: SERIE_A_CURRENT_SEASON,
+        scope: "match-events",
+        matchId,
+      },
+    };
+  },
+  handle: async (context) => {
+    const matchId = context.execution.payload.matchId;
+
+    if (typeof matchId !== "string" || !lowercaseUuidPattern.test(matchId)) {
+      return {
+        status: "failed",
+        errorCode: "job_invalid_payload",
+        message: "Match Events job payload contains an invalid Match ID.",
+      };
+    }
+
+    return runFootballSync(async (client, pool) => {
+      const result = await syncMatchEvents({
+        client,
+        pool,
+        matchId,
+        heartbeat: context.heartbeat,
+      });
+
+      if (result.status === "success" && result.emptySnapshotAnomaly) {
+        logger.warn("API-Football returned an empty Match Events snapshot", {
+          context: {
+            event: "football.match_events.empty_snapshot",
+            ...result.emptySnapshotAnomaly,
+          },
+        });
+      }
+
+      return result.status === "success" ? { status: "success" } : result;
+    });
+  },
 };

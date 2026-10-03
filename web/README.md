@@ -222,6 +222,26 @@ memberships and other Football tables are not deleted or reconciled by this
 job. Stage 4.6 adds no public player/statistics UI, scheduler or operational
 STAGING/PRODUCTION allowlist entry.
 
+Stage 4.8.2 adds `football.match_events` and the application job type
+`football.sync-serie-a-match-events`. The job requires exactly
+`--match-id <lowercase-uuid>`, verifies that the Match belongs to the persisted
+Serie A `135` / season `2026` scope, and calls only
+`/fixtures/events?fixture=<provider_fixture_id>`. Provider event order is stored
+as structural order for the current snapshot; neither that order nor the
+internal row UUID is a durable logical provider-event identity.
+
+Each complete valid response replaces one Match's prior events atomically.
+Validation and Team/Player resolution happen before the existing execution
+heartbeat and transaction; the transaction contains only `DELETE`, complete
+snapshot `INSERT`s and `COMMIT`, with no heartbeat inside it. Team resolution is
+strict to the Match participants. Player links are best-effort and nullable:
+the sync never creates Players, and every later snapshot resolves them again.
+Expected empty snapshots succeed silently for scheduled, postponed, cancelled
+and walkover Matches. Empty live, paused, suspended, interrupted, abandoned,
+finished or awarded snapshots still succeed but emit one structured anomaly
+warning. The job is registered in the application image only; restricted
+STAGING/PRODUCTION operational allowlists are unchanged.
+
 The Football localization foundation stores application-owned Russian proper
 names and review state directly on `football.competitions`, `football.clubs`
 and `football.players`. A Russian name is either absent together with its
@@ -312,6 +332,10 @@ privileges or default privileges.
 `football.player_statistics` receives `SELECT`, `INSERT`, `UPDATE` and `DELETE`;
 `DELETE` is limited to current-season snapshot reconciliation. The related
 stable `football.players` table remains without `DELETE`.
+
+`football.match_events` receives only `SELECT`, `INSERT` and `DELETE` for full
+per-Match snapshot replacement. It receives neither `UPDATE` nor blanket table
+privileges.
 
 The production image contains the migration runner and Drizzle migration
 artifacts, but the normal Next.js container process does not run migrations on
@@ -478,8 +502,9 @@ verify shared job create/claim/finalize, retry scheduling, duplicate active
 no-op behavior, stale recovery and heartbeat/fencing loss.
 
 `db:football:check` uses fake API-Football responses against real PostgreSQL to
-verify the competition/season/club foundation, matches, standings, current
-squads and paginated player statistics. It covers repeated-sync idempotency,
+verify the competition/season/club foundation, matches, Match Events,
+standings, current squads and paginated player statistics. It covers
+repeated-sync idempotency,
 provider identity uniqueness,
 ownership rules, provider-field and complete snapshot updates, current
 membership/statistics reconciliation, real LOCAL PostgreSQL `Pool` rollback
@@ -508,8 +533,12 @@ STAGING: football.sync-serie-a-foundation
 STAGING: football.sync-serie-a-matches
 STAGING: football.sync-serie-a-standings
 STAGING: football.sync-serie-a-squads
+STAGING: football.sync-serie-a-player-statistics
 PRODUCTION: football.sync-serie-a-foundation
 ```
+
+`football.sync-serie-a-match-events` is intentionally absent from both
+restricted operational allowlists in Stage 4.8.2.
 
 The repository-side scripts call the VDS contract with one exact whitelisted
 identifier, for example:

@@ -4,6 +4,13 @@ const mocks = vi.hoisted(() => ({
   createApiFootballClient: vi.fn(),
   end: vi.fn(async () => undefined),
   getRequestAttemptCount: vi.fn(() => 3),
+  syncMatchEvents: vi.fn(async () => ({
+    status: "success" as const,
+    matchId: "11111111-1111-4111-8111-111111111111",
+    providerFixtureId: 1_550_114,
+    eventCount: 1,
+    emptySnapshotAnomaly: null as unknown,
+  })),
   syncSerieAStandings: vi.fn(async () => {
     throw new Error("forced standings failure");
   }),
@@ -25,6 +32,10 @@ vi.mock("@/src/football/serie-a-foundation-sync", () => ({
   syncSerieAFoundation: vi.fn(),
 }));
 
+vi.mock("@/src/football/match-events-sync", () => ({
+  syncMatchEvents: mocks.syncMatchEvents,
+}));
+
 vi.mock("@/src/football/serie-a-matches-sync", () => ({
   syncSerieAMatches: vi.fn(),
 }));
@@ -42,11 +53,13 @@ vi.mock("@/src/football/serie-a-squads-sync", () => ({
 }));
 
 import {
+  syncSerieAMatchEventsJob,
   syncSerieAPlayerStatisticsJob,
   syncSerieASquadsJob,
   syncSerieAStandingsJob,
 } from "@/src/jobs/football-sync";
 import type { JobExecutionContext } from "@/src/jobs/types";
+import { logger } from "@/src/logging/logger-core";
 
 describe("Football sync job request accounting", () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -60,9 +73,86 @@ describe("Football sync job request accounting", () => {
     mocks.end.mockClear();
     mocks.getRequestAttemptCount.mockClear();
     mocks.getRequestAttemptCount.mockReturnValue(3);
+    mocks.syncMatchEvents.mockClear();
+    mocks.syncMatchEvents.mockResolvedValue({
+      status: "success",
+      matchId: "11111111-1111-4111-8111-111111111111",
+      providerFixtureId: 1_550_114,
+      eventCount: 1,
+      emptySnapshotAnomaly: null,
+    });
     mocks.syncSerieAStandings.mockClear();
     mocks.syncSerieASquads.mockClear();
     mocks.syncSerieAPlayerStatistics.mockClear();
+  });
+
+  it("emits one structured anomaly warning for a suspicious empty Match Events snapshot", async () => {
+    const matchId = "11111111-1111-4111-8111-111111111111";
+    mocks.syncMatchEvents.mockResolvedValue({
+      status: "success",
+      matchId,
+      providerFixtureId: 1_550_114,
+      eventCount: 0,
+      emptySnapshotAnomaly: {
+        code: "api_football_empty_match_events",
+        matchId,
+        providerFixtureId: 1_550_114,
+        matchStatus: "finished",
+        providerResultCount: 0,
+      },
+    });
+    const warning = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const context = {
+      heartbeat: vi.fn(async () => undefined),
+      execution: { payload: { matchId } },
+    } as unknown as JobExecutionContext;
+
+    await expect(syncSerieAMatchEventsJob.handle(context)).resolves.toEqual({
+      status: "success",
+    });
+
+    expect(warning).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledWith(
+      "API-Football returned an empty Match Events snapshot",
+      {
+        context: {
+          event: "football.match_events.empty_snapshot",
+          code: "api_football_empty_match_events",
+          matchId,
+          providerFixtureId: 1_550_114,
+          matchStatus: "finished",
+          providerResultCount: 0,
+        },
+      },
+    );
+    expect(JSON.stringify(warning.mock.calls)).not.toMatch(
+      /api[_-]?key|authorization|secret|header/iu,
+    );
+    expect(mocks.getRequestAttemptCount).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("api_football_requests=3");
+  });
+
+  it("does not warn for an expected authoritative empty Match Events snapshot", async () => {
+    const matchId = "11111111-1111-4111-8111-111111111111";
+    mocks.syncMatchEvents.mockResolvedValue({
+      status: "success",
+      matchId,
+      providerFixtureId: 1_550_114,
+      eventCount: 0,
+      emptySnapshotAnomaly: null,
+    });
+    const warning = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const context = {
+      heartbeat: vi.fn(async () => undefined),
+      execution: { payload: { matchId } },
+    } as unknown as JobExecutionContext;
+
+    await expect(syncSerieAMatchEventsJob.handle(context)).resolves.toEqual({
+      status: "success",
+    });
+    expect(warning).not.toHaveBeenCalled();
   });
 
   it("logs the paginated player-statistics request total exactly once", async () => {

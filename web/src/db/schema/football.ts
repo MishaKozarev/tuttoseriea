@@ -378,6 +378,70 @@ export const footballPlayers = footballSchema.table(
   }),
 );
 
+export const footballMatchEvents = footballSchema.table(
+  "match_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    matchId: text("match_id")
+      .notNull()
+      .references(() => footballMatches.id, { onDelete: "restrict" }),
+    providerOrder: integer("provider_order").notNull(),
+    elapsed: integer("elapsed").notNull(),
+    extra: integer("extra"),
+    clubId: text("club_id")
+      .notNull()
+      .references(() => footballClubs.id, { onDelete: "restrict" }),
+    providerPlayerId: integer("provider_player_id"),
+    providerPlayerName: text("provider_player_name"),
+    playerId: text("player_id").references(() => footballPlayers.id, {
+      onDelete: "set null",
+    }),
+    providerRelatedPlayerId: integer("provider_related_player_id"),
+    providerRelatedPlayerName: text("provider_related_player_name"),
+    relatedPlayerId: text("related_player_id").references(
+      () => footballPlayers.id,
+      { onDelete: "set null" },
+    ),
+    providerType: text("provider_type").notNull(),
+    providerDetail: text("provider_detail").notNull(),
+    comments: text("comments"),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+  },
+  (table) => ({
+    matchOrderUnique: uniqueIndex("match_events_match_order_unique").on(
+      table.matchId,
+      table.providerOrder,
+    ),
+    clubIndex: index("match_events_club_id_idx").on(table.clubId),
+    playerIndex: index("match_events_player_id_idx").on(table.playerId),
+    relatedPlayerIndex: index("match_events_related_player_id_idx").on(
+      table.relatedPlayerId,
+    ),
+    providerOrderNonnegativeCheck: check(
+      "match_events_provider_order_nonnegative_check",
+      sql`${table.providerOrder} >= 0`,
+    ),
+    elapsedNonnegativeCheck: check(
+      "match_events_elapsed_nonnegative_check",
+      sql`${table.elapsed} >= 0`,
+    ),
+    extraNonnegativeCheck: check(
+      "match_events_extra_nonnegative_check",
+      sql`${table.extra} is null or ${table.extra} >= 0`,
+    ),
+    providerPlayerIdPositiveCheck: check(
+      "match_events_provider_player_id_positive_check",
+      sql`${table.providerPlayerId} is null or ${table.providerPlayerId} > 0`,
+    ),
+    providerRelatedPlayerIdPositiveCheck: check(
+      "match_events_provider_related_player_id_positive_check",
+      sql`${table.providerRelatedPlayerId} is null or ${table.providerRelatedPlayerId} > 0`,
+    ),
+  }),
+);
+
 export const footballPlayerStatistics = footballSchema.table(
   "player_statistics",
   {
