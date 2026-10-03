@@ -27,3 +27,10 @@ export const SERIE_A_PLAYER_STATISTICS_JOB_TYPE =
   "football.sync-serie-a-player-statistics";
 export const SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY =
   "api-football:league:135:season:2026:player-statistics";
+
+export const SERIE_A_MATCH_EVENTS_JOB_TYPE =
+  "football.sync-serie-a-match-events";
+
+export function createSerieAMatchEventsIdempotencyKey(matchId: string): string {
+  return `api-football:league:135:season:2026:match:${matchId}:events`;
+}
