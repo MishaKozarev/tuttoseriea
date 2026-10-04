@@ -92,6 +92,13 @@
       "when": 1791056275046,
       "tag": "0012_match_events",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791119121961,
+      "tag": "0013_match_lineups",
+      "breakpoints": true
     }
   ]
 }

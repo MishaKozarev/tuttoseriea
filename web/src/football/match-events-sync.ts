@@ -1,7 +1,10 @@
 import type { Pool, PoolClient } from "pg";
 
 import type { ApiFootballClient, ApiFootballResult } from "./api-football/node";
-import type { NormalizedFixtureState } from "./api-football/fixture-status";
+import {
+  isMatchActivityExpectedState,
+  type NormalizedFixtureState,
+} from "./api-football/fixture-status";
 import {
   getCurrentSerieAMatchEventContext,
   replaceMatchEvents,
@@ -90,16 +93,6 @@ export type MatchEventsSyncInput = MatchEventsDatabaseInput & {
   matchId: string;
   heartbeat?: () => Promise<void>;
 };
-
-const suspiciousEmptyStatuses = new Set<NormalizedFixtureState>([
-  "live",
-  "paused",
-  "suspended",
-  "interrupted",
-  "abandoned",
-  "finished",
-  "awarded",
-]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -318,7 +311,7 @@ function success(
   eventCount: number,
 ): MatchEventsSyncSuccess {
   const emptySnapshotAnomaly =
-    eventCount === 0 && suspiciousEmptyStatuses.has(context.status)
+    eventCount === 0 && isMatchActivityExpectedState(context.status)
       ? {
           code: "api_football_empty_match_events" as const,
           matchId: context.matchId,

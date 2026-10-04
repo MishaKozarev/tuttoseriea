@@ -242,6 +242,29 @@ finished or awarded snapshots still succeed but emit one structured anomaly
 warning. The job is registered in the application image only; restricted
 STAGING/PRODUCTION operational allowlists are unchanged.
 
+Stage 4.8.3 adds current team snapshots in `football.match_lineups` with
+ordered starter/substitute rows in `football.match_lineup_entries`, plus the
+application job type `football.sync-serie-a-match-lineups`. The job requires
+exactly `--match-id <lowercase-uuid>`, resolves the persisted current Serie A
+Match before any provider request, and calls only
+`/fixtures/lineups?fixture=<provider_fixture_id>`. Returned Teams must be the
+exact Match participants. Existing Players are linked only by positive
+provider identity; unresolved Players remain nullable, are not created, and
+are resolved again on every run.
+
+A valid returned Team is treated operationally as its complete current
+snapshot. Received Teams are replaced together in one Match-scoped
+transaction after validation, resolution and the existing heartbeat. A
+one-Team response replaces only that Team and emits a structured partial
+snapshot anomaly; the absent Team is retained. An empty response is a success
+and never deletes persisted lineups. It is silent only for a scheduled Match
+without persisted lineups, and otherwise emits a structured anomaly when the
+normalized Match state indicates lineups should be available or a prior
+lineup exists. Internal UUIDs and role-scoped provider order are structural
+current-snapshot details, not durable provider identities. The application job
+registry changes, but restricted STAGING/PRODUCTION operational allowlists do
+not.
+
 The Football localization foundation stores application-owned Russian proper
 names and review state directly on `football.competitions`, `football.clubs`
 and `football.players`. A Russian name is either absent together with its
@@ -336,6 +359,11 @@ stable `football.players` table remains without `DELETE`.
 `football.match_events` receives only `SELECT`, `INSERT` and `DELETE` for full
 per-Match snapshot replacement. It receives neither `UPDATE` nor blanket table
 privileges.
+
+`football.match_lineups` receives only `SELECT`, `INSERT` and `DELETE` for
+team-snapshot replacement. `football.match_lineup_entries` receives only
+`SELECT` and `INSERT`; entry deletion occurs only through the parent
+`ON DELETE CASCADE`. Neither table receives `UPDATE` or blanket privileges.
 
 The production image contains the migration runner and Drizzle migration
 artifacts, but the normal Next.js container process does not run migrations on
@@ -502,7 +530,7 @@ verify shared job create/claim/finalize, retry scheduling, duplicate active
 no-op behavior, stale recovery and heartbeat/fencing loss.
 
 `db:football:check` uses fake API-Football responses against real PostgreSQL to
-verify the competition/season/club foundation, matches, Match Events,
+verify the competition/season/club foundation, matches, Match Events, Match Lineups,
 standings, current squads and paginated player statistics. It covers
 repeated-sync idempotency,
 provider identity uniqueness,
@@ -539,6 +567,10 @@ PRODUCTION: football.sync-serie-a-foundation
 
 `football.sync-serie-a-match-events` is intentionally absent from both
 restricted operational allowlists in Stage 4.8.2.
+
+`football.sync-serie-a-match-lineups` is likewise application-registry-only in
+Stage 4.8.3. Its bounded `--match-id` operational contract is not added to the
+restricted STAGING or PRODUCTION paths by this implementation.
 
 The repository-side scripts call the VDS contract with one exact whitelisted
 identifier, for example:

@@ -11,6 +11,7 @@ import {
   SERIE_A_MATCHES_IDEMPOTENCY_KEY,
   SERIE_A_MATCHES_JOB_TYPE,
   SERIE_A_MATCH_EVENTS_JOB_TYPE,
+  SERIE_A_MATCH_LINEUPS_JOB_TYPE,
   SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
   SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
   SERIE_A_PROVIDER_LEAGUE_ID,
@@ -19,8 +20,13 @@ import {
   SERIE_A_STANDINGS_IDEMPOTENCY_KEY,
   SERIE_A_STANDINGS_JOB_TYPE,
   createSerieAMatchEventsIdempotencyKey,
+  createSerieAMatchLineupsIdempotencyKey,
 } from "../football/foundation";
 import { syncMatchEvents } from "../football/match-events-sync";
+import {
+  syncMatchLineups,
+  type MatchLineupsSyncAnomaly,
+} from "../football/match-lineups-sync";
 import { syncSerieAFoundation } from "../football/serie-a-foundation-sync";
 import { syncSerieAMatches } from "../football/serie-a-matches-sync";
 import { syncSerieAPlayerStatistics } from "../football/serie-a-player-statistics-sync";
@@ -272,6 +278,94 @@ export const syncSerieAMatchEventsJob: JobDefinition = {
       }
 
       return result.status === "success" ? { status: "success" } : result;
+    });
+  },
+};
+
+function logMatchLineupsAnomaly(anomaly: MatchLineupsSyncAnomaly): void {
+  if (anomaly.code === "api_football_empty_match_lineups") {
+    logger.warn("API-Football returned an empty Match Lineups snapshot", {
+      context: {
+        event: "football.match_lineups.empty_snapshot",
+        ...anomaly,
+      },
+    });
+    return;
+  }
+
+  if (anomaly.code === "api_football_partial_match_lineups") {
+    logger.warn("API-Football returned a partial Match Lineups snapshot", {
+      context: {
+        event: "football.match_lineups.partial_snapshot",
+        ...anomaly,
+      },
+    });
+    return;
+  }
+
+  logger.warn("API-Football returned an unexpected Match Lineup starter count", {
+    context: {
+      event: "football.match_lineups.unexpected_starter_count",
+      ...anomaly,
+    },
+  });
+}
+
+export const syncSerieAMatchLineupsJob: JobDefinition = {
+  type: SERIE_A_MATCH_LINEUPS_JOB_TYPE,
+  parseArguments: (args) => {
+    const matchId = args[1];
+
+    if (
+      args.length !== 2 ||
+      args[0] !== "--match-id" ||
+      !matchId ||
+      !lowercaseUuidPattern.test(matchId)
+    ) {
+      throw new JobUsageError(
+        `${SERIE_A_MATCH_LINEUPS_JOB_TYPE} requires exactly --match-id <lowercase-uuid>`,
+      );
+    }
+
+    return {
+      idempotencyKey: createSerieAMatchLineupsIdempotencyKey(matchId),
+      payload: {
+        provider: "api-football",
+        leagueId: SERIE_A_PROVIDER_LEAGUE_ID,
+        season: SERIE_A_CURRENT_SEASON,
+        scope: "match-lineups",
+        matchId,
+      },
+    };
+  },
+  handle: async (context) => {
+    const matchId = context.execution.payload.matchId;
+
+    if (typeof matchId !== "string" || !lowercaseUuidPattern.test(matchId)) {
+      return {
+        status: "failed",
+        errorCode: "job_invalid_payload",
+        message: "Match Lineups job payload contains an invalid Match ID.",
+      };
+    }
+
+    return runFootballSync(async (client, pool) => {
+      const result = await syncMatchLineups({
+        client,
+        pool,
+        matchId,
+        heartbeat: context.heartbeat,
+      });
+
+      if (result.status === "success") {
+        for (const anomaly of result.anomalies) {
+          logMatchLineupsAnomaly(anomaly);
+        }
+
+        return { status: "success" };
+      }
+
+      return result;
     });
   },
 };

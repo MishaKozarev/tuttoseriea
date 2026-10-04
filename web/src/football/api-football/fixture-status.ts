@@ -45,6 +45,16 @@ export type NormalizedFixtureStatus = {
   terminal: boolean;
 };
 
+const matchActivityExpectedStates = new Set<NormalizedFixtureState>([
+  "live",
+  "paused",
+  "suspended",
+  "interrupted",
+  "abandoned",
+  "finished",
+  "awarded",
+]);
+
 export class UnsupportedApiFootballFixtureStatusError extends Error {
   readonly code = "unsupported_fixture_status";
 
@@ -92,4 +102,10 @@ export function normalizeApiFootballFixtureStatus(
     providerCode: code,
     ...fixtureStatusMap[code],
   };
+}
+
+export function isMatchActivityExpectedState(
+  state: NormalizedFixtureState,
+): boolean {
+  return matchActivityExpectedStates.has(state);
 }
