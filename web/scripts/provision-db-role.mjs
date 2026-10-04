@@ -89,6 +89,14 @@ const footballTablePrivileges = [
     privileges: ["SELECT", "INSERT"],
   },
   {
+    tableName: "match_statistics",
+    privileges: ["SELECT", "INSERT", "DELETE"],
+  },
+  {
+    tableName: "match_statistic_items",
+    privileges: ["SELECT", "INSERT"],
+  },
+  {
     tableName: "standings",
     privileges: ["SELECT", "INSERT", "UPDATE"],
   },

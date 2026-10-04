@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MatchLineupsSyncResult } from "@/src/football/match-lineups-sync";
+import type { MatchStatisticsSyncResult } from "@/src/football/match-statistics-sync";
 
 const mocks = vi.hoisted(() => ({
   createApiFootballClient: vi.fn(),
@@ -23,6 +24,15 @@ const mocks = vi.hoisted(() => ({
     entryCount: 26,
     resolvedPlayerCount: 20,
     unresolvedPlayerCount: 6,
+    anomalies: [],
+  })),
+  syncMatchStatistics: vi.fn<() => Promise<MatchStatisticsSyncResult>>(async () => ({
+    status: "success" as const,
+    matchId: "11111111-1111-4111-8111-111111111111",
+    providerFixtureId: 1_550_114,
+    receivedTeamCount: 2,
+    replacedTeamCount: 2,
+    itemCount: 36,
     anomalies: [],
   })),
   syncSerieAStandings: vi.fn(async () => {
@@ -54,6 +64,10 @@ vi.mock("@/src/football/match-lineups-sync", () => ({
   syncMatchLineups: mocks.syncMatchLineups,
 }));
 
+vi.mock("@/src/football/match-statistics-sync", () => ({
+  syncMatchStatistics: mocks.syncMatchStatistics,
+}));
+
 vi.mock("@/src/football/serie-a-matches-sync", () => ({
   syncSerieAMatches: vi.fn(),
 }));
@@ -73,6 +87,7 @@ vi.mock("@/src/football/serie-a-squads-sync", () => ({
 import {
   syncSerieAMatchEventsJob,
   syncSerieAMatchLineupsJob,
+  syncSerieAMatchStatisticsJob,
   syncSerieAPlayerStatisticsJob,
   syncSerieASquadsJob,
   syncSerieAStandingsJob,
@@ -111,6 +126,16 @@ describe("Football sync job request accounting", () => {
       entryCount: 26,
       resolvedPlayerCount: 20,
       unresolvedPlayerCount: 6,
+      anomalies: [],
+    });
+    mocks.syncMatchStatistics.mockClear();
+    mocks.syncMatchStatistics.mockResolvedValue({
+      status: "success",
+      matchId: "11111111-1111-4111-8111-111111111111",
+      providerFixtureId: 1_550_114,
+      receivedTeamCount: 2,
+      replacedTeamCount: 2,
+      itemCount: 36,
       anomalies: [],
     });
     mocks.syncSerieAStandings.mockClear();
@@ -299,6 +324,76 @@ describe("Football sync job request accounting", () => {
     expect(JSON.stringify(warning.mock.calls)).not.toMatch(
       /api[_-]?key|authorization|secret|header/iu,
     );
+  });
+
+  it("emits safe Match Statistics anomalies and one request total", async () => {
+    const matchId = "11111111-1111-4111-8111-111111111111";
+    mocks.syncMatchStatistics.mockResolvedValue({
+      status: "success",
+      matchId,
+      providerFixtureId: 1_550_114,
+      receivedTeamCount: 2,
+      replacedTeamCount: 1,
+      itemCount: 18,
+      anomalies: [
+        {
+          code: "api_football_empty_match_statistics_team",
+          matchId,
+          providerFixtureId: 1_550_114,
+          matchStatus: "finished",
+          teams: [{
+            providerTeamId: 496,
+            clubId: "club-home",
+            side: "home",
+            persistedSnapshot: true,
+          }],
+        },
+        {
+          code: "api_football_duplicate_match_statistic_type",
+          matchId,
+          providerFixtureId: 1_550_114,
+          duplicates: [{
+            providerTeamId: 489,
+            providerType: "Fouls",
+            providerOrders: [4, 8],
+          }],
+        },
+      ],
+    });
+    const warning = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const context = {
+      heartbeat: vi.fn(async () => undefined),
+      execution: { payload: { matchId } },
+    } as unknown as JobExecutionContext;
+
+    await expect(syncSerieAMatchStatisticsJob.handle(context)).resolves.toEqual({
+      status: "success",
+    });
+    expect(warning).toHaveBeenCalledTimes(2);
+    expect(warning.mock.calls[0]).toEqual([
+      "API-Football returned an empty Match Statistics team",
+      {
+        context: {
+          event: "football.match_statistics.empty_team",
+          code: "api_football_empty_match_statistics_team",
+          matchId,
+          providerFixtureId: 1_550_114,
+          matchStatus: "finished",
+          teams: [{
+            providerTeamId: 496,
+            clubId: "club-home",
+            side: "home",
+            persistedSnapshot: true,
+          }],
+        },
+      },
+    ]);
+    expect(JSON.stringify(warning.mock.calls)).not.toMatch(
+      /api[_-]?key|authorization|secret|header/iu,
+    );
+    expect(log).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("api_football_requests=3");
   });
 
   it("logs the paginated player-statistics request total exactly once", async () => {

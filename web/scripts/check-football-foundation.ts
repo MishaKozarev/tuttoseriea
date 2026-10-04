@@ -21,6 +21,7 @@ import {
 } from "../src/football/match-page-repository";
 import { syncMatchEvents } from "../src/football/match-events-sync";
 import { syncMatchLineups } from "../src/football/match-lineups-sync";
+import { syncMatchStatistics } from "../src/football/match-statistics-sync";
 import { listCurrentSerieAMatches } from "../src/football/matches-repository";
 import {
   currentSerieAPlayerSlugExists,
@@ -123,6 +124,21 @@ type MatchLineupFactsRow = {
   providerPosition: string | null;
   grid: string | null;
   entryProviderRaw: Record<string, unknown>;
+};
+
+type MatchStatisticFactsRow = {
+  snapshotId: string;
+  providerClubId: number;
+  scope: string;
+  observedAt: Date;
+  snapshotProviderRaw: Record<string, unknown>;
+  itemId: string;
+  providerType: string;
+  providerValue: number | string | null;
+  providerValueIsSqlNull: boolean;
+  providerValueType: string;
+  providerOrder: number;
+  itemProviderRaw: Record<string, unknown>;
 };
 
 type DuplicateRow = {
@@ -367,6 +383,36 @@ async function assertCheckConstraintViolation(
   assertCondition(checkViolation, message);
 }
 
+async function assertNotNullViolation(
+  client: pg.PoolClient,
+  savepointName: string,
+  operation: () => Promise<unknown>,
+  message: string,
+): Promise<void> {
+  assertCondition(
+    /^[a-z][a-z0-9_]*$/u.test(savepointName),
+    "invalid integration-test savepoint name",
+  );
+
+  await client.query(`savepoint ${savepointName}`);
+  let notNullViolation = false;
+
+  try {
+    await operation();
+  } catch (error) {
+    if (postgresErrorCode(error) !== "23502") {
+      throw error;
+    }
+
+    notNullViolation = true;
+  } finally {
+    await client.query(`rollback to savepoint ${savepointName}`);
+    await client.query(`release savepoint ${savepointName}`);
+  }
+
+  assertCondition(notNullViolation, message);
+}
+
 function createTeams(nameSuffix = "") {
   return Array.from({ length: 20 }, (_, index) => {
     const providerClubId = 900_000 + index;
@@ -605,6 +651,40 @@ function createMatchLineups(marker = "initial") {
   ];
 }
 
+function createMatchStatisticsTeam(
+  providerClubId: number,
+  marker = "initial",
+  statistics: unknown[] = [
+    { type: "Shots on Goal", value: 4 },
+    { type: "Ball Possession", value: "49%" },
+    { type: "expected_goals", value: "1.59" },
+    { type: "Zero Metric", value: 0 },
+    { type: "Null Metric", value: null },
+  ],
+) {
+  return {
+    team: {
+      id: providerClubId,
+      name: `Serie A Club ${providerClubId - 899_999}`,
+      logo: `https://media.example.invalid/clubs/${providerClubId}.png`,
+    },
+    statistics,
+    snapshot: { marker },
+  };
+}
+
+function createMatchStatistics(marker = "initial") {
+  return [
+    createMatchStatisticsTeam(900_000, marker),
+    createMatchStatisticsTeam(900_001, marker, [
+      { type: "Shots on Goal", value: 3 },
+      { type: "Ball Possession", value: "51%" },
+      { type: "expected_goals", value: 0.51 },
+      { type: "Fouls", value: 12 },
+    ]),
+  ];
+}
+
 type StandingSetOptions = {
   firstDescription?: string | null;
   firstForm?: string | null;
@@ -813,6 +893,8 @@ function createFakeClient(
     createMatchEvents(),
   matchLineupsForFixture: (providerFixtureId: number) => unknown = () =>
     createMatchLineups(),
+  matchStatisticsForFixture: (providerFixtureId: number) => unknown = () =>
+    createMatchStatistics(),
 ): ApiFootballClient {
   return {
     getRequestAttemptCount: () => 0,
@@ -871,6 +953,27 @@ function createFakeClient(
         return ok(
           matchLineupsForFixture(providerFixtureId),
           "fixtures/lineups",
+        ) as ApiFootballResult<TResponse>;
+      }
+
+      if (pathname === "/fixtures/statistics") {
+        const providerFixtureId = query.fixture;
+
+        if (typeof providerFixtureId !== "number") {
+          return {
+            ok: false,
+            error: {
+              code: "http_client_error",
+              message: "Fake Match Statistics request is missing a numeric fixture id",
+              retryable: false,
+              attempts: 1,
+            },
+          };
+        }
+
+        return ok(
+          matchStatisticsForFixture(providerFixtureId),
+          "fixtures/statistics",
         ) as ApiFootballResult<TResponse>;
       }
 
@@ -1062,6 +1165,39 @@ async function getFakeMatchLineupFacts(
       where m.provider = 'api-football'
         and m.provider_fixture_id = 910000
       order by c.provider_club_id, mle.role, mle.provider_order
+    `,
+  );
+
+  return result.rows;
+}
+
+async function getFakeMatchStatisticFacts(
+  queryable: Pick<pg.Pool | pg.PoolClient, "query">,
+): Promise<MatchStatisticFactsRow[]> {
+  const result = await queryable.query<MatchStatisticFactsRow>(
+    `
+      select
+        ms.id as "snapshotId",
+        c.provider_club_id as "providerClubId",
+        ms.scope,
+        ms.observed_at as "observedAt",
+        ms.provider_raw as "snapshotProviderRaw",
+        msi.id as "itemId",
+        msi.provider_type as "providerType",
+        msi.provider_value as "providerValue",
+        msi.provider_value is null as "providerValueIsSqlNull",
+        jsonb_typeof(msi.provider_value) as "providerValueType",
+        msi.provider_order as "providerOrder",
+        msi.provider_raw as "itemProviderRaw"
+      from football.match_statistics ms
+      join football.matches m on m.id = ms.match_id
+      join football.clubs c on c.id = ms.club_id
+      join football.match_statistic_items msi
+        on msi.match_statistics_id = ms.id
+      where m.provider = 'api-football'
+        and m.provider_fixture_id = 910000
+        and ms.scope = 'full_match'
+      order by c.provider_club_id, msi.provider_order
     `,
   );
 
@@ -1370,7 +1506,8 @@ async function assertDeleteDenied(
     | "matches"
     | "players"
     | "standings"
-    | "match_lineup_entries",
+    | "match_lineup_entries"
+    | "match_statistic_items",
 ): Promise<void> {
   try {
     await pool.query(`delete from football.${tableName} where false`);
@@ -2747,6 +2884,293 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
       "empty Match Lineups response mutated the prior snapshot or missed its anomaly",
     );
 
+    const matchStatisticsContract = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from pg_constraint
+        where conname in (
+          'match_statistics_scope_check',
+          'match_statistic_items_provider_type_nonblank_check',
+          'match_statistic_items_provider_value_type_check',
+          'match_statistic_items_provider_order_nonnegative_check'
+        )
+      `,
+    );
+    const matchStatisticsIdentities = await client.query<CountRow>(
+      `
+        select count(*)::int as count
+        from pg_indexes
+        where schemaname = 'football'
+          and indexname in (
+            'match_statistics_match_club_scope_unique',
+            'match_statistic_items_snapshot_order_unique'
+          )
+          and indexdef ilike 'create unique index%'
+      `,
+    );
+
+    assertCondition(
+      matchStatisticsContract.rows[0]?.count === 4 &&
+        matchStatisticsIdentities.rows[0]?.count === 2,
+      "Match Statistics constraints or snapshot identities are missing",
+    );
+
+    let matchStatisticsHeartbeatCount = 0;
+    const initialMatchStatisticsSync = await syncMatchStatistics({
+      client: createFakeClient(),
+      matchId,
+      transactionClient: client,
+      heartbeat: async () => {
+        matchStatisticsHeartbeatCount += 1;
+      },
+    });
+
+    assertCondition(
+      initialMatchStatisticsSync.status === "success" &&
+        initialMatchStatisticsSync.receivedTeamCount === 2 &&
+        initialMatchStatisticsSync.replacedTeamCount === 2 &&
+        initialMatchStatisticsSync.itemCount === 9 &&
+        initialMatchStatisticsSync.anomalies.length === 0 &&
+        matchStatisticsHeartbeatCount === 1,
+      "initial Match Statistics snapshot sync failed",
+    );
+
+    const initialMatchStatistics = await getFakeMatchStatisticFacts(client);
+    const initialZero = initialMatchStatistics.find(
+      (row) => row.providerClubId === 900_000 && row.providerType === "Zero Metric",
+    );
+    const initialNull = initialMatchStatistics.find(
+      (row) => row.providerClubId === 900_000 && row.providerType === "Null Metric",
+    );
+
+    assertCondition(
+      initialMatchStatistics.length === 9 &&
+        initialMatchStatistics.every(
+          (row) =>
+            row.scope === "full_match" &&
+            row.observedAt instanceof Date &&
+            row.providerValueIsSqlNull === false,
+        ) &&
+        initialZero?.providerValue === 0 &&
+        initialZero.providerValueType === "number" &&
+        initialNull?.providerValue === null &&
+        initialNull.providerValueIsSqlNull === false &&
+        initialNull.providerValueType === "null" &&
+        (initialZero.snapshotProviderRaw.snapshot as
+          | { marker?: unknown }
+          | undefined)?.marker === "initial",
+      "Match Statistics JSONB scalar round-trip or raw snapshot mismatch",
+    );
+
+    await assertNotNullViolation(
+      client,
+      "match_statistics_sql_null",
+      () =>
+        client.query(
+          `
+            insert into football.match_statistic_items (
+              id,
+              match_statistics_id,
+              provider_type,
+              provider_value,
+              provider_order,
+              provider_raw
+            ) values ($1, $2, 'SQL NULL probe', null, 1000, '{}'::jsonb)
+          `,
+          [crypto.randomUUID(), initialZero!.snapshotId],
+        ),
+      "Match Statistics provider_value accepted SQL NULL",
+    );
+    await assertCheckConstraintViolation(
+      client,
+      "match_statistics_json_boolean",
+      () =>
+        client.query(
+          `
+            insert into football.match_statistic_items (
+              id,
+              match_statistics_id,
+              provider_type,
+              provider_value,
+              provider_order,
+              provider_raw
+            ) values ($1, $2, 'JSON boolean probe', 'true'::jsonb, 1001, '{}'::jsonb)
+          `,
+          [crypto.randomUUID(), initialZero!.snapshotId],
+        ),
+      "Match Statistics provider_value type CHECK accepted a JSON boolean",
+    );
+
+    const initialAwaySnapshotId = initialMatchStatistics.find(
+      (row) => row.providerClubId === 900_001,
+    )!.snapshotId;
+    const partialMatchStatisticsSync = await syncMatchStatistics({
+      client: createFakeClient(
+        "",
+        createFixtures(),
+        createStandings(),
+        createSquadResponse,
+        createPlayerStatisticsPages(),
+        () => createMatchEvents(),
+        () => createMatchLineups(),
+        () => [createMatchStatisticsTeam(900_000, "partial-replacement")],
+      ),
+      matchId,
+      transactionClient: client,
+    });
+    const partialMatchStatistics = await getFakeMatchStatisticFacts(client);
+    const partialHome = partialMatchStatistics.filter(
+      (row) => row.providerClubId === 900_000,
+    );
+    const retainedPartialAway = partialMatchStatistics.filter(
+      (row) => row.providerClubId === 900_001,
+    );
+
+    assertCondition(
+      partialMatchStatisticsSync.status === "success" &&
+        partialMatchStatisticsSync.replacedTeamCount === 1 &&
+        partialMatchStatisticsSync.anomalies.some(
+          (anomaly) =>
+            anomaly.code === "api_football_partial_match_statistics" &&
+            anomaly.missingSide === "away",
+        ) &&
+        (partialHome[0]?.snapshotProviderRaw.snapshot as
+          | { marker?: unknown }
+          | undefined)?.marker === "partial-replacement" &&
+        retainedPartialAway[0]?.snapshotId === initialAwaySnapshotId,
+      "partial Match Statistics response did not retain the absent side",
+    );
+
+    await client.query(
+      `
+        update football.match_statistics ms
+        set observed_at = '2000-01-01T00:00:00Z'::timestamptz
+        from football.matches m, football.clubs c
+        where ms.match_id = m.id
+          and ms.club_id = c.id
+          and m.provider_fixture_id = 910000
+          and c.provider_club_id = 900000
+      `,
+    );
+    const beforeEmptyTeam = await getFakeMatchStatisticFacts(client);
+    const retainedHomeBefore = beforeEmptyTeam.find(
+      (row) => row.providerClubId === 900_000,
+    )!;
+    const replacedAwayBefore = beforeEmptyTeam.find(
+      (row) => row.providerClubId === 900_001,
+    )!;
+    const emptyHomeMatchStatisticsSync = await syncMatchStatistics({
+      client: createFakeClient(
+        "",
+        createFixtures(),
+        createStandings(),
+        createSquadResponse,
+        createPlayerStatisticsPages(),
+        () => createMatchEvents(),
+        () => createMatchLineups(),
+        () => [
+          createMatchStatisticsTeam(900_000, "must-not-replace", []),
+          createMatchStatisticsTeam(900_001, "populated-replacement"),
+        ],
+      ),
+      matchId,
+      transactionClient: client,
+    });
+    const afterEmptyTeam = await getFakeMatchStatisticFacts(client);
+    const retainedEmptyHome = afterEmptyTeam.find(
+      (row) => row.providerClubId === 900_000,
+    )!;
+    const replacedPopulatedAway = afterEmptyTeam.find(
+      (row) => row.providerClubId === 900_001,
+    )!;
+
+    assertCondition(
+      emptyHomeMatchStatisticsSync.status === "success" &&
+        emptyHomeMatchStatisticsSync.replacedTeamCount === 1 &&
+        emptyHomeMatchStatisticsSync.anomalies.some(
+          (anomaly) =>
+            anomaly.code === "api_football_empty_match_statistics_team" &&
+            anomaly.teams.length === 1 &&
+            anomaly.teams[0]?.side === "home" &&
+            anomaly.teams[0].persistedSnapshot,
+        ) &&
+        retainedEmptyHome.snapshotId === retainedHomeBefore.snapshotId &&
+        retainedEmptyHome.observedAt.toISOString() ===
+          "2000-01-01T00:00:00.000Z" &&
+        (retainedEmptyHome.snapshotProviderRaw.snapshot as
+          | { marker?: unknown }
+          | undefined)?.marker === "partial-replacement" &&
+        replacedPopulatedAway.snapshotId !== replacedAwayBefore.snapshotId &&
+        (replacedPopulatedAway.snapshotProviderRaw.snapshot as
+          | { marker?: unknown }
+          | undefined)?.marker === "populated-replacement",
+      "empty Match Statistics team replaced or refreshed its retained snapshot",
+    );
+
+    const idsBeforeBothEmpty = afterEmptyTeam
+      .map((row) => `${row.snapshotId}:${row.itemId}`)
+      .join(",");
+    const bothEmptyMatchStatisticsSync = await syncMatchStatistics({
+      client: createFakeClient(
+        "",
+        createFixtures(),
+        createStandings(),
+        createSquadResponse,
+        createPlayerStatisticsPages(),
+        () => createMatchEvents(),
+        () => createMatchLineups(),
+        () => [
+          createMatchStatisticsTeam(900_000, "must-not-replace-home", []),
+          createMatchStatisticsTeam(900_001, "must-not-replace-away", []),
+        ],
+      ),
+      matchId,
+      transactionClient: client,
+    });
+
+    assertCondition(
+      bothEmptyMatchStatisticsSync.status === "success" &&
+        bothEmptyMatchStatisticsSync.replacedTeamCount === 0 &&
+        bothEmptyMatchStatisticsSync.anomalies.some(
+          (anomaly) =>
+            anomaly.code === "api_football_empty_match_statistics_team" &&
+            anomaly.teams.length === 2,
+        ) &&
+        (await getFakeMatchStatisticFacts(client))
+          .map((row) => `${row.snapshotId}:${row.itemId}`)
+          .join(",") === idsBeforeBothEmpty,
+      "two empty Match Statistics teams mutated the retained snapshots",
+    );
+
+    const emptyMatchStatisticsSync = await syncMatchStatistics({
+      client: createFakeClient(
+        "",
+        createFixtures(),
+        createStandings(),
+        createSquadResponse,
+        createPlayerStatisticsPages(),
+        () => createMatchEvents(),
+        () => createMatchLineups(),
+        () => [],
+      ),
+      matchId,
+      transactionClient: client,
+    });
+
+    assertCondition(
+      emptyMatchStatisticsSync.status === "success" &&
+        emptyMatchStatisticsSync.replacedTeamCount === 0 &&
+        emptyMatchStatisticsSync.anomalies.some(
+          (anomaly) =>
+            anomaly.code === "api_football_empty_match_statistics" &&
+            anomaly.persistedSides.join(",") === "home,away",
+        ) &&
+        (await getFakeMatchStatisticFacts(client))
+          .map((row) => `${row.snapshotId}:${row.itemId}`)
+          .join(",") === idsBeforeBothEmpty,
+      "empty Match Statistics response mutated the retained snapshots",
+    );
+
     const listedMatches = await listCurrentSerieAMatches(client);
 
     assertCondition(listedMatches.length === 381, "public match listing count mismatch");
@@ -3825,6 +4249,14 @@ async function cleanupMatchEventsRollbackFixture(
         and m.provider_fixture_id < 920001
     `);
     await client.query(`
+      delete from football.match_statistics ms
+      using football.matches m
+      where ms.match_id = m.id
+        and m.provider = 'api-football'
+        and m.provider_fixture_id >= 910000
+        and m.provider_fixture_id < 920001
+    `);
+    await client.query(`
       delete from football.matches
       where provider = 'api-football'
         and provider_fixture_id >= 910000
@@ -4389,6 +4821,287 @@ async function verifyMatchLineupsProductionPoolRollback(
   }
 }
 
+async function verifyMatchStatisticsProductionPoolRollback(
+  runtimeDatabaseUrl: string,
+  migrationPool: pg.Pool,
+): Promise<void> {
+  const forcedFailureMessage =
+    "stage484_forced_failure_after_match_statistic_item_insert";
+  const rollbackTestPool = new Pool({
+    connectionString: runtimeDatabaseUrl,
+    max: 1,
+  });
+  const originalConnect = rollbackTestPool.connect.bind(rollbackTestPool);
+  let setupTransactionStarted = false;
+  let deleteMutationObserved = false;
+  let parentInsertObserved = false;
+  let itemInsertObserved = false;
+  let rollbackObserved = false;
+  let expectedFailureObserved = false;
+  let insertedItemMutations = 0;
+  const initialScopeState = await migrationPool.query<{
+    competitionCount: number;
+    seasonCount: number;
+  }>(`
+    select
+      count(distinct comp.id)::int as "competitionCount",
+      count(distinct s.id)::int as "seasonCount"
+    from football.competitions comp
+    left join football.seasons s
+      on s.competition_id = comp.id
+      and s.provider = 'api-football'
+      and s.provider_season_year = 2026
+    where comp.provider = 'api-football'
+      and comp.provider_competition_id = 135
+  `);
+  const competitionExisted =
+    (initialScopeState.rows[0]?.competitionCount ?? 0) > 0;
+  const seasonExisted = (initialScopeState.rows[0]?.seasonCount ?? 0) > 0;
+
+  assertCondition(
+    (await countFakeClubs(migrationPool)) === 0 &&
+      (await countProviderMatchesInRange(migrationPool, 910_000, 920_000)) === 0,
+    "Match Statistics rollback test requires an empty fake Football scope",
+  );
+
+  const setupClient = await migrationPool.connect();
+
+  try {
+    await setupClient.query("begin");
+    setupTransactionStarted = true;
+
+    const foundationResult = await syncSerieAFoundation({
+      client: createFakeClient(),
+      queryable: setupClient,
+    });
+    assertCondition(
+      foundationResult.status === "success",
+      "Match Statistics rollback test could not prepare Football foundation rows",
+    );
+
+    const matchesResult = await syncSerieAMatches({
+      client: createFakeClient(),
+      transactionClient: setupClient,
+    });
+    assertCondition(
+      matchesResult.status === "success",
+      "Match Statistics rollback test could not prepare Match rows",
+    );
+
+    const initialStatisticsResult = await syncMatchStatistics({
+      client: createFakeClient(),
+      matchId: await getFakeMatchId(setupClient),
+      transactionClient: setupClient,
+    });
+    assertCondition(
+      initialStatisticsResult.status === "success" &&
+        initialStatisticsResult.replacedTeamCount === 2 &&
+        initialStatisticsResult.itemCount === 9,
+      "Match Statistics rollback test could not prepare the prior snapshot",
+    );
+
+    await setupClient.query("commit");
+    setupTransactionStarted = false;
+  } finally {
+    if (setupTransactionStarted) {
+      await setupClient.query("rollback");
+    }
+
+    setupClient.release();
+  }
+
+  const snapshotBeforeRollback = await getFakeMatchStatisticFacts(migrationPool);
+  const snapshotIdsBeforeRollback = snapshotBeforeRollback
+    .map((row) => `${row.snapshotId}:${row.itemId}`)
+    .join(",");
+
+  rollbackTestPool.query = (async (queryText: unknown, values?: unknown[]) => {
+    assertCondition(
+      typeof queryText === "string",
+      "Match Statistics rollback preflight received an unsupported query shape",
+    );
+    const client = await originalConnect();
+
+    try {
+      return await client.query(queryText, values);
+    } finally {
+      client.release();
+    }
+  }) as typeof rollbackTestPool.query;
+
+  rollbackTestPool.connect = (async () => {
+    const client = await originalConnect();
+    const executeQuery = client.query.bind(client) as unknown as (
+      queryText: string,
+      values?: unknown[],
+    ) => Promise<pg.QueryResult>;
+    let transactionActive = false;
+
+    const instrumentedQuery = async (queryText: unknown, values?: unknown[]) => {
+      assertCondition(
+        typeof queryText === "string",
+        "Match Statistics rollback test received an unsupported query shape",
+      );
+      const normalizedQuery = queryText.trim().toLowerCase();
+
+      if (normalizedQuery === "begin") {
+        const result = await executeQuery(queryText, values);
+        transactionActive = true;
+        return result;
+      }
+
+      if (
+        transactionActive &&
+        normalizedQuery.startsWith("delete from football.match_statistics")
+      ) {
+        const result = await executeQuery(queryText, values);
+        const observed = await executeQuery(
+          `
+            select count(*)::int as count
+            from football.match_statistics ms
+            join football.matches m on m.id = ms.match_id
+            join football.clubs c on c.id = ms.club_id
+            where m.provider = 'api-football'
+              and m.provider_fixture_id = 910000
+              and c.provider_club_id = 900000
+              and ms.scope = 'full_match'
+          `,
+        );
+        deleteMutationObserved =
+          (observed.rows[0] as CountRow | undefined)?.count === 0;
+        return result;
+      }
+
+      if (
+        transactionActive &&
+        normalizedQuery.includes("insert into football.match_statistics")
+      ) {
+        const result = await executeQuery(queryText, values);
+        const observed = await executeQuery(
+          `
+            select count(*)::int as count
+            from football.match_statistics ms
+            join football.matches m on m.id = ms.match_id
+            where m.provider = 'api-football'
+              and m.provider_fixture_id = 910000
+              and ms.provider_raw->'snapshot'->>'marker' = 'rollback-attempt'
+          `,
+        );
+        parentInsertObserved =
+          (observed.rows[0] as CountRow | undefined)?.count === 1;
+        return result;
+      }
+
+      if (
+        transactionActive &&
+        normalizedQuery.includes("insert into football.match_statistic_items")
+      ) {
+        if (insertedItemMutations >= 1) {
+          throw new Error(forcedFailureMessage);
+        }
+
+        const result = await executeQuery(queryText, values);
+        insertedItemMutations += 1;
+        const observed = await executeQuery(
+          `
+            select count(*)::int as count
+            from football.match_statistic_items msi
+            join football.match_statistics ms
+              on ms.id = msi.match_statistics_id
+            join football.matches m on m.id = ms.match_id
+            where m.provider = 'api-football'
+              and m.provider_fixture_id = 910000
+              and ms.provider_raw->'snapshot'->>'marker' = 'rollback-attempt'
+          `,
+        );
+        itemInsertObserved =
+          (observed.rows[0] as CountRow | undefined)?.count === 1;
+        return result;
+      }
+
+      if (normalizedQuery === "rollback") {
+        const result = await executeQuery(queryText, values);
+        rollbackObserved = true;
+        transactionActive = false;
+        return result;
+      }
+
+      return executeQuery(queryText, values);
+    };
+
+    return new Proxy(client, {
+      get(target, property) {
+        if (property === "query") {
+          return instrumentedQuery;
+        }
+
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }) as typeof rollbackTestPool.connect;
+
+  try {
+    try {
+      await syncMatchStatistics({
+        client: createFakeClient(
+          "",
+          createFixtures(),
+          createStandings(),
+          createSquadResponse,
+          createPlayerStatisticsPages(),
+          () => createMatchEvents(),
+          () => createMatchLineups(),
+          () => createMatchStatistics("rollback-attempt"),
+        ),
+        matchId: await getFakeMatchId(migrationPool),
+        pool: rollbackTestPool,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === forcedFailureMessage) {
+        expectedFailureObserved = true;
+      } else {
+        throw error;
+      }
+    }
+
+    assertCondition(
+      expectedFailureObserved,
+      "Match Statistics rollback sync did not fail as expected",
+    );
+    assertCondition(
+      deleteMutationObserved && parentInsertObserved && itemInsertObserved,
+      "Match Statistics rollback test did not observe DELETE and INSERT mutations before failure",
+    );
+    assertCondition(
+      rollbackObserved,
+      "Match Statistics production Pool path did not execute rollback",
+    );
+
+    const snapshotAfterRollback = await getFakeMatchStatisticFacts(migrationPool);
+
+    assertCondition(
+      snapshotAfterRollback.length === 9 &&
+        snapshotAfterRollback
+          .map((row) => `${row.snapshotId}:${row.itemId}`)
+          .join(",") === snapshotIdsBeforeRollback &&
+        snapshotAfterRollback.every(
+          (row) =>
+            (row.snapshotProviderRaw.snapshot as
+              | { marker?: unknown }
+              | undefined)?.marker === "initial",
+        ),
+      "Match Statistics production Pool rollback left partial snapshot changes",
+    );
+  } finally {
+    await rollbackTestPool.end();
+    await cleanupMatchEventsRollbackFixture(migrationPool, {
+      removeCompetition: !competitionExisted,
+      removeSeason: !seasonExisted,
+    });
+  }
+}
+
 async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
   const client = await runtimePool.connect();
   let transactionStarted = false;
@@ -4468,6 +5181,20 @@ async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
         matchLineupsResult.entryCount === 6,
       "runtime role Match Lineups fake sync failed",
     );
+
+    const matchStatisticsResult = await syncMatchStatistics({
+      client: createFakeClient(),
+      matchId: await getFakeMatchId(client),
+      transactionClient: client,
+    });
+
+    assertCondition(
+      matchStatisticsResult.status === "success" &&
+        matchStatisticsResult.receivedTeamCount === 2 &&
+        matchStatisticsResult.replacedTeamCount === 2 &&
+        matchStatisticsResult.itemCount === 9,
+      "runtime role Match Statistics fake sync failed",
+    );
   } finally {
     if (transactionStarted) {
       await client.query("rollback");
@@ -4485,6 +5212,8 @@ async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
   await runtimePool.query("delete from football.match_events where false");
   await runtimePool.query("delete from football.match_lineups where false");
   await assertDeleteDenied(runtimePool, "match_lineup_entries");
+  await runtimePool.query("delete from football.match_statistics where false");
+  await assertDeleteDenied(runtimePool, "match_statistic_items");
 
   const matchEventsPrivileges = await runtimePool.query<{
     canSelect: boolean;
@@ -4577,6 +5306,68 @@ async function verifyRuntimeGrants(runtimePool: pg.Pool): Promise<void> {
       matchLineupEntriesGrant.canReferences === false &&
       matchLineupEntriesGrant.canTrigger === false,
     "runtime role Match Lineup Entries grants are not exactly SELECT and INSERT",
+  );
+
+  const matchStatisticsPrivileges = await runtimePool.query<{
+    canSelect: boolean;
+    canInsert: boolean;
+    canDelete: boolean;
+    canUpdate: boolean;
+    canTruncate: boolean;
+    canReferences: boolean;
+    canTrigger: boolean;
+  }>(`
+    select
+      has_table_privilege(current_user, 'football.match_statistics', 'SELECT') as "canSelect",
+      has_table_privilege(current_user, 'football.match_statistics', 'INSERT') as "canInsert",
+      has_table_privilege(current_user, 'football.match_statistics', 'DELETE') as "canDelete",
+      has_table_privilege(current_user, 'football.match_statistics', 'UPDATE') as "canUpdate",
+      has_table_privilege(current_user, 'football.match_statistics', 'TRUNCATE') as "canTruncate",
+      has_table_privilege(current_user, 'football.match_statistics', 'REFERENCES') as "canReferences",
+      has_table_privilege(current_user, 'football.match_statistics', 'TRIGGER') as "canTrigger"
+  `);
+  const matchStatisticsGrant = matchStatisticsPrivileges.rows[0];
+
+  assertCondition(
+    matchStatisticsGrant?.canSelect === true &&
+      matchStatisticsGrant.canInsert === true &&
+      matchStatisticsGrant.canDelete === true &&
+      matchStatisticsGrant.canUpdate === false &&
+      matchStatisticsGrant.canTruncate === false &&
+      matchStatisticsGrant.canReferences === false &&
+      matchStatisticsGrant.canTrigger === false,
+    "runtime role Match Statistics grants are not exactly SELECT, INSERT and DELETE",
+  );
+
+  const matchStatisticItemsPrivileges = await runtimePool.query<{
+    canSelect: boolean;
+    canInsert: boolean;
+    canDelete: boolean;
+    canUpdate: boolean;
+    canTruncate: boolean;
+    canReferences: boolean;
+    canTrigger: boolean;
+  }>(`
+    select
+      has_table_privilege(current_user, 'football.match_statistic_items', 'SELECT') as "canSelect",
+      has_table_privilege(current_user, 'football.match_statistic_items', 'INSERT') as "canInsert",
+      has_table_privilege(current_user, 'football.match_statistic_items', 'DELETE') as "canDelete",
+      has_table_privilege(current_user, 'football.match_statistic_items', 'UPDATE') as "canUpdate",
+      has_table_privilege(current_user, 'football.match_statistic_items', 'TRUNCATE') as "canTruncate",
+      has_table_privilege(current_user, 'football.match_statistic_items', 'REFERENCES') as "canReferences",
+      has_table_privilege(current_user, 'football.match_statistic_items', 'TRIGGER') as "canTrigger"
+  `);
+  const matchStatisticItemsGrant = matchStatisticItemsPrivileges.rows[0];
+
+  assertCondition(
+    matchStatisticItemsGrant?.canSelect === true &&
+      matchStatisticItemsGrant.canInsert === true &&
+      matchStatisticItemsGrant.canDelete === false &&
+      matchStatisticItemsGrant.canUpdate === false &&
+      matchStatisticItemsGrant.canTruncate === false &&
+      matchStatisticItemsGrant.canReferences === false &&
+      matchStatisticItemsGrant.canTrigger === false,
+    "runtime role Match Statistic Items grants are not exactly SELECT and INSERT",
   );
   await assertDdlDenied(runtimePool);
 }
@@ -4711,11 +5502,15 @@ async function main(): Promise<void> {
       requireEnv("DATABASE_URL"),
       migrationPool,
     );
+    await verifyMatchStatisticsProductionPoolRollback(
+      requireEnv("DATABASE_URL"),
+      migrationPool,
+    );
     await verifyRuntimeGrants(runtimePool);
     await verifyJobRunnerPath(runtimePool, migrationPool);
 
     console.log(
-      "Football foundation, matches, Match Events, Match Lineups, standings, squads and player statistics check passed.",
+      "Football foundation, matches, Match Events, Match Lineups, Match Statistics, standings, squads and player statistics check passed.",
     );
     console.log("football_fake_provider_sync=true");
     console.log("football_repeated_sync_idempotent=true");
@@ -4749,6 +5544,12 @@ async function main(): Promise<void> {
     console.log("football_match_lineups_empty_no_op=true");
     console.log("football_match_lineups_player_resolution_best_effort=true");
     console.log("football_match_lineups_production_pool_rollback=true");
+    console.log("football_match_statistics_team_snapshots=true");
+    console.log("football_match_statistics_partial_snapshot_preserved=true");
+    console.log("football_match_statistics_empty_response_no_op=true");
+    console.log("football_match_statistics_empty_team_preserved=true");
+    console.log("football_match_statistics_jsonb_scalar_round_trip=true");
+    console.log("football_match_statistics_production_pool_rollback=true");
     console.log("football_standings_current_rows=20");
     console.log("football_standings_repeated_sync_idempotent=true");
     console.log("football_standings_provider_fields_update=true");
@@ -4788,6 +5589,9 @@ async function main(): Promise<void> {
     console.log("football_runtime_match_lineups_select_insert_delete=true");
     console.log("football_runtime_match_lineup_entries_select_insert=true");
     console.log("football_runtime_match_lineups_extra_grants_denied=true");
+    console.log("football_runtime_match_statistics_select_insert_delete=true");
+    console.log("football_runtime_match_statistic_items_select_insert=true");
+    console.log("football_runtime_match_statistics_extra_grants_denied=true");
     console.log("football_runtime_delete_denied=true");
     console.log("football_runtime_ddl_denied=true");
     console.log("football_job_runner_path=true");

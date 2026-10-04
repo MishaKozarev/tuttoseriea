@@ -533,6 +533,71 @@ export const footballMatchLineupEntries = footballSchema.table(
   }),
 );
 
+export const footballMatchStatistics = footballSchema.table(
+  "match_statistics",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    matchId: text("match_id")
+      .notNull()
+      .references(() => footballMatches.id, { onDelete: "restrict" }),
+    clubId: text("club_id")
+      .notNull()
+      .references(() => footballClubs.id, { onDelete: "restrict" }),
+    scope: text("scope").notNull(),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+    observedAt: timestamp("observed_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    matchClubScopeUnique: uniqueIndex(
+      "match_statistics_match_club_scope_unique",
+    ).on(table.matchId, table.clubId, table.scope),
+    clubIndex: index("match_statistics_club_id_idx").on(table.clubId),
+    scopeCheck: check(
+      "match_statistics_scope_check",
+      sql`${table.scope} = 'full_match'`,
+    ),
+  }),
+);
+
+export const footballMatchStatisticItems = footballSchema.table(
+  "match_statistic_items",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    matchStatisticsId: text("match_statistics_id")
+      .notNull()
+      .references(() => footballMatchStatistics.id, { onDelete: "cascade" }),
+    providerType: text("provider_type").notNull(),
+    providerValue: jsonb("provider_value")
+      .$type<number | string | null>()
+      .notNull(),
+    providerOrder: integer("provider_order").notNull(),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+  },
+  (table) => ({
+    snapshotOrderUnique: uniqueIndex(
+      "match_statistic_items_snapshot_order_unique",
+    ).on(table.matchStatisticsId, table.providerOrder),
+    providerTypeNonblankCheck: check(
+      "match_statistic_items_provider_type_nonblank_check",
+      sql`btrim(${table.providerType}) <> ''`,
+    ),
+    providerValueTypeCheck: check(
+      "match_statistic_items_provider_value_type_check",
+      sql`jsonb_typeof(${table.providerValue}) in ('number', 'string', 'null')`,
+    ),
+    providerOrderNonnegativeCheck: check(
+      "match_statistic_items_provider_order_nonnegative_check",
+      sql`${table.providerOrder} >= 0`,
+    ),
+  }),
+);
+
 export const footballPlayerStatistics = footballSchema.table(
   "player_statistics",
   {

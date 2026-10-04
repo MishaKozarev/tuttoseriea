@@ -7,6 +7,7 @@ import {
   SERIE_A_MATCHES_JOB_TYPE,
   SERIE_A_MATCH_EVENTS_JOB_TYPE,
   SERIE_A_MATCH_LINEUPS_JOB_TYPE,
+  SERIE_A_MATCH_STATISTICS_JOB_TYPE,
   SERIE_A_PLAYER_STATISTICS_IDEMPOTENCY_KEY,
   SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
   SERIE_A_SQUADS_IDEMPOTENCY_KEY,
@@ -15,12 +16,14 @@ import {
   SERIE_A_STANDINGS_JOB_TYPE,
   createSerieAMatchEventsIdempotencyKey,
   createSerieAMatchLineupsIdempotencyKey,
+  createSerieAMatchStatisticsIdempotencyKey,
 } from "@/src/football/foundation";
 import { createClubSlug } from "@/src/football/repository";
 import {
   syncSerieAFoundationJob,
   syncSerieAMatchEventsJob,
   syncSerieAMatchLineupsJob,
+  syncSerieAMatchStatisticsJob,
   syncSerieAMatchesJob,
   syncSerieAPlayerStatisticsJob,
   syncSerieASquadsJob,
@@ -34,11 +37,41 @@ describe("Football foundation", () => {
       SERIE_A_FOUNDATION_JOB_TYPE,
       SERIE_A_MATCH_EVENTS_JOB_TYPE,
       SERIE_A_MATCH_LINEUPS_JOB_TYPE,
+      SERIE_A_MATCH_STATISTICS_JOB_TYPE,
       SERIE_A_MATCHES_JOB_TYPE,
       SERIE_A_PLAYER_STATISTICS_JOB_TYPE,
       SERIE_A_SQUADS_JOB_TYPE,
       SERIE_A_STANDINGS_JOB_TYPE,
     ]);
+  });
+
+  it("uses a canonical Match-scoped Statistics key and rejects unbounded arguments", () => {
+    const matchId = "11111111-1111-4111-8111-111111111111";
+
+    expect(
+      syncSerieAMatchStatisticsJob.parseArguments(["--match-id", matchId]),
+    ).toEqual({
+      idempotencyKey: createSerieAMatchStatisticsIdempotencyKey(matchId),
+      payload: {
+        provider: "api-football",
+        leagueId: 135,
+        season: 2026,
+        scope: "match-statistics",
+        matchId,
+      },
+    });
+
+    for (const invalidArgs of [
+      [],
+      ["--fixture", "1550114"],
+      ["--match-id", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"],
+      ["--match-id", matchId, "extra"],
+      ["--match-id", "not-a-uuid"],
+    ]) {
+      expect(() =>
+        syncSerieAMatchStatisticsJob.parseArguments(invalidArgs),
+      ).toThrow(/requires exactly --match-id <lowercase-uuid>/);
+    }
   });
 
   it("uses a canonical Match-scoped Events key and rejects unbounded arguments", () => {

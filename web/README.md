@@ -265,6 +265,24 @@ current-snapshot details, not durable provider identities. The application job
 registry changes, but restricted STAGING/PRODUCTION operational allowlists do
 not.
 
+Stage 4.8.4 adds current full-match Team snapshots in
+`football.match_statistics`, ordered provider items in
+`football.match_statistic_items`, and application job type
+`football.sync-serie-a-match-statistics`. The job requires exactly
+`--match-id <lowercase-uuid>`, resolves a persisted current Serie A Match before
+provider access and calls only `/fixtures/statistics?fixture=<provider_fixture_id>`
+without `half`. Statistic types remain open provider strings; number, string and
+provider null values are stored losslessly as constrained JSONB scalars. Duplicate
+types remain separate structural-order items and produce a structured anomaly.
+
+All validation and Team resolution precede the existing heartbeat. Received Teams
+with non-empty statistics are replaced together in one short Match transaction with
+no heartbeat inside it. Missing Teams are retained. Empty responses are successful
+no-ops, and received Teams with empty `statistics` arrays are retained without
+refreshing `observed_at` and produce a structured anomaly. The application registry
+changes from seven to eight types; restricted STAGING/PRODUCTION allowlists remain
+unchanged.
+
 The Football localization foundation stores application-owned Russian proper
 names and review state directly on `football.competitions`, `football.clubs`
 and `football.players`. A Russian name is either absent together with its
@@ -364,6 +382,11 @@ privileges.
 team-snapshot replacement. `football.match_lineup_entries` receives only
 `SELECT` and `INSERT`; entry deletion occurs only through the parent
 `ON DELETE CASCADE`. Neither table receives `UPDATE` or blanket privileges.
+
+`football.match_statistics` receives only `SELECT`, `INSERT` and `DELETE` for
+received-Team snapshot replacement. `football.match_statistic_items` receives only
+`SELECT` and `INSERT`; child deletion occurs through parent `ON DELETE CASCADE`.
+Neither table receives `UPDATE` or blanket privileges.
 
 The production image contains the migration runner and Drizzle migration
 artifacts, but the normal Next.js container process does not run migrations on
@@ -531,7 +554,7 @@ no-op behavior, stale recovery and heartbeat/fencing loss.
 
 `db:football:check` uses fake API-Football responses against real PostgreSQL to
 verify the competition/season/club foundation, matches, Match Events, Match Lineups,
-standings, current squads and paginated player statistics. It covers
+Match Statistics, standings, current squads and paginated player statistics. It covers
 repeated-sync idempotency,
 provider identity uniqueness,
 ownership rules, provider-field and complete snapshot updates, current
@@ -571,6 +594,10 @@ restricted operational allowlists in Stage 4.8.2.
 `football.sync-serie-a-match-lineups` is likewise application-registry-only in
 Stage 4.8.3. Its bounded `--match-id` operational contract is not added to the
 restricted STAGING or PRODUCTION paths by this implementation.
+
+`football.sync-serie-a-match-statistics` is also application-registry-only in
+Stage 4.8.4. Its bounded `--match-id` contract is not added to restricted
+environment allowlists or VDS/root command templates.
 
 The repository-side scripts call the VDS contract with one exact whitelisted
 identifier, for example:
