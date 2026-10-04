@@ -442,6 +442,97 @@ export const footballMatchEvents = footballSchema.table(
   }),
 );
 
+export const footballMatchLineups = footballSchema.table(
+  "match_lineups",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    matchId: text("match_id")
+      .notNull()
+      .references(() => footballMatches.id, { onDelete: "restrict" }),
+    clubId: text("club_id")
+      .notNull()
+      .references(() => footballClubs.id, { onDelete: "restrict" }),
+    formation: text("formation"),
+    providerCoachId: integer("provider_coach_id"),
+    providerCoachName: text("provider_coach_name"),
+    providerCoachPhotoUrl: text("provider_coach_photo_url"),
+    providerColors: jsonb("provider_colors").$type<Record<string, unknown>>(),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+    observedAt: timestamp("observed_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    matchClubUnique: uniqueIndex("match_lineups_match_club_unique").on(
+      table.matchId,
+      table.clubId,
+    ),
+    clubIndex: index("match_lineups_club_id_idx").on(table.clubId),
+    providerCoachIdPositiveCheck: check(
+      "match_lineups_provider_coach_id_positive_check",
+      sql`${table.providerCoachId} is null or ${table.providerCoachId} > 0`,
+    ),
+  }),
+);
+
+export const footballMatchLineupEntries = footballSchema.table(
+  "match_lineup_entries",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    lineupId: text("lineup_id")
+      .notNull()
+      .references(() => footballMatchLineups.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    providerPlayerId: integer("provider_player_id"),
+    providerPlayerName: text("provider_player_name"),
+    playerId: text("player_id").references(() => footballPlayers.id, {
+      onDelete: "set null",
+    }),
+    shirtNumber: integer("shirt_number"),
+    providerPosition: text("provider_position"),
+    grid: text("grid"),
+    providerOrder: integer("provider_order").notNull(),
+    providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
+  },
+  (table) => ({
+    roleOrderUnique: uniqueIndex("match_lineup_entries_role_order_unique").on(
+      table.lineupId,
+      table.role,
+      table.providerOrder,
+    ),
+    providerPlayerUnique: uniqueIndex(
+      "match_lineup_entries_provider_player_unique",
+    )
+      .on(table.lineupId, table.providerPlayerId)
+      .where(sql`${table.providerPlayerId} is not null`),
+    playerIndex: index("match_lineup_entries_player_id_idx").on(table.playerId),
+    roleCheck: check(
+      "match_lineup_entries_role_check",
+      sql`${table.role} in ('starter', 'substitute')`,
+    ),
+    providerOrderNonnegativeCheck: check(
+      "match_lineup_entries_provider_order_nonnegative_check",
+      sql`${table.providerOrder} >= 0`,
+    ),
+    providerPlayerIdPositiveCheck: check(
+      "match_lineup_entries_provider_player_id_positive_check",
+      sql`${table.providerPlayerId} is null or ${table.providerPlayerId} > 0`,
+    ),
+    providerPlayerNameCheck: check(
+      "match_lineup_entries_provider_player_name_check",
+      sql`${table.providerPlayerName} is null or btrim(${table.providerPlayerName}) <> ''`,
+    ),
+    providerPlayerIdentityCheck: check(
+      "match_lineup_entries_provider_player_identity_check",
+      sql`${table.providerPlayerId} is not null or ${table.providerPlayerName} is not null`,
+    ),
+  }),
+);
+
 export const footballPlayerStatistics = footballSchema.table(
   "player_statistics",
   {

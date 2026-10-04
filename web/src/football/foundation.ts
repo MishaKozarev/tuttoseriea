@@ -34,3 +34,10 @@ export const SERIE_A_MATCH_EVENTS_JOB_TYPE =
 export function createSerieAMatchEventsIdempotencyKey(matchId: string): string {
   return `api-football:league:135:season:2026:match:${matchId}:events`;
 }
+
+export const SERIE_A_MATCH_LINEUPS_JOB_TYPE =
+  "football.sync-serie-a-match-lineups";
+
+export function createSerieAMatchLineupsIdempotencyKey(matchId: string): string {
+  return `api-football:league:135:season:2026:match:${matchId}:lineups`;
+}
