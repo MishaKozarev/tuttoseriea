@@ -41,3 +41,12 @@ export const SERIE_A_MATCH_LINEUPS_JOB_TYPE =
 export function createSerieAMatchLineupsIdempotencyKey(matchId: string): string {
   return `api-football:league:135:season:2026:match:${matchId}:lineups`;
 }
+
+export const SERIE_A_MATCH_STATISTICS_JOB_TYPE =
+  "football.sync-serie-a-match-statistics";
+
+export function createSerieAMatchStatisticsIdempotencyKey(
+  matchId: string,
+): string {
+  return `api-football:league:135:season:2026:match:${matchId}:statistics`;
+}
