@@ -271,6 +271,136 @@ describe("API-Football HTTP client", () => {
     expect(attempts).toBe(2);
   });
 
+  it("recognizes compact provider error objects before validating a success envelope", async () => {
+    const client = createClient(async () =>
+      jsonResponse(200, {
+        errors: { subscription: "request rejected" },
+      }),
+    );
+
+    const result = await client.get("fixtures/events", { fixture: 1_550_128 });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        attempts: 1,
+        code: "provider_error",
+        retryable: false,
+      },
+    });
+  });
+
+  it("recognizes compact provider error arrays without inventing retry semantics", async () => {
+    const client = createClient(async () =>
+      jsonResponse(200, {
+        errors: ["request rejected"],
+      }),
+    );
+
+    const result = await client.get("fixtures/lineups", { fixture: 1_550_128 });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        attempts: 1,
+        code: "provider_error",
+        retryable: false,
+      },
+    });
+  });
+
+  it("classifies HTTP 200 provider errors using confirmed minute-limit headers", async () => {
+    const client = createClient(
+      async () =>
+        jsonResponse(
+          200,
+          { errors: { requests: "request rejected" } },
+          {
+            "x-ratelimit-limit": "10",
+            "x-ratelimit-remaining": "0",
+          },
+        ),
+      { maxAttempts: 1 },
+    );
+
+    const result = await client.get("fixtures/events", { fixture: 1_550_128 });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        attempts: 1,
+        code: "provider_rate_limited",
+        retryable: true,
+        rateLimit: {
+          scope: "minute",
+        },
+      },
+    });
+  });
+
+  it("classifies HTTP 200 provider errors using confirmed daily-quota headers", async () => {
+    const client = createClient(async () =>
+      jsonResponse(
+        200,
+        { errors: { requests: "request rejected" } },
+        {
+          "x-ratelimit-requests-limit": "7500",
+          "x-ratelimit-requests-remaining": "0",
+        },
+      ),
+    );
+
+    const result = await client.get("fixtures/events", { fixture: 1_550_128 });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        attempts: 1,
+        code: "daily_quota_exhausted",
+        retryable: false,
+        rateLimit: {
+          scope: "daily",
+        },
+      },
+    });
+  });
+
+  it("runs the request gate before every outbound attempt including retries", async () => {
+    let attempts = 0;
+    const beforeRequestAttempt = vi.fn(async () => undefined);
+    const client = createClient(
+      async () => {
+        attempts += 1;
+
+        return attempts === 1
+          ? jsonResponse(503, { error: "temporary" })
+          : jsonResponse(200, envelope([]));
+      },
+      { beforeRequestAttempt },
+    );
+
+    await expect(client.get("fixtures/events")).resolves.toMatchObject({ ok: true });
+    expect(beforeRequestAttempt).toHaveBeenCalledTimes(2);
+    expect(client.getRequestAttemptCount()).toBe(2);
+  });
+
+  it("keeps genuinely malformed success payloads terminal", async () => {
+    const client = createClient(async () =>
+      jsonResponse(200, envelope(null, { errors: [] })),
+    );
+
+    const result = await client.get("fixtures/events");
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        attempts: 1,
+        code: "malformed_response",
+        retryable: false,
+      },
+    });
+  });
+
   it("normalizes malformed JSON without retrying or leaking raw payloads", async () => {
     let attempts = 0;
     const client = createClient(async () => {

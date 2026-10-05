@@ -43,6 +43,7 @@ import {
   JobConfigError,
   JobUsageError,
   type JobDefinition,
+  type JobExecutionContext,
   type JobHandlerResult,
 } from "./types";
 
@@ -64,6 +65,7 @@ type FootballSyncResult =
   | Extract<JobHandlerResult, { status: "retry" | "failed" }>;
 
 async function runFootballSync(
+  context: JobExecutionContext,
   execute: (client: ApiFootballClient, pool: Pool) => Promise<FootballSyncResult>,
 ): Promise<JobHandlerResult> {
   let client: ApiFootballClient | null = null;
@@ -74,7 +76,9 @@ async function runFootballSync(
       connectionString: requireDatabaseUrl(),
       max: 3,
     });
-    client = createApiFootballClient();
+    client = createApiFootballClient({
+      beforeRequestAttempt: context.beforeProviderRequestAttempt,
+    });
 
     const result = await execute(client, pool);
 
@@ -105,7 +109,7 @@ export const syncSerieAFoundationJob: JobDefinition = {
     };
   },
   handle: async (context) =>
-    runFootballSync(async (client, pool) => {
+    runFootballSync(context, async (client, pool) => {
       return syncSerieAFoundation({
         client,
         queryable: pool,
@@ -132,7 +136,7 @@ export const syncSerieAMatchesJob: JobDefinition = {
     };
   },
   handle: async (context) =>
-    runFootballSync(async (client, pool) => {
+    runFootballSync(context, async (client, pool) => {
       return syncSerieAMatches({
         client,
         pool,
@@ -161,7 +165,7 @@ export const syncSerieAStandingsJob: JobDefinition = {
     };
   },
   handle: async (context) =>
-    runFootballSync(async (client, pool) => {
+    runFootballSync(context, async (client, pool) => {
       return syncSerieAStandings({
         client,
         pool,
@@ -190,7 +194,7 @@ export const syncSerieASquadsJob: JobDefinition = {
     };
   },
   handle: async (context) =>
-    runFootballSync(async (client, pool) => {
+    runFootballSync(context, async (client, pool) => {
       return syncSerieASquads({
         client,
         pool,
@@ -219,7 +223,7 @@ export const syncSerieAPlayerStatisticsJob: JobDefinition = {
     };
   },
   handle: async (context) =>
-    runFootballSync(async (client, pool) => {
+    runFootballSync(context, async (client, pool) => {
       return syncSerieAPlayerStatistics({
         client,
         pool,
@@ -266,7 +270,7 @@ export const syncSerieAMatchEventsJob: JobDefinition = {
       };
     }
 
-    return runFootballSync(async (client, pool) => {
+    return runFootballSync(context, async (client, pool) => {
       const result = await syncMatchEvents({
         client,
         pool,
@@ -355,7 +359,7 @@ export const syncSerieAMatchLineupsJob: JobDefinition = {
       };
     }
 
-    return runFootballSync(async (client, pool) => {
+    return runFootballSync(context, async (client, pool) => {
       const result = await syncMatchLineups({
         client,
         pool,
@@ -453,7 +457,7 @@ export const syncSerieAMatchStatisticsJob: JobDefinition = {
       };
     }
 
-    return runFootballSync(async (client, pool) => {
+    return runFootballSync(context, async (client, pool) => {
       const result = await syncMatchStatistics({
         client,
         pool,

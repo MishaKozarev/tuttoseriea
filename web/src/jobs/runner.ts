@@ -26,6 +26,7 @@ export type RunJobInput = {
   config: JobRunnerConfig;
   repository?: JobRepository;
   runnerId?: string;
+  beforeProviderRequestAttempt?: () => Promise<void>;
 };
 
 export type RunJobResult = {
@@ -66,9 +67,11 @@ function createContext(
   execution: ClaimedJobExecution,
   runnerId: string,
   leaseSeconds: number,
+  beforeProviderRequestAttempt: (() => Promise<void>) | undefined,
 ): JobExecutionContext {
   return {
     execution,
+    beforeProviderRequestAttempt,
     heartbeat: async () => {
       const heartbeat = await repository.heartbeat(
         leaseIdentity(execution, runnerId),
@@ -122,7 +125,13 @@ export async function runJobOnce(input: RunJobInput): Promise<RunJobResult> {
   }
 
   const identity = leaseIdentity(claimed, runnerId);
-  const context = createContext(repository, claimed, runnerId, input.config.leaseSeconds);
+  const context = createContext(
+    repository,
+    claimed,
+    runnerId,
+    input.config.leaseSeconds,
+    input.beforeProviderRequestAttempt,
+  );
 
   try {
     const result = await definition.handle(context);

@@ -1,6 +1,7 @@
 import { getJobRunnerConfig, loadLocalJobEnvFiles } from "./config";
 import {
   MATCH_DATA_BACKFILL_MAX_CONCURRENCY,
+  MATCH_DATA_BACKFILL_MIN_REQUEST_INTERVAL_MS,
   runMatchDataBackfill,
   type MatchDataBackfillPlan,
 } from "./match-data-backfill";
@@ -68,6 +69,9 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
     console.log("match_data_backfill_runtime=ok");
     console.log(`production_job_types=${listJobTypes(productionJobRegistry).length}`);
     console.log(`backfill_max_concurrency=${MATCH_DATA_BACKFILL_MAX_CONCURRENCY}`);
+    console.log(
+      `backfill_min_request_interval_ms=${MATCH_DATA_BACKFILL_MIN_REQUEST_INTERVAL_MS}`,
+    );
     return RUNNER_EXIT_CODES.success;
   }
 
@@ -82,13 +86,14 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
       mode: command,
       runJob:
         command === "run" && jobRepository
-          ? (type, args) =>
+          ? (type, args, beforeProviderRequestAttempt) =>
               runJobOnce({
                 type,
                 args,
                 registry: productionJobRegistry,
                 config,
                 repository: jobRepository,
+                beforeProviderRequestAttempt,
               })
           : undefined,
     });
