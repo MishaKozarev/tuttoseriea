@@ -16,3 +16,8 @@ await writeFile(
   'require("./jobs/dispatcher-cli.js");\n',
   "utf8",
 );
+await writeFile(
+  path.join(runnerDirectory, "match-data-backfill.js"),
+  'require("./jobs/match-data-backfill-cli.js").startMatchDataBackfillCli();\n',
+  "utf8",
+);

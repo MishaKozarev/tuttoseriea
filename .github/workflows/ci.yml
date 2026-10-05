@@ -129,6 +129,10 @@ jobs:
         working-directory: web
         run: node dist/job-runner/dispatcher.js --check-runtime
 
+      - name: Check web finished Match data backfill runtime
+        working-directory: web
+        run: node dist/job-runner/match-data-backfill.js --check-runtime
+
       - name: Apply CI database migrations
         working-directory: web
         env:
@@ -200,6 +204,13 @@ jobs:
           DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:match-dispatcher:check
+
+      - name: Check CI finished Match data backfill database contract
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:match-data-backfill:check
 
       - name: Provision CI database seed role
         working-directory: web
@@ -274,6 +285,9 @@ jobs:
 
       - name: Check web container Match lifecycle dispatcher runtime
         run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/dispatcher.js --check-runtime
+
+      - name: Check web container finished Match data backfill runtime
+        run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/match-data-backfill.js --check-runtime
 
       - name: Smoke web container
         shell: bash
