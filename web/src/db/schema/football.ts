@@ -169,6 +169,10 @@ export const footballMatches = footballSchema.table(
     venueName: text("venue_name"),
     venueCity: text("venue_city"),
     status: text("status").notNull(),
+    statusChangedAt: timestamp("status_changed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
     pollingCategory: text("polling_category").notNull(),
     providerStatusLong: text("provider_status_long"),
     providerStatusShort: text("provider_status_short").notNull(),

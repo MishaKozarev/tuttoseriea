@@ -1,0 +1,11 @@
+[Unit]
+Description=Run TuttoSerieA STAGING Match lifecycle dispatcher every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=false
+Unit=tuttoseriea-match-lifecycle-staging.service
+
+[Install]
+WantedBy=timers.target

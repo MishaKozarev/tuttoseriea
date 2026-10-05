@@ -20,6 +20,7 @@ vds_common="${SCRIPT_DIR}/vds/tuttoseriea-run-job-common.sh"
 vds_reader="${SCRIPT_DIR}/vds/tuttoseriea-read-current-staging"
 vds_staging_dispatcher="${SCRIPT_DIR}/vds/tuttoseriea-ssh-staging"
 vds_staging_wrapper="${SCRIPT_DIR}/vds/tuttoseriea-run-job-staging"
+vds_match_dispatcher="${SCRIPT_DIR}/vds/tuttoseriea-dispatch-match-lifecycle-staging"
 vds_sudoers="${SCRIPT_DIR}/vds/tuttoseriea-deploy.sudoers"
 invalid_types=(
   ""
@@ -217,6 +218,18 @@ bash -n "$vds_common"
 bash -n "$vds_reader"
 bash -n "$vds_staging_dispatcher"
 bash -n "$vds_staging_wrapper"
+bash -n "$vds_match_dispatcher"
+
+grep -Fq 'if [[ "$#" -ne 0 ]]' "$vds_match_dispatcher" ||
+  error "Match lifecycle dispatcher wrapper must accept no arguments"
+grep -Fq 'read_current_release "$environment"' "$vds_match_dispatcher" ||
+  error "Match lifecycle dispatcher wrapper must use the approved release reader"
+grep -Fq 'node /app/job-runner/dispatcher.js --run' "$vds_match_dispatcher" ||
+  error "Match lifecycle dispatcher wrapper changed its fixed entrypoint"
+
+if grep -Eq 'docker exec|eval|bash -c|sh -c|--entrypoint' "$vds_match_dispatcher"; then
+  error "Match lifecycle dispatcher wrapper uses a forbidden execution primitive"
+fi
 
 # The installed dispatcher hard-codes /usr/bin/sudo. Exercise a temporary copy
 # that replaces only that executable with a harmless argv recorder.

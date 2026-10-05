@@ -203,6 +203,7 @@ export async function upsertMatch(
             venue_name,
             venue_city,
             status,
+            status_changed_at,
             polling_category,
             provider_status_long,
             provider_status_short,
@@ -241,6 +242,7 @@ export async function upsertMatch(
             $16,
             $17,
             $18,
+            now(),
             $19,
             $20,
             $21,
@@ -275,6 +277,10 @@ export async function upsertMatch(
             provider_venue_id = excluded.provider_venue_id,
             venue_name = excluded.venue_name,
             venue_city = excluded.venue_city,
+            status_changed_at = case
+              when football.matches.status is distinct from excluded.status then now()
+              else football.matches.status_changed_at
+            end,
             status = excluded.status,
             polling_category = excluded.polling_category,
             provider_status_long = excluded.provider_status_long,

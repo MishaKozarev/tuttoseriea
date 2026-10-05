@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [[ "$#" -ne 0 ]]; then
+  printf '%s\n' "Usage: tuttoseriea-dispatch-match-lifecycle-staging accepts no arguments" >&2
+  exit 64
+fi
+
+# shellcheck source=scripts/vds/tuttoseriea-run-job-common.sh
+source "/usr/local/sbin/tuttoseriea-run-job-common.sh"
+
+environment="staging"
+compose_project="tuttoseriea-staging"
+base_dir="/srv/tuttoseriea/${environment}"
+config_dir="${base_dir}/config"
+runtime_env="${config_dir}/runtime.env"
+runner_env="${config_dir}/job-runner.env"
+dispatcher_env="${config_dir}/match-dispatcher.env"
+web_image="ghcr.io/mishakozarev/tuttoseriea/web"
+
+require_file "$runtime_env" "web runtime env file"
+require_file "$runner_env" "job runner env file"
+require_file "$dispatcher_env" "Match lifecycle dispatcher env file"
+
+release_record="$(read_current_release "$environment")"
+
+if [[ "$release_record" == *$'\n'* ]]; then
+  error "current-release must contain a single release tuple"
+fi
+
+git_sha=""
+web_digest=""
+ai_service_digest=""
+extra=""
+read -r git_sha web_digest ai_service_digest extra <<< "$release_record"
+
+if [[ -z "${git_sha:-}" || -z "${web_digest:-}" || -z "${ai_service_digest:-}" || -n "${extra:-}" ]]; then
+  error "current-release must contain exactly: <GIT_SHA> <WEB_IMAGE_DIGEST> <AI_SERVICE_IMAGE_DIGEST>"
+fi
+
+git_sha="${git_sha,,}"
+web_digest="${web_digest,,}"
+ai_service_digest="${ai_service_digest,,}"
+
+validate_git_sha "$git_sha" || error "current-release has invalid Git SHA"
+validate_image_digest "$web_digest" || error "current-release has invalid Web image digest"
+validate_image_digest "$ai_service_digest" || error "current-release has invalid AI service image digest"
+
+network="${compose_project}_default"
+image_ref="${web_image}@${web_digest}"
+
+printf 'match_dispatcher_environment=%s\n' "$environment"
+printf 'match_dispatcher_git_sha=%s\n' "$git_sha"
+printf 'match_dispatcher_web_image=%s\n' "$image_ref"
+
+docker run \
+  --rm \
+  --pull never \
+  --network "$network" \
+  --env-file "$runtime_env" \
+  --env-file "$runner_env" \
+  --env-file "$dispatcher_env" \
+  "$image_ref" \
+  node /app/job-runner/dispatcher.js --run

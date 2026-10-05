@@ -11,3 +11,8 @@ await writeFile(
   'require("./jobs/cli.js");\n',
   "utf8",
 );
+await writeFile(
+  path.join(runnerDirectory, "dispatcher.js"),
+  'require("./jobs/dispatcher-cli.js");\n',
+  "utf8",
+);
