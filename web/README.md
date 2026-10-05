@@ -328,6 +328,23 @@ digest with a fixed network, env files and dispatcher entrypoint. Application
 deployment does not install or activate these files. There is no Production
 timer, historical backfill, ninth job type or execution cleanup subsystem.
 
+Historical finished Match data is handled by a separate bounded one-off CLI,
+`node /app/job-runner/match-data-backfill.js --dry-run|--run`. It is not part
+of the lifecycle dispatcher and does not add a production job type. Its fixed
+scope is API-Football league `135`, season `2026`, normalized status
+`finished`; callers cannot supply an alternate competition, season, status or
+Match list. Dry-run performs PostgreSQL reads only and creates no job
+executions or provider clients. Run mode, which requires separate bulk
+authorization, invokes only missing datasets through the existing canonical
+Match jobs with concurrency capped at two.
+
+Events are complete when persisted events exist or a canonical successful
+Events execution proves a legitimate zero-event response. Lineups and full
+Match Statistics are complete only when snapshots exist for both participating
+clubs. Run mode repeats this same read after all operations; a successful
+partial or empty Lineups/Statistics job remains visibly incomplete and makes
+the one-off command fail overall.
+
 The Football localization foundation stores application-owned Russian proper
 names and review state directly on `football.competitions`, `football.clubs`
 and `football.players`. A Russian name is either absent together with its
