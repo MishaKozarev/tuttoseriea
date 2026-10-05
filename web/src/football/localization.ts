@@ -94,6 +94,7 @@ const playerPositionLabelsRu = {
   Defender: "Защитник",
   Midfielder: "Полузащитник",
   Attacker: "Нападающий",
+  M: "Полузащитник",
 } as const;
 
 export function resolvePlayerPosition(position: string): string {
@@ -150,6 +151,43 @@ export function formatMatchRound(providerRound: string): string {
   const match = /^Regular Season - ([1-9]\d*)$/u.exec(providerRound);
 
   return match ? `${match[1]}-й тур` : providerRound;
+}
+
+const matchEventTypeLabelsRu = new Map([
+  ["Goal", "Гол"],
+  ["Card", "Карточка"],
+  ["subst", "Замена"],
+]);
+
+const matchEventDetailLabelsRu = new Map([
+  ["Normal Goal", "Гол с игры"],
+  ["Yellow Card", "Жёлтая карточка"],
+  ["Substitution 1", "Замена"],
+]);
+
+const matchStatisticTypeLabelsRu = new Map([
+  ["Shots on Goal", "Удары в створ"],
+  ["Ball Possession", "Владение мячом"],
+  ["expected_goals", "Ожидаемые голы (xG)"],
+  ["Blocked Shots", "Заблокированные удары"],
+  ["Corner Kicks", "Угловые"],
+  ["Fouls", "Фолы"],
+]);
+
+export function formatMatchEventMinute(elapsed: number, extra: number | null): string {
+  return extra === null ? `${elapsed}′` : `${elapsed}+${extra}′`;
+}
+
+export function resolveMatchEventTypeLabel(providerType: string): string {
+  return matchEventTypeLabelsRu.get(providerType) ?? providerType;
+}
+
+export function resolveMatchEventDetailLabel(providerDetail: string): string {
+  return matchEventDetailLabelsRu.get(providerDetail) ?? providerDetail;
+}
+
+export function resolveMatchStatisticTypeLabel(providerType: string): string {
+  return matchStatisticTypeLabelsRu.get(providerType) ?? providerType;
 }
 
 const standingsDescriptionLabelsRu = new Map([

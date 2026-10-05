@@ -44,6 +44,7 @@ type StandingRow = {
 
 type MatchRow = {
   id: string;
+  slug: string;
   provider_fixture_id: number;
   round: string;
   kickoff_at: Date | null;
@@ -107,6 +108,7 @@ export type ClubPageStanding = {
 
 export type ClubPageMatch = {
   id: string;
+  slug: string;
   providerFixtureId: number;
   round: string;
   kickoffAt: Date | null;
@@ -175,6 +177,7 @@ export type CurrentSerieAClubPageData = {
 function mapMatch(row: MatchRow): ClubPageMatch {
   return {
     id: row.id,
+    slug: row.slug,
     providerFixtureId: row.provider_fixture_id,
     round: row.round,
     kickoffAt: row.kickoff_at,
@@ -226,6 +229,7 @@ async function listClubMatches(
     `
       select
         m.id,
+        m.slug,
         m.provider_fixture_id,
         m.round,
         m.kickoff_at,

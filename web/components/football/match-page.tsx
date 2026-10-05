@@ -3,11 +3,21 @@ import Link from "next/link";
 import type {
   CurrentSerieAMatchPageData,
   MatchPageClub,
+  MatchPageEvent,
+  MatchPageLineup,
+  MatchPageLineupEntry,
+  MatchPagePlayerIdentity,
   MatchPageScore,
+  MatchPageStatistics,
 } from "@/src/football/match-page-repository";
 import {
+  formatMatchEventMinute,
   formatMatchRound,
   resolveFixtureStatusLabel,
+  resolveMatchEventDetailLabel,
+  resolveMatchEventTypeLabel,
+  resolveMatchStatisticTypeLabel,
+  resolvePlayerPosition,
 } from "@/src/football/localization";
 
 const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
@@ -70,6 +80,247 @@ function ClubIdentity({ club, side }: { club: MatchPageClub; side: "home" | "awa
       </span>
       <span className="max-w-full text-lg font-semibold sm:text-xl">{club.displayName}</span>
     </Link>
+  );
+}
+
+function PlayerIdentity({ player }: { player: MatchPagePlayerIdentity }) {
+  const displayName =
+    player.displayName ??
+    (player.providerPlayerId === null ? "Игрок не указан" : `Игрок #${player.providerPlayerId}`);
+
+  return player.publicSlug ? (
+    <Link
+      href={`/players/${player.publicSlug}`}
+      className="font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      {displayName}
+    </Link>
+  ) : (
+    <span className="font-medium">{displayName}</span>
+  );
+}
+
+function CompactClubIdentity({ club }: { club: MatchPageClub }) {
+  return (
+    <Link
+      href={`/clubs/${club.slug}`}
+      className="font-semibold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      {club.displayName}
+    </Link>
+  );
+}
+
+function EventParticipants({ event }: { event: MatchPageEvent }) {
+  if (event.providerType === "subst") {
+    return (
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-muted-foreground">Ушёл</dt>
+          <dd><PlayerIdentity player={event.player} /></dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Вышел</dt>
+          <dd><PlayerIdentity player={event.relatedPlayer} /></dd>
+        </div>
+      </dl>
+    );
+  }
+
+  const hasPlayer = event.player.displayName !== null || event.player.providerPlayerId !== null;
+  const hasRelatedPlayer =
+    event.relatedPlayer.displayName !== null || event.relatedPlayer.providerPlayerId !== null;
+
+  if (!hasPlayer && !hasRelatedPlayer) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+      {hasPlayer ? <PlayerIdentity player={event.player} /> : null}
+      {hasRelatedPlayer ? (
+        <span className="text-muted-foreground">
+          Ассистент: <PlayerIdentity player={event.relatedPlayer} />
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function MatchEventsSection({ events }: { events: MatchPageEvent[] }) {
+  if (events.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-3" aria-labelledby="match-events-heading">
+      <h2 id="match-events-heading" className="text-xl font-semibold">События матча</h2>
+      <ol className="divide-y border-y">
+        {events.map((event) => (
+          <li key={event.id} className="grid gap-3 py-4 sm:grid-cols-[4rem_minmax(0,1fr)]">
+            <p className="font-semibold tabular-nums">
+              {formatMatchEventMinute(event.elapsed, event.extra)}
+            </p>
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="font-semibold">
+                  {resolveMatchEventTypeLabel(event.providerType)} ·{" "}
+                  {resolveMatchEventDetailLabel(event.providerDetail)}
+                </p>
+                <CompactClubIdentity club={event.club} />
+              </div>
+              <EventParticipants event={event} />
+              {event.comments ? (
+                <p className="text-sm text-muted-foreground">{event.comments}</p>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function LineupEntry({ entry }: { entry: MatchPageLineupEntry }) {
+  return (
+    <li className="grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(5rem,auto)] items-center gap-3 py-2 text-sm">
+      <span className="text-center tabular-nums text-muted-foreground">
+        {entry.shirtNumber ?? "—"}
+      </span>
+      <PlayerIdentity player={entry.player} />
+      <span className="text-right text-muted-foreground">
+        {entry.providerPosition ? resolvePlayerPosition(entry.providerPosition) : "—"}
+      </span>
+    </li>
+  );
+}
+
+function LineupList({
+  heading,
+  entries,
+}: {
+  heading: string;
+  entries: MatchPageLineupEntry[];
+}) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold">{heading}</h4>
+      {entries.length > 0 ? (
+        <ol className="divide-y border-y">
+          {entries.map((entry) => <LineupEntry key={entry.id} entry={entry} />)}
+        </ol>
+      ) : (
+        <p className="text-sm text-muted-foreground">Данные отсутствуют.</p>
+      )}
+    </div>
+  );
+}
+
+function TeamLineup({ club, lineup }: { club: MatchPageClub; lineup?: MatchPageLineup }) {
+  return (
+    <article className="space-y-4 rounded-lg border p-4">
+      <div className="space-y-1">
+        <h3><CompactClubIdentity club={club} /></h3>
+        {lineup ? (
+          <p className="text-sm text-muted-foreground">
+            {lineup.formation ? `Схема: ${lineup.formation}` : "Схема не указана"}
+            {lineup.coachName ? ` · Тренер: ${lineup.coachName}` : ""}
+          </p>
+        ) : null}
+      </div>
+      {lineup ? (
+        <>
+          <LineupList heading="Стартовый состав" entries={lineup.starters} />
+          <LineupList heading="Запасные" entries={lineup.substitutes} />
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">Данные отсутствуют.</p>
+      )}
+    </article>
+  );
+}
+
+function MatchLineupsSection({ data }: { data: CurrentSerieAMatchPageData }) {
+  if (data.lineups.length === 0) {
+    return null;
+  }
+
+  const lineupsByClubId = new Map(data.lineups.map((lineup) => [lineup.club.id, lineup]));
+
+  return (
+    <section className="space-y-3" aria-labelledby="match-lineups-heading">
+      <h2 id="match-lineups-heading" className="text-xl font-semibold">Составы</h2>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TeamLineup club={data.homeClub} lineup={lineupsByClubId.get(data.homeClub.id)} />
+        <TeamLineup club={data.awayClub} lineup={lineupsByClubId.get(data.awayClub.id)} />
+      </div>
+    </section>
+  );
+}
+
+function formatStatisticValue(value: number | string | null): string {
+  return value === null ? "—" : String(value);
+}
+
+function TeamStatistics({
+  club,
+  statistics,
+}: {
+  club: MatchPageClub;
+  statistics?: MatchPageStatistics;
+}) {
+  return (
+    <article className="space-y-3 rounded-lg border p-4">
+      <h3><CompactClubIdentity club={club} /></h3>
+      {statistics ? (
+        statistics.items.length > 0 ? (
+          <dl className="divide-y border-y">
+            {statistics.items.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-4 py-2 text-sm">
+                <dt className="text-muted-foreground">
+                  {resolveMatchStatisticTypeLabel(item.providerType)}
+                </dt>
+                <dd className="font-medium tabular-nums">
+                  {formatStatisticValue(item.providerValue)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-sm text-muted-foreground">Данные отсутствуют.</p>
+        )
+      ) : (
+        <p className="text-sm text-muted-foreground">Данные отсутствуют.</p>
+      )}
+    </article>
+  );
+}
+
+function MatchStatisticsSection({ data }: { data: CurrentSerieAMatchPageData }) {
+  if (data.statistics.length === 0) {
+    return null;
+  }
+
+  const statisticsByClubId = new Map(
+    data.statistics.map((statistics) => [statistics.club.id, statistics]),
+  );
+
+  return (
+    <section className="space-y-3" aria-labelledby="match-statistics-heading">
+      <h2 id="match-statistics-heading" className="text-xl font-semibold">
+        Статистика матча
+      </h2>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TeamStatistics
+          club={data.homeClub}
+          statistics={statisticsByClubId.get(data.homeClub.id)}
+        />
+        <TeamStatistics
+          club={data.awayClub}
+          statistics={statisticsByClubId.get(data.awayClub.id)}
+        />
+      </div>
+    </section>
   );
 }
 
@@ -148,6 +399,10 @@ export function MatchPage({ data }: { data: CurrentSerieAMatchPageData }) {
           </dl>
         </section>
       ) : null}
+
+      <MatchEventsSection events={data.events} />
+      <MatchLineupsSection data={data} />
+      <MatchStatisticsSection data={data} />
     </div>
   );
 }

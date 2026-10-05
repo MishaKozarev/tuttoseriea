@@ -38,11 +38,13 @@ describe("ClubPage", () => {
       "/clubs/juventus-496",
     );
     expect(screen.getAllByRole("link", { name: "Милан" })).toHaveLength(2);
-    expect(container.querySelector('a[href^="/matches/"]')).toBeNull();
-    expect(container.querySelector("a a")).toBeNull();
     expect(
-      screen.getAllByRole("listitem").every((row) => row.closest("a") === null),
-    ).toBe(true);
+      container.querySelector('a[href="/matches/ac-milan-inter-1001"]'),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('a[href="/matches/juventus-ac-milan-1002"]'),
+    ).toBeTruthy();
+    expect(container.querySelector("a a")).toBeNull();
   });
 
   it("renders every optional section independently when data is absent", () => {

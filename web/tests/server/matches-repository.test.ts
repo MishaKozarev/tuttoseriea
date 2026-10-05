@@ -9,6 +9,7 @@ describe("Current Serie A matches repository", () => {
       rows: [
         {
           id: "match-1",
+          slug: "ac-milan-inter-12345",
           provider_fixture_id: 12345,
           round: "Regular Season - 1",
           kickoff_at: new Date("2026-08-22T18:45:00.000Z"),
@@ -43,6 +44,7 @@ describe("Current Serie A matches repository", () => {
 
     expect(matches).toEqual([
       expect.objectContaining({
+        slug: "ac-milan-inter-12345",
         homeClub: expect.objectContaining({ slug: "ac-milan-489", displayName: "Милан" }),
         awayClub: expect.objectContaining({ slug: "inter-505", displayName: "Inter" }),
       }),
@@ -51,6 +53,7 @@ describe("Current Serie A matches repository", () => {
     const [sql, values] = query.mock.calls[0] as unknown as [string, readonly unknown[]];
     expect(sql).toContain("home.slug as home_slug");
     expect(sql).toContain("away.slug as away_slug");
+    expect(sql).toContain("m.slug");
     expect(values).toEqual(["api-football", 135, 2026]);
   });
 });

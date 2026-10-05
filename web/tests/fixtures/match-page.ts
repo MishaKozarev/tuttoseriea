@@ -26,19 +26,25 @@ export function matchPageFixture(): CurrentSerieAMatchPageData {
       displayName: "Serie A",
     },
     season: {
+      id: "season-1",
       displayLabel: "2026/27",
     },
     homeClub: {
+      id: "club-home",
       slug: "ac-milan-489",
       displayName: "Милан",
       code: "MIL",
       providerLogoUrl: null,
     },
     awayClub: {
+      id: "club-away",
       slug: "inter-505",
       displayName: "Интер",
       code: "INT",
       providerLogoUrl: null,
     },
+    events: [],
+    lineups: [],
+    statistics: [],
   };
 }

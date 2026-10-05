@@ -3177,6 +3177,7 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       listedMatches.some(
         (match) =>
+          Boolean(match.slug) &&
           match.homeClub.displayName === "Милан" &&
           match.homeClub.slug === "milan-manual" &&
           Boolean(match.awayClub.slug),
@@ -3193,7 +3194,10 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
       matchPageData?.match.slug === initialMatchSlug &&
         matchPageData.competition.displayName === "Серия А" &&
         matchPageData.homeClub.slug === "milan-manual" &&
-        Boolean(matchPageData.awayClub.slug),
+        Boolean(matchPageData.awayClub.slug) &&
+        matchPageData.events.length === 0 &&
+        matchPageData.lineups.length === 2 &&
+        matchPageData.statistics.length === 2,
       "Match Page read model or current Serie A scope mismatch",
     );
     assertCondition(
@@ -3233,7 +3237,10 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     );
     assertCondition(
       [...clubPageData.recentMatches, ...clubPageData.upcomingMatches].every(
-        (match) => Boolean(match.homeClub.slug) && Boolean(match.awayClub.slug),
+        (match) =>
+          Boolean(match.slug) &&
+          Boolean(match.homeClub.slug) &&
+          Boolean(match.awayClub.slug),
       ),
       "Club Page matches did not expose canonical Club identities",
     );
