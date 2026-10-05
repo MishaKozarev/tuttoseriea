@@ -156,10 +156,9 @@ complete provider fixture object in `provider_raw` alongside first-class date,
 venue, referee, status, winner and score fields.
 
 The public `/calendar` route reads the current season only from PostgreSQL. No
-public request calls API-Football. Automatic scheduling is not part of Stage
-4.3: full-season refreshes, active-window polling and final post-match refreshes
-remain configurable operational policy for a future scheduler and executions
-are controlled/manual for now.
+public request calls API-Football. The later Match lifecycle dispatcher reuses
+this full-season job as its sole authoritative lifecycle refresh; it does not
+introduce a second fixture sync implementation.
 
 Stage 4.4 adds the current-season `football.standings` snapshot and the
 fixed-argument `football.sync-serie-a-standings` production job. The job calls
@@ -302,6 +301,32 @@ canonical Match pages while their Club identities remain separate Club links.
 No pitch/grid interpretation, provider-colour styling, schema migration,
 provider synchronization, job, scheduler or operational allowlist change is
 part of this integration.
+
+The Stage 4 Match operational lifecycle adds nullable
+`football.matches.status_changed_at` and an app-owned dispatcher packaged in
+the immutable Web image. Existing rows are deliberately not backfilled. New
+Matches receive DB `now()` on insert; updates move the marker only when the
+normalized status changes, so raw provider transitions within one normalized
+state do not move it. Historical finished or abandoned rows with a null marker
+remain outside automatic recovery.
+
+The dispatcher keeps the production registry at eight job types. It refreshes
+lifecycle through `football.sync-serie-a-matches`, then invokes the existing
+Events, Lineups and Statistics definitions with their canonical Match scope,
+job retries, leases and fencing. A fresh lifecycle success is required before
+dataset fan-out. A rollout-time active Match with a null marker is admitted
+only after that gate; terminal recovery requires a non-null transition at or
+after the explicit stable `managed_from` boundary and inside the configured
+recovery horizon. Dataset concurrency is capped at two, and a PostgreSQL
+session advisory lock makes overlapping dispatcher ticks no-ops without
+holding a transaction across provider work.
+
+STAGING recurrence is represented only by reviewed root-owned systemd and
+wrapper templates under `scripts/vds/`. The wrapper accepts no arguments and
+uses the approved restricted release reader to run the exact deployed Web
+digest with a fixed network, env files and dispatcher entrypoint. Application
+deployment does not install or activate these files. There is no Production
+timer, historical backfill, ninth job type or execution cleanup subsystem.
 
 The Football localization foundation stores application-owned Russian proper
 names and review state directly on `football.competitions`, `football.clubs`

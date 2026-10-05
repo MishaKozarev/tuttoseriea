@@ -125,6 +125,10 @@ jobs:
         working-directory: web
         run: pnpm run jobs:run -- --check-runtime
 
+      - name: Check web Match lifecycle dispatcher runtime
+        working-directory: web
+        run: node dist/job-runner/dispatcher.js --check-runtime
+
       - name: Apply CI database migrations
         working-directory: web
         env:
@@ -189,6 +193,13 @@ jobs:
           DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:football:check
+
+      - name: Check CI Match lifecycle dispatcher database contract
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:match-dispatcher:check
 
       - name: Provision CI database seed role
         working-directory: web
@@ -260,6 +271,9 @@ jobs:
 
       - name: Check web container job runner runtime
         run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/cli.js --check-runtime
+
+      - name: Check web container Match lifecycle dispatcher runtime
+        run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/dispatcher.js --check-runtime
 
       - name: Smoke web container
         shell: bash

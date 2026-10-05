@@ -80,6 +80,7 @@ type MatchFactsRow = {
   venueName: string | null;
   venueCity: string | null;
   status: string;
+  statusChangedAt: Date | null;
   pollingCategory: string;
   homeWinner: boolean | null;
   awayWinner: boolean | null;
@@ -462,6 +463,8 @@ type FixtureSetOptions = {
   firstReferee?: string;
   firstVenueName?: string;
   firstSnapshotMarker?: string;
+  firstStatusLong?: string;
+  firstStatusShort?: string;
   lastFixtureId?: number;
   unknownClubAtIndex?: number;
 };
@@ -502,8 +505,8 @@ function createFixtures(options: FixtureSetOptions = {}) {
           city: isFirst ? "Milano" : `City ${index}`,
         },
         status: {
-          long: isFirst ? "Match Finished" : "Not Started",
-          short: isFirst ? "FT" : "NS",
+          long: isFirst ? (options.firstStatusLong ?? "Match Finished") : "Not Started",
+          short: isFirst ? (options.firstStatusShort ?? "FT") : "NS",
           elapsed: isFirst ? 90 : null,
           extra: isFirst ? 4 : null,
         },
@@ -1451,6 +1454,7 @@ async function getFirstMatchFacts(client: pg.PoolClient): Promise<MatchFactsRow>
         venue_name as "venueName",
         venue_city as "venueCity",
         status,
+        status_changed_at as "statusChangedAt",
         polling_category as "pollingCategory",
         home_winner as "homeWinner",
         away_winner as "awayWinner",
@@ -2415,6 +2419,10 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(initialMatchFacts.venueCity === "Milano", "venue city mismatch");
     assertCondition(initialMatchFacts.status === "finished", "status mapping mismatch");
     assertCondition(
+      initialMatchFacts.statusChangedAt instanceof Date,
+      "new Match did not receive status_changed_at from database time",
+    );
+    assertCondition(
       initialMatchFacts.pollingCategory === "TERMINAL",
       "polling category mapping mismatch",
     );
@@ -2447,6 +2455,15 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
 
     await client.query(
       `
+        update football.matches
+        set status_changed_at = '2000-01-01T00:00:00Z'::timestamptz
+        where provider = 'api-football'
+          and provider_fixture_id = 910000
+      `,
+    );
+
+    await client.query(
+      `
         update football.clubs
         set provider_name = 'AC Milan Renamed'
         where provider = 'api-football'
@@ -2455,7 +2472,13 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     );
 
     const repeatedMatchesSync = await syncSerieAMatches({
-      client: createFakeClient(),
+      client: createFakeClient(
+        "",
+        createFixtures({
+          firstStatusLong: "Match Finished After Extra Time",
+          firstStatusShort: "AET",
+        }),
+      ),
       transactionClient: client,
     });
 
@@ -2467,6 +2490,34 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     assertCondition(
       (await getFirstMatchFacts(client)).slug === initialMatchSlug,
       "repeated fixture sync changed the immutable Match slug",
+    );
+    assertCondition(
+      (await getFirstMatchFacts(client)).statusChangedAt?.toISOString() ===
+        "2000-01-01T00:00:00.000Z",
+      "raw provider transition within the same normalized status moved status_changed_at",
+    );
+
+    const statusTransitionSync = await syncSerieAMatches({
+      client: createFakeClient(
+        "",
+        createFixtures({
+          firstStatusLong: "First Half",
+          firstStatusShort: "1H",
+        }),
+      ),
+      transactionClient: client,
+    });
+
+    assertCondition(
+      statusTransitionSync.status === "success",
+      "normalized status transition sync failed",
+    );
+    const transitionedMatchFacts = await getFirstMatchFacts(client);
+    assertCondition(
+      transitionedMatchFacts.status === "live" &&
+        transitionedMatchFacts.statusChangedAt?.toISOString() !==
+          "2000-01-01T00:00:00.000Z",
+      "normalized status transition did not move status_changed_at using database time",
     );
 
     const updatedMatchesSync = await syncSerieAMatches({
@@ -5534,6 +5585,7 @@ async function main(): Promise<void> {
     console.log("football_match_slug_stable=true");
     console.log("football_match_slug_sql_typescript_parity=true");
     console.log("football_matches_provider_fields_update=true");
+    console.log("football_matches_status_changed_at_transition_only=true");
     console.log("football_matches_complete_raw_snapshot=true");
     console.log("football_matches_missing_provider_rows_preserved=true");
     console.log("football_matches_all_or_nothing=true");

@@ -114,6 +114,12 @@ describe("Serie A matches synchronization validation", () => {
     expect(database.query.mock.calls[1]?.[0]).not.toContain(
       "slug = excluded.slug",
     );
+    expect(database.query.mock.calls[1]?.[0]).toContain(
+      "status_changed_at",
+    );
+    expect(database.query.mock.calls[1]?.[0]).toContain(
+      "when football.matches.status is distinct from excluded.status then now()",
+    );
   });
 
   it.each([null, {}])(
