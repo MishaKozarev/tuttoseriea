@@ -35,6 +35,7 @@ export function clubPageFixture(): CurrentSerieAClubPageData {
     recentMatches: [
       {
         id: "match-recent",
+        slug: "ac-milan-inter-1001",
         providerFixtureId: 1001,
         round: "Regular Season - 28",
         kickoffAt: new Date("2027-03-14T19:45:00.000Z"),
@@ -62,6 +63,7 @@ export function clubPageFixture(): CurrentSerieAClubPageData {
     upcomingMatches: [
       {
         id: "match-upcoming",
+        slug: "juventus-ac-milan-1002",
         providerFixtureId: 1002,
         round: "Regular Season - 29",
         kickoffAt: new Date("2027-03-21T19:45:00.000Z"),

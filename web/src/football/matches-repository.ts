@@ -24,6 +24,7 @@ type SeasonClubRow = {
 
 type MatchListRow = {
   id: string;
+  slug: string;
   provider_fixture_id: number;
   round: string;
   kickoff_at: Date | null;
@@ -96,6 +97,7 @@ export type SerieASeasonClubContext = {
 
 export type CurrentSerieAMatch = {
   id: string;
+  slug: string;
   providerFixtureId: number;
   round: string;
   kickoffAt: Date | null;
@@ -346,6 +348,7 @@ export async function listCurrentSerieAMatches(
     `
       select
         m.id,
+        m.slug,
         m.provider_fixture_id,
         m.round,
         m.kickoff_at,
@@ -390,6 +393,7 @@ export async function listCurrentSerieAMatches(
 
   return result.rows.map((row) => ({
     id: row.id,
+    slug: row.slug,
     providerFixtureId: row.provider_fixture_id,
     round: row.round,
     kickoffAt: row.kickoff_at,

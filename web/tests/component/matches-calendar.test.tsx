@@ -12,6 +12,7 @@ afterEach(() => {
 
 const match: CurrentSerieAMatch = {
   id: "match-1",
+  slug: "ac-milan-inter-12345",
   providerFixtureId: 12345,
   round: "Regular Season - 1",
   kickoffAt: new Date("2026-08-22T18:45:00.000Z"),
@@ -50,7 +51,7 @@ describe("MatchesCalendar", () => {
     ).toBeTruthy();
   });
 
-  it("renders persisted matches without linking to premature detail routes", () => {
+  it("links the fixture summary to its canonical Match Page without nested anchors", () => {
     const { container } = render(<MatchesCalendar matches={[match]} />);
 
     expect(screen.getByRole("heading", { name: "1-й тур" })).toBeTruthy();
@@ -64,8 +65,12 @@ describe("MatchesCalendar", () => {
     expect(screen.getByRole("link", { name: "Интер" }).getAttribute("href")).toBe(
       "/clubs/inter-505",
     );
-    expect(screen.getByRole("listitem").closest("a")).toBeNull();
-    expect(container.querySelector('a[href^="/matches/"]')).toBeNull();
+    expect(
+      container.querySelector('a[href="/matches/ac-milan-inter-12345"]'),
+    ).toBeTruthy();
+    expect(screen.getByText("Не начался").closest("a")?.getAttribute("href")).toBe(
+      "/matches/ac-milan-inter-12345",
+    );
     expect(container.querySelector("a a")).toBeNull();
   });
 

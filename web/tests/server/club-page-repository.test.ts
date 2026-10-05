@@ -28,6 +28,7 @@ const scopeRow = {
 
 const matchRow = {
   id: "match-1",
+  slug: "ac-milan-inter-1001",
   provider_fixture_id: 1001,
   round: "Regular Season - 1",
   kickoff_at: new Date("2026-08-22T18:45:00.000Z"),
@@ -143,6 +144,7 @@ describe("Club Page read model", () => {
       season: { id: "season-2026", displayLabel: "2026/27" },
       standing: { rank: 2, points: 61 },
       recentMatches: [{
+        slug: "ac-milan-inter-1001",
         homeClub: { slug: "ac-milan-489", displayName: "Милан" },
         awayClub: { slug: "inter-505", displayName: "Inter" },
       }],

@@ -5,8 +5,12 @@ import { describe, expect, it } from "vitest";
 import {
   FIXTURE_STATUS_LABELS_RU,
   PLAYER_STATISTICS_LABELS_RU,
+  formatMatchEventMinute,
   formatMatchRound,
   formatStandingsForm,
+  resolveMatchEventDetailLabel,
+  resolveMatchEventTypeLabel,
+  resolveMatchStatisticTypeLabel,
   resolveFixtureStatusLabel,
   resolveFootballGeography,
   resolveFootballProperName,
@@ -107,7 +111,45 @@ describe("Football bounded and semi-structured localization", () => {
 
   it("resolves known player positions and preserves unknown values", () => {
     expect(resolvePlayerPosition("Midfielder")).toBe("Полузащитник");
+    expect(resolvePlayerPosition("M")).toBe("Полузащитник");
+    expect(resolvePlayerPosition("F")).toBe("F");
     expect(resolvePlayerPosition("Wing-back")).toBe("Wing-back");
+  });
+
+  it("formats Match Event minutes without interpreting provider data", () => {
+    expect(formatMatchEventMinute(68, null)).toBe("68′");
+    expect(formatMatchEventMinute(90, 6)).toBe("90+6′");
+  });
+
+  it("localizes only confirmed exact Match Event values", () => {
+    expect(resolveMatchEventTypeLabel("Goal")).toBe("Гол");
+    expect(resolveMatchEventTypeLabel("Card")).toBe("Карточка");
+    expect(resolveMatchEventTypeLabel("subst")).toBe("Замена");
+    expect(resolveMatchEventDetailLabel("Normal Goal")).toBe("Гол с игры");
+    expect(resolveMatchEventDetailLabel("Yellow Card")).toBe("Жёлтая карточка");
+    expect(resolveMatchEventDetailLabel("Substitution 1")).toBe("Замена");
+    expect(resolveMatchEventTypeLabel("Goal review")).toBe("Goal review");
+    expect(resolveMatchEventDetailLabel("Normal Goal review")).toBe(
+      "Normal Goal review",
+    );
+  });
+
+  it("localizes only confirmed exact Match Statistics values", () => {
+    expect(resolveMatchStatisticTypeLabel("Shots on Goal")).toBe("Удары в створ");
+    expect(resolveMatchStatisticTypeLabel("Ball Possession")).toBe(
+      "Владение мячом",
+    );
+    expect(resolveMatchStatisticTypeLabel("expected_goals")).toBe(
+      "Ожидаемые голы (xG)",
+    );
+    expect(resolveMatchStatisticTypeLabel("Blocked Shots")).toBe(
+      "Заблокированные удары",
+    );
+    expect(resolveMatchStatisticTypeLabel("Corner Kicks")).toBe("Угловые");
+    expect(resolveMatchStatisticTypeLabel("Fouls")).toBe("Фолы");
+    expect(resolveMatchStatisticTypeLabel("Shots on Goal expected")).toBe(
+      "Shots on Goal expected",
+    );
   });
 
   it("defines a Russian label for every typed player-statistics field", () => {

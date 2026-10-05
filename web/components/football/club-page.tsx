@@ -161,34 +161,37 @@ function ClubMatches({ matches }: { matches: ClubPageMatch[] }) {
   return (
     <ul className="divide-y rounded-lg border bg-card text-card-foreground">
       {matches.map((match) => (
-        <li key={match.id} className="space-y-3 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {match.kickoffAt
-                ? dateFormatter.format(match.kickoffAt)
-                : "Дата уточняется"}
+        <li
+          key={match.id}
+          className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)_minmax(0,1fr)] sm:items-center"
+        >
+          <TeamMark
+            slug={match.homeClub.slug}
+            code={match.homeClub.code}
+            logoUrl={match.homeClub.providerLogoUrl}
+            name={match.homeClub.displayName}
+          />
+          <Link
+            href={`/matches/${match.slug}`}
+            aria-label={`${match.homeClub.displayName} — ${match.awayClub.displayName}`}
+            className="space-y-1 text-center underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <span className="block text-xs text-muted-foreground">
+              {match.kickoffAt ? dateFormatter.format(match.kickoffAt) : "Дата уточняется"}
             </span>
-            <span>{formatMatchRound(match.round)} · {matchStatus(match)}</span>
-          </div>
-          <div className="grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
+            <span className="block font-semibold tabular-nums">{matchScore(match)}</span>
+            <span className="block text-xs text-muted-foreground">
+              {formatMatchRound(match.round)} · {matchStatus(match)}
+            </span>
+          </Link>
+          <span className="flex justify-end">
             <TeamMark
-              slug={match.homeClub.slug}
-              code={match.homeClub.code}
-              logoUrl={match.homeClub.providerLogoUrl}
-              name={match.homeClub.displayName}
+              slug={match.awayClub.slug}
+              code={match.awayClub.code}
+              logoUrl={match.awayClub.providerLogoUrl}
+              name={match.awayClub.displayName}
             />
-            <span className="min-w-11 text-center font-semibold tabular-nums">
-              {matchScore(match)}
-            </span>
-            <span className="flex justify-end">
-              <TeamMark
-                slug={match.awayClub.slug}
-                code={match.awayClub.code}
-                logoUrl={match.awayClub.providerLogoUrl}
-                name={match.awayClub.displayName}
-              />
-            </span>
-          </div>
+          </span>
         </li>
       ))}
     </ul>

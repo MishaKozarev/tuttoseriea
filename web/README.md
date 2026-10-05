@@ -283,6 +283,26 @@ refreshing `observed_at` and produce a structured anomaly. The application regis
 changes from seven to eight types; restricted STAGING/PRODUCTION allowlists remain
 unchanged.
 
+Stage 4.8.5 composes the persisted base Match, Events, Lineups and full-match
+Statistics into the public `/matches/[slug]` page without request-time provider
+access. The read model uses a fixed four-query shape: one base Match read and
+three bounded section reads, with no per-row queries. Events preserve provider
+order; Lineups preserve role-scoped provider order; Statistics preserve every
+independent Team item in provider order, including duplicate provider types and
+number, string or null scalar values. The page does not synthesize cross-Team
+statistic pairs or imply common freshness across independently synchronized
+sections.
+
+Each persisted Team side renders independently, and a complete section is
+omitted only when it has no persisted data. Event and Lineup Player identities
+link to `/players/[slug]` only when the resolved Player satisfies the existing
+current Serie A public eligibility rule; unresolved and ineligible identities
+remain plain text. Calendar and Club fixture summaries now link to their
+canonical Match pages while their Club identities remain separate Club links.
+No pitch/grid interpretation, provider-colour styling, schema migration,
+provider synchronization, job, scheduler or operational allowlist change is
+part of this integration.
+
 The Football localization foundation stores application-owned Russian proper
 names and review state directly on `football.competitions`, `football.clubs`
 and `football.players`. A Russian name is either absent together with its

@@ -138,37 +138,39 @@ export function MatchesCalendar({ matches }: { matches: CurrentSerieAMatch[] }) 
               return (
                 <li
                   key={match.id}
-                  className="grid gap-3 p-4 md:grid-cols-[minmax(10rem,14rem)_1fr_auto] md:items-center"
+                  className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)_minmax(0,1fr)] sm:items-center"
                 >
-                  <div className="space-y-1 text-sm">
-                    <p className="font-medium text-foreground">
+                  <ClubBadge
+                    slug={match.homeClub.slug}
+                    code={match.homeClub.code}
+                    logoUrl={homeLogoUrl}
+                    name={match.homeClub.displayName}
+                  />
+                  <Link
+                    href={`/matches/${match.slug}`}
+                    aria-label={`${match.homeClub.displayName} — ${match.awayClub.displayName}`}
+                    className="space-y-1 text-center underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                  >
+                    <span className="block text-xs text-muted-foreground">
                       {formatKickoff(match.kickoffAt)}
-                    </p>
-                    {venue ? (
-                      <p className="text-xs leading-5 text-muted-foreground">{venue}</p>
-                    ) : null}
-                  </div>
-                  <div className="grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
-                    <ClubBadge
-                      slug={match.homeClub.slug}
-                      code={match.homeClub.code}
-                      logoUrl={homeLogoUrl}
-                      name={match.homeClub.displayName}
-                    />
-                    <span className="min-w-12 text-center text-sm font-semibold tabular-nums">
+                    </span>
+                    <span className="block text-sm font-semibold tabular-nums">
                       {formatScore(match)}
                     </span>
-                    <div className="flex justify-end">
-                      <ClubBadge
-                        slug={match.awayClub.slug}
-                        code={match.awayClub.code}
-                        logoUrl={awayLogoUrl}
-                        name={match.awayClub.displayName}
-                      />
-                    </div>
-                  </div>
-                  <div className="justify-self-start rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground md:justify-self-end">
-                    {statusLabel(match)}
+                    <span className="block text-xs font-medium text-muted-foreground">
+                      {statusLabel(match)}
+                    </span>
+                    {venue ? (
+                      <span className="block text-xs leading-5 text-muted-foreground">{venue}</span>
+                    ) : null}
+                  </Link>
+                  <div className="flex justify-end">
+                    <ClubBadge
+                      slug={match.awayClub.slug}
+                      code={match.awayClub.code}
+                      logoUrl={awayLogoUrl}
+                      name={match.awayClub.displayName}
+                    />
                   </div>
                 </li>
               );
