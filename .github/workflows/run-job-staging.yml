@@ -15,6 +15,14 @@ on:
           - football.sync-serie-a-standings
           - football.sync-serie-a-squads
           - football.sync-serie-a-player-statistics
+          - football.sync-serie-a-match-events
+          - football.sync-serie-a-match-lineups
+          - football.sync-serie-a-match-statistics
+      match_id:
+        description: Lowercase Match UUID; required only for Match-scoped jobs
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -32,6 +40,7 @@ jobs:
       url: https://staging.tuttoseriea.com/
     env:
       RUN_JOB_TYPE: ${{ inputs.job_type }}
+      RUN_JOB_MATCH_ID: ${{ inputs.match_id }}
       STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
       STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
       STAGING_SSH_PORT: "56777"

@@ -605,19 +605,17 @@ STAGING: football.sync-serie-a-matches
 STAGING: football.sync-serie-a-standings
 STAGING: football.sync-serie-a-squads
 STAGING: football.sync-serie-a-player-statistics
+STAGING: football.sync-serie-a-match-events --match-id <lowercase-uuid>
+STAGING: football.sync-serie-a-match-lineups --match-id <lowercase-uuid>
+STAGING: football.sync-serie-a-match-statistics --match-id <lowercase-uuid>
 PRODUCTION: football.sync-serie-a-foundation
 ```
 
-`football.sync-serie-a-match-events` is intentionally absent from both
-restricted operational allowlists in Stage 4.8.2.
-
-`football.sync-serie-a-match-lineups` is likewise application-registry-only in
-Stage 4.8.3. Its bounded `--match-id` operational contract is not added to the
-restricted STAGING or PRODUCTION paths by this implementation.
-
-`football.sync-serie-a-match-statistics` is also application-registry-only in
-Stage 4.8.4. Its bounded `--match-id` contract is not added to restricted
-environment allowlists or VDS/root command templates.
+The three Match-scoped types are STAGING-only and accept exactly one structured
+`match_id` workflow input, which is transported as
+`--match-id <lowercase-uuid>`. Missing, uppercase, malformed or additional
+arguments fail closed before the application runner starts. Production remains
+foundation-only.
 
 The repository-side scripts call the VDS contract with one exact whitelisted
 identifier, for example:
@@ -626,7 +624,7 @@ identifier, for example:
 run-job football.sync-serie-a-standings
 ```
 
-They do not accept arbitrary payloads, arguments, images, entrypoints,
+They do not accept arbitrary payloads, argument strings, images, entrypoints,
 environment variables, shell commands, Docker commands or sudo. The server-side
 VDS forced-command/root-owned implementation is responsible for selecting the
 current deployed immutable Web image and controlled runner environment for the

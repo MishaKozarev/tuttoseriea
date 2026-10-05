@@ -9,6 +9,25 @@ const matchesJobType = "football.sync-serie-a-matches";
 const standingsJobType = "football.sync-serie-a-standings";
 const squadsJobType = "football.sync-serie-a-squads";
 const playerStatisticsJobType = "football.sync-serie-a-player-statistics";
+const matchEventsJobType = "football.sync-serie-a-match-events";
+const matchLineupsJobType = "football.sync-serie-a-match-lineups";
+const matchStatisticsJobType = "football.sync-serie-a-match-statistics";
+const matchScopedJobTypes = [
+  matchEventsJobType,
+  matchLineupsJobType,
+  matchStatisticsJobType,
+] as const;
+const stagingJobTypes = [
+  foundationJobType,
+  matchesJobType,
+  standingsJobType,
+  squadsJobType,
+  playerStatisticsJobType,
+  ...matchScopedJobTypes,
+] as const;
+const validMatchId = "11111111-1111-4111-8111-111111111111";
+const lowercaseUuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(path.join(repoRoot, relativePath), "utf8");
@@ -30,8 +49,27 @@ function validateRunJobType(environment: "staging" | "production", value: string
     (value === matchesJobType ||
       value === standingsJobType ||
       value === squadsJobType ||
-      value === playerStatisticsJobType)
+      value === playerStatisticsJobType ||
+      matchScopedJobTypes.includes(value as (typeof matchScopedJobTypes)[number]))
   );
+}
+
+function validateRunJobInvocation(
+  environment: "staging" | "production",
+  jobType: string,
+  args: readonly string[],
+): boolean {
+  if (!validateRunJobType(environment, jobType)) {
+    return false;
+  }
+
+  if (environment === "staging" && matchScopedJobTypes.includes(
+    jobType as (typeof matchScopedJobTypes)[number],
+  )) {
+    return args.length === 2 && args[0] === "--match-id" && lowercaseUuidPattern.test(args[1]);
+  }
+
+  return args.length === 0;
 }
 
 for (const invalidType of [
@@ -41,6 +79,9 @@ for (const invalidType of [
   `${standingsJobType} --season 2025`,
   `${squadsJobType} --team 1`,
   `${playerStatisticsJobType} --page 1`,
+  `${matchEventsJobType} --match-id ${validMatchId}`,
+  `${matchLineupsJobType} --match-id ${validMatchId}`,
+  `${matchStatisticsJobType} --match-id ${validMatchId}`,
   `${foundationJobType};uname`,
   `${foundationJobType}\necho`,
   "football.sync-other",
@@ -57,7 +98,8 @@ assert(
     validateRunJobType("staging", matchesJobType) &&
     validateRunJobType("staging", standingsJobType) &&
     validateRunJobType("staging", squadsJobType) &&
-    validateRunJobType("staging", playerStatisticsJobType),
+    validateRunJobType("staging", playerStatisticsJobType) &&
+    matchScopedJobTypes.every((type) => validateRunJobType("staging", type)),
   "STAGING allowed run-job type was rejected",
 );
 assert(
@@ -80,6 +122,38 @@ assert(
   !validateRunJobType("production", playerStatisticsJobType),
   "PRODUCTION unexpectedly accepted the STAGING-only player-statistics job type",
 );
+assert(
+  matchScopedJobTypes.every((type) => !validateRunJobType("production", type)),
+  "PRODUCTION unexpectedly accepted a Match-scoped job type",
+);
+
+for (const jobType of matchScopedJobTypes) {
+  assert(
+    validateRunJobInvocation("staging", jobType, ["--match-id", validMatchId]),
+    `Valid bounded Match invocation was rejected: ${jobType}`,
+  );
+  for (const invalidArgs of [
+    [],
+    ["--match-id", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"],
+    ["--match-id", "not-a-uuid"],
+    ["--match-id", validMatchId, "extra"],
+  ]) {
+    assert(
+      !validateRunJobInvocation("staging", jobType, invalidArgs),
+      `Invalid Match invocation was accepted: ${jobType} ${invalidArgs.join(" ")}`,
+    );
+  }
+}
+
+for (const jobType of stagingJobTypes.filter((type) => !matchScopedJobTypes.includes(
+  type as (typeof matchScopedJobTypes)[number],
+))) {
+  assert(validateRunJobInvocation("staging", jobType, []), `Zero-argument job was rejected: ${jobType}`);
+  assert(
+    !validateRunJobInvocation("staging", jobType, ["--match-id", validMatchId]),
+    `Zero-argument job accepted Match arguments: ${jobType}`,
+  );
+}
 
 for (const relativePath of [
   "scripts/lib-run-job.sh",
@@ -104,6 +178,8 @@ assert(
     runJobLibrary.includes(standingsJobType) &&
     runJobLibrary.includes(squadsJobType) &&
     runJobLibrary.includes(playerStatisticsJobType) &&
+    matchScopedJobTypes.every((type) => runJobLibrary.includes(type)) &&
+    runJobLibrary.includes("RUN_JOB_STAGING_MATCH_SCOPED_TYPES") &&
     runJobLibrary.includes("RUN_JOB_PRODUCTION_ALLOWED_TYPES"),
   "Repository run-job library is missing environment-specific allowlists",
 );
@@ -115,14 +191,13 @@ const readShellArray = (name: string): string[] | undefined =>
 
 assert(
   JSON.stringify(readShellArray("RUN_JOB_STAGING_ALLOWED_TYPES")) ===
-    JSON.stringify([
-      foundationJobType,
-      matchesJobType,
-      standingsJobType,
-      squadsJobType,
-      playerStatisticsJobType,
-    ]),
-  "Repository STAGING allowlist must contain exactly the five approved job types",
+    JSON.stringify(stagingJobTypes),
+  "Repository STAGING allowlist must contain exactly the eight approved job types",
+);
+assert(
+  JSON.stringify(readShellArray("RUN_JOB_STAGING_MATCH_SCOPED_TYPES")) ===
+    JSON.stringify(matchScopedJobTypes),
+  "Repository STAGING Match-scoped allowlist must contain exactly three job types",
 );
 assert(
   JSON.stringify(readShellArray("RUN_JOB_PRODUCTION_ALLOWED_TYPES")) ===
@@ -130,8 +205,8 @@ assert(
   "Repository PRODUCTION allowlist changed from foundation-only",
 );
 assert(
-  stagingWrapper.includes('require_run_job_type_for_environment staging "$RUN_JOB_TYPE"'),
-  "STAGING wrapper does not enforce the STAGING allowlist",
+  stagingWrapper.includes('require_run_job_invocation_for_environment staging "$RUN_JOB_TYPE"'),
+  "STAGING wrapper does not enforce the exact STAGING invocation contract",
 );
 assert(
   productionWrapper.includes('require_run_job_type "$RUN_JOB_TYPE"'),
@@ -147,8 +222,9 @@ assert(
     stagingWorkflow.includes(`- ${matchesJobType}`) &&
     stagingWorkflow.includes(`- ${standingsJobType}`) &&
     stagingWorkflow.includes(`- ${squadsJobType}`) &&
-    stagingWorkflow.includes(`- ${playerStatisticsJobType}`),
-  "STAGING workflow must whitelist all five approved Football job types",
+    stagingWorkflow.includes(`- ${playerStatisticsJobType}`) &&
+    matchScopedJobTypes.every((type) => stagingWorkflow.includes(`- ${type}`)),
+  "STAGING workflow must whitelist all eight approved Football job types",
 );
 const stagingWorkflowOptions = stagingWorkflow
   .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
@@ -158,14 +234,14 @@ const stagingWorkflowOptions = stagingWorkflow
 
 assert(
   JSON.stringify(stagingWorkflowOptions) ===
-    JSON.stringify([
-      foundationJobType,
-      matchesJobType,
-      standingsJobType,
-      squadsJobType,
-      playerStatisticsJobType,
-    ]),
-  "STAGING workflow choice list must contain exactly the five approved job types",
+    JSON.stringify(stagingJobTypes),
+  "STAGING workflow choice list must contain exactly the eight approved job types",
+);
+assert(
+  stagingWorkflow.includes("match_id:") &&
+    stagingWorkflow.includes("RUN_JOB_MATCH_ID: ${{ inputs.match_id }}") &&
+    !stagingWorkflow.includes("job_args:"),
+  "STAGING workflow must expose only the structured Match ID input",
 );
 const productionWorkflowOptions = productionWorkflow
   .match(/options:\r?\n((?:\s+- [^\r\n]+\r?\n?)+)/u)?.[1]
@@ -182,7 +258,9 @@ assert(
   !productionWorkflow.includes(matchesJobType) &&
     !productionWorkflow.includes(standingsJobType) &&
     !productionWorkflow.includes(squadsJobType) &&
-    !productionWorkflow.includes(playerStatisticsJobType),
+    !productionWorkflow.includes(playerStatisticsJobType) &&
+    matchScopedJobTypes.every((type) => !productionWorkflow.includes(type)) &&
+    !productionWorkflow.includes("match_id:"),
   "PRODUCTION workflow must not whitelist STAGING-only job types",
 );
 assert(
@@ -207,14 +285,8 @@ const readVdsAllowedTypes = (environment: "staging" | "production"): string[] | 
 
 assert(
   JSON.stringify(readVdsAllowedTypes("staging")) ===
-    JSON.stringify([
-      foundationJobType,
-      matchesJobType,
-      standingsJobType,
-      squadsJobType,
-      playerStatisticsJobType,
-    ]),
-  "VDS common STAGING allowlist must contain exactly the five approved job types",
+    JSON.stringify(stagingJobTypes),
+  "VDS common STAGING allowlist must contain exactly the eight approved job types",
 );
 assert(
   JSON.stringify(readVdsAllowedTypes("production")) ===
@@ -230,12 +302,14 @@ for (const requiredFragment of [
   standingsJobType,
   squadsJobType,
   playerStatisticsJobType,
+  ...matchScopedJobTypes,
+  "validate_job_invocation",
   "ghcr.io/mishakozarev/tuttoseriea/web",
   "--pull never",
   "--env-file \"$runtime_env\"",
   "--env-file \"$runner_env\"",
   "\"$image_ref\"",
-  "node /app/job-runner/cli.js --type \"$job_type\"",
+  "node /app/job-runner/cli.js --type \"$job_type\" \"${job_args[@]}\"",
 ]) {
   assert(
     vdsCommon.includes(requiredFragment),
@@ -265,7 +339,13 @@ assert(
       `run-job ${squadsJobType}`,
       `run-job ${playerStatisticsJobType}`,
     ]),
-  "STAGING forced command must contain exactly the five approved run-job commands",
+  "STAGING forced command must retain exactly the five approved zero-argument commands",
+);
+assert(
+  vdsStagingDispatcher.includes("football\\.sync-serie-a-match-events|football\\.sync-serie-a-match-lineups|football\\.sync-serie-a-match-statistics") &&
+    vdsStagingDispatcher.includes("--match-id") &&
+    vdsStagingDispatcher.includes("[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"),
+  "STAGING forced command is missing the anchored Match-scoped parser",
 );
 assert(
   vdsStagingDispatcher.includes(
@@ -279,12 +359,12 @@ assert(
 );
 
 assert(
-  vdsStagingWrapper.includes('if [[ "$#" -ne 1 ]]') &&
+  vdsStagingWrapper.includes('if [[ "$#" -ne 1 && "$#" -ne 3 ]]') &&
     vdsStagingWrapper.includes(
-      'run_tuttoseriea_job "staging" "tuttoseriea-staging" "$1"',
+      'run_tuttoseriea_job "staging" "tuttoseriea-staging" "$@"',
     ) &&
     !vdsStagingWrapper.includes("football.sync-"),
-  "VDS STAGING run-job wrapper must remain a generic one-argument delegator",
+  "VDS STAGING run-job wrapper must remain a generic exact-argv delegator",
 );
 
 const expectedSudoers = [
@@ -304,6 +384,9 @@ const expectedSudoers = [
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${standingsJobType}`,
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${squadsJobType}`,
   `deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ${playerStatisticsJobType}`,
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ^football[.]sync-serie-a-match-events[[:space:]]--match-id[[:space:]][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ^football[.]sync-serie-a-match-lineups[[:space:]]--match-id[[:space:]][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+  "deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ^football[.]sync-serie-a-match-statistics[[:space:]]--match-id[[:space:]][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
 ];
 const actualSudoers = vdsSudoers.trimEnd().split(/\r?\n/u);
 
@@ -361,6 +444,8 @@ console.log("run_job_staging_matches_whitelisted=true");
 console.log("run_job_staging_standings_whitelisted=true");
 console.log("run_job_staging_squads_whitelisted=true");
 console.log("run_job_staging_player_statistics_whitelisted=true");
+console.log("run_job_staging_match_scoped_jobs_whitelisted=true");
+console.log("run_job_staging_match_id_validation=true");
 console.log("run_job_production_matches_rejected=true");
 console.log("run_job_production_standings_rejected=true");
 console.log("run_job_production_squads_rejected=true");

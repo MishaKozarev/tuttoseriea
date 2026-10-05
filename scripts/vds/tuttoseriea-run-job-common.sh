@@ -51,7 +51,7 @@ validate_job_type() {
   case "$environment" in
     staging)
       case "$job_type" in
-        football.sync-serie-a-foundation | football.sync-serie-a-matches | football.sync-serie-a-standings | football.sync-serie-a-squads | football.sync-serie-a-player-statistics)
+        football.sync-serie-a-foundation | football.sync-serie-a-matches | football.sync-serie-a-standings | football.sync-serie-a-squads | football.sync-serie-a-player-statistics | football.sync-serie-a-match-events | football.sync-serie-a-match-lineups | football.sync-serie-a-match-statistics)
           return 0
           ;;
         *)
@@ -75,17 +75,50 @@ validate_job_type() {
   esac
 }
 
+validate_match_id() {
+  if [[ "$#" -ne 1 ]]; then
+    return 1
+  fi
+
+  [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+}
+
+validate_job_invocation() {
+  if [[ "$#" -lt 2 ]]; then
+    return 1
+  fi
+
+  local environment="$1"
+  local job_type="$2"
+  shift 2
+
+  validate_job_type "$environment" "$job_type" || return 1
+
+  case "${environment}:${job_type}" in
+    staging:football.sync-serie-a-match-events | staging:football.sync-serie-a-match-lineups | staging:football.sync-serie-a-match-statistics)
+      [[ "$#" -eq 2 && "$1" == "--match-id" ]] || return 1
+      validate_match_id "$2"
+      return
+      ;;
+    *)
+      [[ "$#" -eq 0 ]]
+      ;;
+  esac
+}
+
 run_tuttoseriea_job() {
-  if [[ "$#" -ne 3 ]]; then
-    error "Usage: run_tuttoseriea_job <environment> <compose-project> <job-type>"
+  if [[ "$#" -lt 3 ]]; then
+    error "Usage: run_tuttoseriea_job <environment> <compose-project> <job-type> [--match-id <lowercase-uuid>]"
   fi
 
   local environment="$1"
   local compose_project="$2"
   local job_type="$3"
+  shift 3
+  local job_args=("$@")
 
-  if ! validate_job_type "$environment" "$job_type"; then
-    error "Unsupported job type: ${job_type}"
+  if ! validate_job_invocation "$environment" "$job_type" "${job_args[@]}"; then
+    error "Unsupported job invocation for ${environment}: ${job_type}"
   fi
 
   local base_dir="/srv/tuttoseriea/${environment}"
@@ -138,5 +171,5 @@ run_tuttoseriea_job() {
     --env-file "$runtime_env" \
     --env-file "$runner_env" \
     "$image_ref" \
-    node /app/job-runner/cli.js --type "$job_type"
+    node /app/job-runner/cli.js --type "$job_type" "${job_args[@]}"
 }

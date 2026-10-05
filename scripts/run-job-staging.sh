@@ -20,7 +20,20 @@ require_env STAGING_SSH_HOST
 require_env STAGING_SSH_KNOWN_HOSTS
 require_env STAGING_SSH_PRIVATE_KEY
 
-require_run_job_type_for_environment staging "$RUN_JOB_TYPE"
+RUN_JOB_MATCH_ID="${RUN_JOB_MATCH_ID:-}"
+run_job_args=()
+
+if run_job_type_requires_match_id_for_environment staging "$RUN_JOB_TYPE"; then
+  if ! validate_run_job_match_id "$RUN_JOB_MATCH_ID"; then
+    error "${RUN_JOB_TYPE} requires RUN_JOB_MATCH_ID as a lowercase canonical UUID"
+  fi
+
+  run_job_args=(--match-id "$RUN_JOB_MATCH_ID")
+elif [[ -n "$RUN_JOB_MATCH_ID" ]]; then
+  error "${RUN_JOB_TYPE} does not accept RUN_JOB_MATCH_ID"
+fi
+
+require_run_job_invocation_for_environment staging "$RUN_JOB_TYPE" "${run_job_args[@]}"
 
 STAGING_SSH_PORT="${STAGING_SSH_PORT:-56777}"
 STAGING_SSH_USER="${STAGING_SSH_USER:-deploy}"
@@ -52,7 +65,8 @@ ssh_options=(
 
 printf 'Running STAGING job through the documented VDS contract: %s\n' "$RUN_JOB_TYPE"
 
-ssh "${ssh_options[@]}" "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" run-job "$RUN_JOB_TYPE"
+ssh "${ssh_options[@]}" "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" \
+  run-job "$RUN_JOB_TYPE" "${run_job_args[@]}"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
@@ -60,6 +74,10 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     printf '| Field | Value |\n'
     printf '| --- | --- |\n'
     printf '| Job type | `%s` |\n' "$RUN_JOB_TYPE"
-    printf '| VDS command | `run-job %s` |\n' "$RUN_JOB_TYPE"
+    if [[ "${#run_job_args[@]}" -eq 0 ]]; then
+      printf '| VDS command | `run-job %s` |\n' "$RUN_JOB_TYPE"
+    else
+      printf '| VDS command | `run-job %s --match-id %s` |\n' "$RUN_JOB_TYPE" "$RUN_JOB_MATCH_ID"
+    fi
   } >> "$GITHUB_STEP_SUMMARY"
 fi

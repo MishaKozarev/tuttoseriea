@@ -14,3 +14,6 @@ deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football
 deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-standings
 deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-squads
 deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging football.sync-serie-a-player-statistics
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ^football[.]sync-serie-a-match-events[[:space:]]--match-id[[:space:]][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ^football[.]sync-serie-a-match-lineups[[:space:]]--match-id[[:space:]][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/tuttoseriea-run-job-staging ^football[.]sync-serie-a-match-statistics[[:space:]]--match-id[[:space:]][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
