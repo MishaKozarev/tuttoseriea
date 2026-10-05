@@ -42,7 +42,7 @@ three-field tuple format, and prints only:
 <GIT_SHA> <WEB_IMAGE_DIGEST> <AI_SERVICE_IMAGE_DIGEST>
 ```
 
-The STAGING forced SSH command exposes only these exact identifiers:
+The STAGING forced SSH command exposes five exact zero-argument identifiers:
 
 ```text
 run-job football.sync-serie-a-foundation
@@ -52,9 +52,21 @@ run-job football.sync-serie-a-squads
 run-job football.sync-serie-a-player-statistics
 ```
 
+It also exposes exactly three Match-scoped command shapes:
+
+```text
+run-job football.sync-serie-a-match-events --match-id <lowercase-uuid>
+run-job football.sync-serie-a-match-lineups --match-id <lowercase-uuid>
+run-job football.sync-serie-a-match-statistics --match-id <lowercase-uuid>
+```
+
+`<lowercase-uuid>` is validated at the repository launcher, forced SSH,
+root-owned wrapper and application CLI boundaries. No raw argument string or
+other job argument is accepted.
+
 PRODUCTION remains limited to `run-job football.sync-serie-a-foundation`;
-the STAGING matches, standings, squads and player-statistics extensions do not
-add Production provisioning, sudo allowance, or execution.
+the STAGING-only extensions do not add Production provisioning, sudo allowance,
+or execution.
 
 The deploy user must not receive Docker group membership, direct Docker socket
 access, arbitrary sudo, a free shell, arbitrary image selection, arbitrary
