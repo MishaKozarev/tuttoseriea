@@ -6,8 +6,10 @@ import {
   SERIE_A_MATCH_STATISTICS_JOB_TYPE,
 } from "@/src/football/foundation";
 import {
+  createMatchDataBackfillRequestGate,
   createMatchDataBackfillPlan,
   MATCH_DATA_BACKFILL_MAX_CONCURRENCY,
+  MATCH_DATA_BACKFILL_MIN_REQUEST_INTERVAL_MS,
   runMatchDataBackfill,
 } from "@/src/jobs/match-data-backfill";
 import { parseMatchDataBackfillArguments } from "@/src/jobs/match-data-backfill-cli";
@@ -150,7 +152,13 @@ describe("finished Match data backfill", () => {
     }));
     let active = 0;
     let maximum = 0;
-    const runJob = vi.fn(async (type: string) => {
+    const requestGates = new Set<() => Promise<void>>();
+    const runJob = vi.fn(async (
+      type: string,
+      _args: readonly string[],
+      beforeProviderRequestAttempt: () => Promise<void>,
+    ) => {
+      requestGates.add(beforeProviderRequestAttempt);
       active += 1;
       maximum = Math.max(maximum, active);
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -166,11 +174,36 @@ describe("finished Match data backfill", () => {
 
     expect(MATCH_DATA_BACKFILL_MAX_CONCURRENCY).toBe(2);
     expect(maximum).toBe(2);
+    expect(requestGates.size).toBe(1);
     expect(runJob).toHaveBeenCalledTimes(9);
     expect(result).toMatchObject({
       status: "completed",
       verifiedPlan: { datasetOperations: 0 },
     });
+  });
+
+  it("paces all backfill provider attempts through one 500 ms request gate", async () => {
+    let now = 10_000;
+    const sleeps: number[] = [];
+    const starts: number[] = [];
+    const gate = createMatchDataBackfillRequestGate({
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+    });
+
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        await gate();
+        starts.push(now);
+      }),
+    );
+
+    expect(MATCH_DATA_BACKFILL_MIN_REQUEST_INTERVAL_MS).toBe(500);
+    expect(starts).toEqual([10_000, 10_500, 11_000, 11_500]);
+    expect(sleeps).toEqual([500, 500, 500]);
   });
 
   it("does not treat successful partial Lineups or Statistics as complete", async () => {

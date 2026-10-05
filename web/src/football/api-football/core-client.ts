@@ -16,6 +16,7 @@ const DEFAULT_BACKOFF_BASE_MS = 250;
 
 type FetchLike = (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
 type Sleep = (ms: number) => Promise<void>;
+type BeforeRequestAttempt = () => Promise<void>;
 
 export type ApiFootballClientOptions = {
   config?: ApiFootballRealProviderConfig;
@@ -25,6 +26,7 @@ export type ApiFootballClientOptions = {
   retryAfterCapMs?: number;
   backoffBaseMs?: number;
   jitter?: () => number;
+  beforeRequestAttempt?: BeforeRequestAttempt;
 };
 
 export type ApiFootballRequestParameters = Record<
@@ -156,6 +158,18 @@ function hasStructuredProviderError(errors: unknown): boolean {
   return Boolean(errors);
 }
 
+function parseStructuredProviderErrors(
+  body: unknown,
+): unknown[] | Record<string, unknown> | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+
+  const { errors } = body;
+
+  return Array.isArray(errors) || isRecord(errors) ? errors : null;
+}
+
 function hasRetryableProviderError(errors: unknown): boolean {
   if (!errors || typeof errors !== "object" || Array.isArray(errors)) {
     return false;
@@ -203,8 +217,8 @@ function parseEnvelope<TResponse>(body: unknown): ApiFootballEnvelope<TResponse>
     typeof results !== "number" ||
     !Number.isInteger(results) ||
     !parsedPaging ||
-    errors === undefined ||
-    response === undefined
+    (!Array.isArray(errors) && !isRecord(errors)) ||
+    !Array.isArray(response)
   ) {
     return null;
   }
@@ -217,6 +231,43 @@ function parseEnvelope<TResponse>(body: unknown): ApiFootballEnvelope<TResponse>
     response: response as TResponse,
     results,
   };
+}
+
+function classifyProviderFailure(
+  response: Response,
+  errors: unknown[] | Record<string, unknown>,
+  attempts: number,
+): ApiFootballFailure {
+  const retryAfterSeconds = parseRetryAfterSeconds(response.headers);
+  const rateLimit = parseRateLimit(response.headers);
+
+  if (rateLimit.scope === "daily") {
+    return createFailure(
+      "daily_quota_exhausted",
+      "API-Football daily quota is exhausted",
+      false,
+      attempts,
+      { rateLimit, retryAfterSeconds },
+    );
+  }
+
+  if (rateLimit.scope === "minute") {
+    return createFailure(
+      "provider_rate_limited",
+      "API-Football returned provider errors after the minute rate limit was reached",
+      true,
+      attempts,
+      { rateLimit, retryAfterSeconds },
+    );
+  }
+
+  return createFailure(
+    "provider_error",
+    "API-Football returned provider errors",
+    hasRetryableProviderError(errors),
+    attempts,
+    retryAfterSeconds === undefined ? {} : { retryAfterSeconds },
+  );
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -305,6 +356,7 @@ export function createApiFootballClient(
     DEFAULT_BACKOFF_BASE_MS,
   );
   const jitter = options.jitter ?? Math.random;
+  const beforeRequestAttempt = options.beforeRequestAttempt;
   let requestAttemptCount = 0;
 
   return {
@@ -318,6 +370,8 @@ export function createApiFootballClient(
       const url = buildApiFootballUrl(config.baseUrl, pathname, parameters);
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        await beforeRequestAttempt?.();
+
         const controller = new AbortController();
         let didTimeout = false;
         const timeout = setTimeout(() => {
@@ -358,33 +412,30 @@ export function createApiFootballClient(
               return failure;
             }
 
-            const envelope = parseEnvelope<TResponse>(body);
+            const providerErrors = parseStructuredProviderErrors(body);
 
-            if (!envelope) {
-              failure = createFailure(
-                "malformed_response",
-                "API-Football returned an unexpected response shape",
-                false,
-                attempt,
-              );
-            } else if (hasStructuredProviderError(envelope.errors)) {
-              const retryable = hasRetryableProviderError(envelope.errors);
-
-              failure = createFailure(
-                "provider_error",
-                "API-Football returned provider errors",
-                retryable,
-                attempt,
-              );
+            if (providerErrors && hasStructuredProviderError(providerErrors)) {
+              failure = classifyProviderFailure(response, providerErrors, attempt);
             } else {
-              return {
-                attempts: attempt,
-                data: envelope.response,
-                ok: true,
-                operation: envelope.get,
-                paging: envelope.paging,
-                results: envelope.results,
-              };
+              const envelope = parseEnvelope<TResponse>(body);
+
+              if (!envelope) {
+                failure = createFailure(
+                  "malformed_response",
+                  "API-Football returned an unexpected response shape",
+                  false,
+                  attempt,
+                );
+              } else {
+                return {
+                  attempts: attempt,
+                  data: envelope.response,
+                  ok: true,
+                  operation: envelope.get,
+                  paging: envelope.paging,
+                  results: envelope.results,
+                };
+              }
             }
           }
         } catch (error) {

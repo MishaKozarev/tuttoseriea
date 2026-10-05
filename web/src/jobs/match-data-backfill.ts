@@ -13,6 +13,7 @@ import type {
 import type { RunJobResult } from "./runner";
 
 export const MATCH_DATA_BACKFILL_MAX_CONCURRENCY = 2;
+export const MATCH_DATA_BACKFILL_MIN_REQUEST_INTERVAL_MS = 500;
 
 export const MATCH_DATA_BACKFILL_DATASETS = [
   "events",
@@ -62,7 +63,44 @@ export type MatchDataBackfillPlan = {
 export type MatchDataBackfillJobRunner = (
   type: MatchDataBackfillOperation["jobType"],
   args: readonly string[],
+  beforeProviderRequestAttempt: () => Promise<void>,
 ) => Promise<RunJobResult>;
+
+type MatchDataBackfillRequestGateOptions = {
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+};
+
+export function createMatchDataBackfillRequestGate(
+  options: MatchDataBackfillRequestGateOptions = {},
+): () => Promise<void> {
+  const now = options.now ?? Date.now;
+  const sleep =
+    options.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      }));
+  let nextStartAt = 0;
+  let queue = Promise.resolve();
+
+  return () => {
+    const turn = queue.then(async () => {
+      const delayMs = Math.max(0, nextStartAt - now());
+
+      if (delayMs > 0) {
+        await sleep(delayMs);
+      }
+
+      const startedAt = now();
+      nextStartAt = Math.max(nextStartAt, startedAt) +
+        MATCH_DATA_BACKFILL_MIN_REQUEST_INTERVAL_MS;
+    });
+
+    queue = turn.catch(() => undefined);
+    return turn;
+  };
+}
 
 export type MatchDataBackfillOperationResult = MatchDataBackfillOperation & {
   jobOutcome:
@@ -193,6 +231,7 @@ async function executeOperations(
   runJob: MatchDataBackfillJobRunner,
 ): Promise<Omit<MatchDataBackfillOperationResult, "verifiedComplete">[]> {
   let nextIndex = 0;
+  const beforeProviderRequestAttempt = createMatchDataBackfillRequestGate();
   const results: Array<
     Omit<MatchDataBackfillOperationResult, "verifiedComplete"> | undefined
   > = new Array(operations.length);
@@ -208,10 +247,11 @@ async function executeOperations(
       }
 
       try {
-        const result = await runJob(operation.jobType, [
-          "--match-id",
-          operation.matchId,
-        ]);
+        const result = await runJob(
+          operation.jobType,
+          ["--match-id", operation.matchId],
+          beforeProviderRequestAttempt,
+        );
 
         results[operationIndex] = {
           ...operation,

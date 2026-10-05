@@ -163,4 +163,43 @@ describe("job runner foundation", () => {
     expect(result.outcome.status).toBe("lease_lost");
     expect(finalized).toBe(false);
   });
+
+  it("passes an optional provider request gate to the canonical job handler", async () => {
+    const claimed = createClaimedExecution();
+    const succeeded = createExecution({ status: "succeeded" });
+    const beforeProviderRequestAttempt = async () => undefined;
+    const repository = {
+      createOrGetActiveExecution: async () => createExecution(),
+      claimExecution: async () => claimed,
+      finalizeSuccess: async () => succeeded,
+    } as unknown as JobRepository;
+    const registry = createJobRegistry([
+      createDefinition(async (context) => {
+        expect(context.beforeProviderRequestAttempt).toBe(
+          beforeProviderRequestAttempt,
+        );
+        await context.beforeProviderRequestAttempt?.();
+        return { status: "success" };
+      }),
+    ]);
+
+    const result = await runJobOnce({
+      type: "test.job",
+      args: [],
+      registry,
+      config: {
+        databaseUrl: "postgresql://example.invalid/db",
+        jobsSchema: "jobs",
+        leaseSeconds: 60,
+        maxAttempts: 3,
+        retryDelaySeconds: 60,
+        retryDelayCapSeconds: 300,
+      },
+      repository,
+      runnerId: "runner-1",
+      beforeProviderRequestAttempt,
+    });
+
+    expect(result.exitCode).toBe(RUNNER_EXIT_CODES.success);
+  });
 });

@@ -133,6 +133,13 @@ HTTP retry/timeout behavior, provider envelope/error normalization and fixture
 status normalization. It does not add Football persistence, sync jobs,
 scheduler behavior, admin UI or bulk import.
 
+Non-empty structured provider `errors` are recognized before the complete
+success envelope is required, so a compact provider error response is not
+misreported as malformed. Rate-limit or daily-quota semantics are assigned
+only when confirmed response metadata supports them; otherwise the result
+remains a generic provider error. Invalid JSON and structurally invalid success
+payloads remain terminal malformed responses.
+
 Stage 4.2 adds the initial Football domain persistence in schema `football`:
 `competitions`, `seasons`, `clubs` and `season_clubs`. The first registered
 production job type is `football.sync-serie-a-foundation`, scoped only to
@@ -336,7 +343,11 @@ scope is API-Football league `135`, season `2026`, normalized status
 Match list. Dry-run performs PostgreSQL reads only and creates no job
 executions or provider clients. Run mode, which requires separate bulk
 authorization, invokes only missing datasets through the existing canonical
-Match jobs with concurrency capped at two.
+Match jobs with concurrency capped at two. One shared run-scoped request gate
+keeps at least 500 milliseconds between every outbound provider attempt,
+including HTTP retries from different concurrent jobs. Normal jobs and the
+lifecycle dispatcher do not receive this gate and retain their existing
+cadence.
 
 Events are complete when persisted events exist or a canonical successful
 Events execution proves a legitimate zero-event response. Lineups and full

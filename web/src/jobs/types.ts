@@ -60,6 +60,7 @@ export type ClaimedJobExecution = JobExecution & {
 export type JobExecutionContext = {
   execution: ClaimedJobExecution;
   heartbeat: () => Promise<void>;
+  beforeProviderRequestAttempt?: () => Promise<void>;
 };
 
 export type JobDefinition = {

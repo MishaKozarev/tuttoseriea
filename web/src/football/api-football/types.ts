@@ -30,6 +30,7 @@ export type ApiFootballErrorCode =
   | "transport_error"
   | "timeout"
   | "http_rate_limited"
+  | "provider_rate_limited"
   | "daily_quota_exhausted"
   | "http_server_error"
   | "http_client_error"
