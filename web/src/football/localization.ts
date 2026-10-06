@@ -175,6 +175,10 @@ const matchStatisticTypeLabelsRu = new Map([
 ]);
 
 export function formatMatchEventMinute(elapsed: number, extra: number | null): string {
+  if (elapsed < 0) {
+    return "До матча";
+  }
+
   return extra === null ? `${elapsed}′` : `${elapsed}+${extra}′`;
 }
 

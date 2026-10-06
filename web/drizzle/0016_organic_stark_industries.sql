@@ -1,0 +1,1 @@
+ALTER TABLE "football"."match_events" DROP CONSTRAINT "match_events_elapsed_nonnegative_check";

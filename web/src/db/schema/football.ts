@@ -427,10 +427,6 @@ export const footballMatchEvents = footballSchema.table(
       "match_events_provider_order_nonnegative_check",
       sql`${table.providerOrder} >= 0`,
     ),
-    elapsedNonnegativeCheck: check(
-      "match_events_elapsed_nonnegative_check",
-      sql`${table.elapsed} >= 0`,
-    ),
     extraNonnegativeCheck: check(
       "match_events_extra_nonnegative_check",
       sql`${table.extra} is null or ${table.extra} >= 0`,

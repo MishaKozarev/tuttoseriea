@@ -35,3 +35,17 @@ export function createMatchEventsResponse() {
     },
   ];
 }
+
+export function createPreMatchEventResponse() {
+  return [
+    {
+      time: { elapsed: -5, extra: null },
+      team: { id: MATCH_EVENTS_HOME_PROVIDER_CLUB_ID, name: "Juventus" },
+      player: { id: 31_137, name: "Stefano Sabelli" },
+      assist: null,
+      type: "Card",
+      detail: "Yellow Card",
+      comments: "Argument",
+    },
+  ];
+}

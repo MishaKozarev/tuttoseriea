@@ -117,6 +117,7 @@ describe("Football bounded and semi-structured localization", () => {
   });
 
   it("formats Match Event minutes without interpreting provider data", () => {
+    expect(formatMatchEventMinute(-5, null)).toBe("До матча");
     expect(formatMatchEventMinute(68, null)).toBe("68′");
     expect(formatMatchEventMinute(90, 6)).toBe("90+6′");
   });

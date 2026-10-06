@@ -113,8 +113,30 @@ describe("MatchPage", () => {
           ...data,
           events: [
             {
-              id: "event-substitution",
+              id: "event-pre-match-card",
               providerOrder: 0,
+              elapsed: -5,
+              extra: null,
+              club: data.homeClub,
+              player: {
+                resolvedPlayerId: null,
+                providerPlayerId: 31_137,
+                displayName: "Stefano Sabelli",
+                publicSlug: null,
+              },
+              relatedPlayer: {
+                resolvedPlayerId: null,
+                providerPlayerId: null,
+                displayName: null,
+                publicSlug: null,
+              },
+              providerType: "Card",
+              providerDetail: "Yellow Card",
+              comments: "Argument",
+            },
+            {
+              id: "event-substitution",
+              providerOrder: 1,
               elapsed: 68,
               extra: null,
               club: data.homeClub,
@@ -136,7 +158,7 @@ describe("MatchPage", () => {
             },
             {
               id: "event-card",
-              providerOrder: 1,
+              providerOrder: 2,
               elapsed: 75,
               extra: null,
               club: data.awayClub,
@@ -158,7 +180,7 @@ describe("MatchPage", () => {
             },
             {
               id: "event-goal",
-              providerOrder: 2,
+              providerOrder: 3,
               elapsed: 90,
               extra: 6,
               club: data.homeClub,
@@ -180,7 +202,7 @@ describe("MatchPage", () => {
             },
             {
               id: "event-unknown",
-              providerOrder: 3,
+              providerOrder: 4,
               elapsed: 91,
               extra: null,
               club: data.awayClub,
@@ -206,10 +228,12 @@ describe("MatchPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "События матча" })).toBeTruthy();
+    expect(screen.getByText("До матча")).toBeTruthy();
+    expect(screen.queryByText("-5′")).toBeNull();
     expect(screen.getByText("68′")).toBeTruthy();
     expect(screen.getByText("90+6′")).toBeTruthy();
     expect(screen.getByText("Замена · Замена")).toBeTruthy();
-    expect(screen.getByText("Карточка · Жёлтая карточка")).toBeTruthy();
+    expect(screen.getAllByText("Карточка · Жёлтая карточка")).toHaveLength(2);
     expect(screen.getByText("Гол · Гол с игры")).toBeTruthy();
     expect(screen.getByText("Provider Event · Provider Detail")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Кристиан Пулишич" }).getAttribute("href"))

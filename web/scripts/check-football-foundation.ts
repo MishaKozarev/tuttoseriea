@@ -585,7 +585,7 @@ function createMatchEvents(options: MatchEventSetOptions = {}) {
       snapshot: { marker },
     },
     {
-      time: { elapsed: 60, extra: null },
+      time: { elapsed: -5, extra: null },
       team: { id: 900_001, name: "Serie A Club 2" },
       player: { id: 1_100_003, name: "Player 1100003" },
       assist: null,
@@ -2606,7 +2606,6 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
         from pg_constraint
         where conname in (
           'match_events_provider_order_nonnegative_check',
-          'match_events_elapsed_nonnegative_check',
           'match_events_extra_nonnegative_check',
           'match_events_provider_player_id_positive_check',
           'match_events_provider_related_player_id_positive_check'
@@ -2625,7 +2624,7 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
     );
 
     assertCondition(
-      matchEventsContract.rows[0]?.count === 5 &&
+      matchEventsContract.rows[0]?.count === 4 &&
         matchEventsOrderIdentity.rows[0]?.count === 1,
       "Match Events constraints or structural order identity are missing",
     );
@@ -2660,6 +2659,13 @@ async function verifySyncWithMigrationRole(migrationPool: pg.Pool): Promise<void
         initialMatchEvents[0]?.providerRelatedPlayerId === 1_999_999 &&
         initialMatchEvents[0]?.relatedPlayerId === null &&
         initialMatchEvents[1]?.comments === "Goal confirmed after review" &&
+        initialMatchEvents[2]?.providerOrder === 2 &&
+        initialMatchEvents[2]?.elapsed === -5 &&
+        (
+          initialMatchEvents[2]?.providerRaw.time as
+            | { elapsed?: unknown }
+            | undefined
+        )?.elapsed === -5 &&
         (initialMatchEvents[0]?.providerRaw.snapshot as
           | { marker?: unknown }
           | undefined)?.marker === "initial",
@@ -5595,6 +5601,7 @@ async function main(): Promise<void> {
     console.log("football_match_page_sitemap_scope=true");
     console.log("football_match_events_snapshot_replaced=true");
     console.log("football_match_events_structural_order=true");
+    console.log("football_match_events_negative_elapsed_round_trip=true");
     console.log("football_match_events_player_resolution_best_effort=true");
     console.log("football_match_events_empty_snapshot_semantics=true");
     console.log("football_match_events_production_pool_rollback=true");
