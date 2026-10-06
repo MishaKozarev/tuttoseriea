@@ -234,7 +234,11 @@ Stage 4.8.2 adds `football.match_events` and the application job type
 Serie A `135` / season `2026` scope, and calls only
 `/fixtures/events?fixture=<provider_fixture_id>`. Provider event order is stored
 as structural order for the current snapshot; neither that order nor the
-internal row UUID is a durable logical provider-event identity.
+internal row UUID is a durable logical provider-event identity. Provider
+`time.elapsed` is preserved as an integer, including negative pre-match values;
+`time.extra` remains either null or a non-negative integer. The public Match
+Page renders negative elapsed values neutrally as `До матча` while retaining
+the original value in PostgreSQL and `provider_raw`.
 
 Each complete valid response replaces one Match's prior events atomically.
 Validation and Team/Player resolution happen before the existing execution

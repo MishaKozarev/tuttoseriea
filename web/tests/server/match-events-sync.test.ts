@@ -13,6 +13,7 @@ import {
   MATCH_EVENTS_MATCH_ID,
   MATCH_EVENTS_PROVIDER_FIXTURE_ID,
   createMatchEventsResponse,
+  createPreMatchEventResponse,
 } from "@/tests/fixtures/match-events";
 
 type FixtureState =
@@ -216,6 +217,44 @@ describe("Match Events synchronization", () => {
     expect(db.query.mock.calls.some(([sql]) => sql.includes("insert into football.players"))).toBe(false);
   });
 
+  it("preserves an ordered provider pre-match event with elapsed -5", async () => {
+    const db = database();
+    const rawEvents = createPreMatchEventResponse();
+
+    await expect(
+      syncMatchEvents({
+        client: providerClient(success(rawEvents)),
+        pool: db.pool,
+        matchId: MATCH_EVENTS_MATCH_ID,
+      }),
+    ).resolves.toMatchObject({ status: "success", eventCount: 1 });
+
+    expect(db.inserts).toHaveLength(1);
+    expect(db.inserts[0]?.[2]).toBe(0);
+    expect(db.inserts[0]?.[3]).toBe(-5);
+    expect(db.inserts[0]?.[4]).toBeNull();
+    expect(JSON.parse(String(db.inserts[0]?.[15]))).toEqual(rawEvents[0]);
+  });
+
+  it.each([
+    ["fractional", -5.5],
+    ["string", "-5"],
+    ["missing", undefined],
+  ])("rejects %s elapsed values before mutation", async (_case, elapsed) => {
+    const malformed = createPreMatchEventResponse();
+    (malformed[0]!.time as { elapsed?: unknown }).elapsed = elapsed;
+    const db = database();
+
+    await expect(
+      syncMatchEvents({
+        client: providerClient(success(malformed)),
+        pool: db.pool,
+        matchId: MATCH_EVENTS_MATCH_ID,
+      }),
+    ).resolves.toMatchObject({ errorCode: "api_football_invalid_match_events" });
+    expect(db.pool.connect).not.toHaveBeenCalled();
+  });
+
   it.each([null, {}])("rejects a successful non-array response before resolution: %j", async (data) => {
     const db = database();
     const heartbeat = vi.fn(async () => undefined);
@@ -250,7 +289,7 @@ describe("Match Events synchronization", () => {
 
   it("rejects malformed known fields while preserving unknown types and fields", async () => {
     const malformed = createMatchEventsResponse();
-    malformed[0]!.time.elapsed = -1;
+    malformed[0]!.time.extra = -1;
     const invalidDb = database();
 
     await expect(

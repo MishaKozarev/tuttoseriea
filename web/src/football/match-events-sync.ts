@@ -102,6 +102,10 @@ function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+function isInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
 function isNonnegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
@@ -180,7 +184,7 @@ function parseEvent(
   const relatedPlayer = parsePlayerReference(event.assist);
 
   if (
-    !isNonnegativeInteger(elapsed) ||
+    !isInteger(elapsed) ||
     (extra !== null && !isNonnegativeInteger(extra)) ||
     !isPositiveInteger(providerClubId) ||
     !player ||
