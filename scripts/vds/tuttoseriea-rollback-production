@@ -1,0 +1,150 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 2 && "$#" -ne 3 ]]; then
+    echo "ERROR: expected git SHA and image digest" >&2
+    exit 1
+fi
+
+GIT_SHA="$1"
+IMAGE_DIGEST="$2"
+AI_IMAGE_DIGEST="${3:-}"
+
+COMPOSE_FILE="/srv/tuttoseriea/production/config/compose.yaml"
+STATE_DIR="/srv/tuttoseriea/production/state"
+
+CURRENT_RELEASE="${STATE_DIR}/current-release"
+VERIFIED_RELEASE="${STATE_DIR}/verified-release"
+PREVIOUS_RELEASE="${STATE_DIR}/previous-release"
+
+IMAGE_REPOSITORY="ghcr.io/mishakozarev/tuttoseriea/web"
+AI_IMAGE_REPOSITORY="ghcr.io/mishakozarev/tuttoseriea/ai-service"
+LOCK_FILE="/run/lock/tuttoseriea-production-deploy.lock"
+
+if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: invalid git SHA" >&2
+    exit 1
+fi
+
+if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "ERROR: invalid image digest" >&2
+    exit 1
+fi
+
+if [[ "$#" -eq 3 ]]; then
+    if [[ ! "$AI_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo "ERROR: invalid AI service image digest" >&2
+        exit 1
+    fi
+fi
+
+REQUESTED_VALUE="${GIT_SHA} ${IMAGE_DIGEST}"
+if [[ "$#" -eq 3 ]]; then
+    REQUESTED_VALUE="${REQUESTED_VALUE} ${AI_IMAGE_DIGEST}"
+fi
+
+read_release() {
+    local file="$1"
+    local label="$2"
+    local -a lines
+
+    mapfile -t lines < "$file"
+
+    if [[ "${#lines[@]}" -ne 1 ]] ||
+       [[ ! "${lines[0]}" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}(\ sha256:[0-9a-f]{64})?$ ]]; then
+        echo "ERROR: invalid ${label} format" >&2
+        return 1
+    fi
+
+    printf '%s\n' "${lines[0]}"
+}
+
+atomic_write_current() (
+    set -e
+    local temp
+
+    temp="$(/usr/bin/mktemp "${STATE_DIR}/.current-release.XXXXXX")"
+    trap '/usr/bin/rm -f "$temp"' EXIT
+
+    printf '%s\n' "$REQUESTED_VALUE" > "$temp"
+    /usr/bin/chmod 600 "$temp"
+    /usr/bin/sync "$temp"
+    /usr/bin/mv -f "$temp" "$CURRENT_RELEASE"
+    /usr/bin/sync "$STATE_DIR"
+
+    trap - EXIT
+)
+
+exec 9>"$LOCK_FILE"
+
+if ! /usr/bin/flock -n 9; then
+    echo "ERROR: production deployment/verification/rollback already in progress" >&2
+    exit 1
+fi
+
+if [[ ! -f "$PREVIOUS_RELEASE" ]]; then
+    echo "ERROR: production previous-release does not exist" >&2
+    exit 1
+fi
+
+if [[ ! -f "$CURRENT_RELEASE" || ! -f "$VERIFIED_RELEASE" ]]; then
+    echo "ERROR: incomplete production release state" >&2
+    exit 1
+fi
+
+CURRENT_VALUE="$(read_release "$CURRENT_RELEASE" "production current-release")"
+VERIFIED_VALUE="$(read_release "$VERIFIED_RELEASE" "production verified-release")"
+PREVIOUS_VALUE="$(read_release "$PREVIOUS_RELEASE" "production previous-release")"
+
+if [[ "$#" -eq 2 ]]; then
+    if [[ "$CURRENT_VALUE" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}\ sha256:[0-9a-f]{64}$ ||
+          "$VERIFIED_VALUE" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}\ sha256:[0-9a-f]{64}$ ]]; then
+        echo "ERROR: cannot perform legacy rollback while current production state is multi-image" >&2
+        exit 1
+    fi
+
+    echo "ERROR: legacy rollback is unavailable after Production B2B runtime installation" >&2
+    exit 1
+fi
+
+if [[ "$REQUESTED_VALUE" != "$PREVIOUS_VALUE" ]]; then
+    echo "ERROR: requested rollback target is not previous-release" >&2
+    exit 1
+fi
+
+if [[ "$CURRENT_VALUE" == "$PREVIOUS_VALUE" ]]; then
+    echo "ERROR: previous-release is already current" >&2
+    exit 1
+fi
+
+if [[ "$VERIFIED_VALUE" != "$CURRENT_VALUE" &&
+      "$VERIFIED_VALUE" != "$PREVIOUS_VALUE" ]]; then
+    echo "ERROR: invalid production release state" >&2
+    exit 1
+fi
+
+WEB_IMAGE="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+AI_SERVICE_IMAGE="${AI_IMAGE_REPOSITORY}@${AI_IMAGE_DIGEST}"
+export WEB_IMAGE
+export AI_SERVICE_IMAGE
+
+echo "PRODUCTION rollback"
+echo "Git SHA: ${GIT_SHA}"
+echo "Web image: ${WEB_IMAGE}"
+echo "AI service image: ${AI_SERVICE_IMAGE}"
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" config --quiet
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" pull
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" up -d --remove-orphans
+
+atomic_write_current
+
+echo "PRODUCTION rollback containers updated."
+echo "Current release recorded."
+echo "Rollback is NOT verified yet."
+echo "Health/smoke verification is required."

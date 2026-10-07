@@ -1,0 +1,88 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 2 && "$#" -ne 3 ]]; then
+    echo "ERROR: expected git SHA and image digest" >&2
+    exit 1
+fi
+
+GIT_SHA="$1"
+IMAGE_DIGEST="$2"
+AI_IMAGE_DIGEST="${3:-}"
+
+STATE_DIR="/srv/tuttoseriea/staging/state"
+CURRENT_RELEASE="${STATE_DIR}/current-release"
+VERIFIED_RELEASE="${STATE_DIR}/verified-release"
+LOCK_FILE="/run/lock/tuttoseriea-staging-deploy.lock"
+
+if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: invalid git SHA" >&2
+    exit 1
+fi
+
+if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "ERROR: invalid image digest" >&2
+    exit 1
+fi
+
+if [[ "$#" -eq 3 ]]; then
+    if [[ ! "$AI_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo "ERROR: invalid AI service image digest" >&2
+        exit 1
+    fi
+fi
+
+REQUESTED_VALUE="${GIT_SHA} ${IMAGE_DIGEST}"
+if [[ "$#" -eq 3 ]]; then
+    REQUESTED_VALUE="${REQUESTED_VALUE} ${AI_IMAGE_DIGEST}"
+fi
+
+exec 9>"$LOCK_FILE"
+
+if ! /usr/bin/flock -n 9; then
+    echo "ERROR: staging deployment or verification already in progress" >&2
+    exit 1
+fi
+
+if [[ ! -f "$CURRENT_RELEASE" ]]; then
+    echo "ERROR: staging current-release does not exist" >&2
+    exit 1
+fi
+
+mapfile -t CURRENT_LINES < "$CURRENT_RELEASE"
+
+if [[ "${#CURRENT_LINES[@]}" -ne 1 ]]; then
+    echo "ERROR: invalid staging current-release format" >&2
+    exit 1
+fi
+
+if [[ ! "${CURRENT_LINES[0]}" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}(\ sha256:[0-9a-f]{64})?$ ]]; then
+    echo "ERROR: invalid staging current-release format" >&2
+    exit 1
+fi
+
+CURRENT_VALUE="${CURRENT_LINES[0]}"
+
+if [[ "$REQUESTED_VALUE" != "$CURRENT_VALUE" ]]; then
+    echo "ERROR: requested release is not the current staging release" >&2
+    exit 1
+fi
+
+TEMP_STATE="$(/usr/bin/mktemp "${STATE_DIR}/.verified-release.XXXXXX")"
+
+cleanup() {
+    rm -f "$TEMP_STATE"
+}
+trap cleanup EXIT
+
+printf '%s\n' "$REQUESTED_VALUE" > "$TEMP_STATE"
+chmod 600 "$TEMP_STATE"
+
+/usr/bin/sync "$TEMP_STATE"
+/usr/bin/mv -f "$TEMP_STATE" "$VERIFIED_RELEASE"
+/usr/bin/sync "$STATE_DIR"
+
+trap - EXIT
+
+echo "STAGING release verified."
+echo "Verified release recorded."

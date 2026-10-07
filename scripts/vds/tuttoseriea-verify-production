@@ -1,0 +1,187 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 2 && "$#" -ne 3 ]]; then
+    echo "ERROR: expected git SHA and image digest" >&2
+    exit 1
+fi
+
+GIT_SHA="$1"
+IMAGE_DIGEST="$2"
+AI_IMAGE_DIGEST="${3:-}"
+
+STATE_DIR="/srv/tuttoseriea/production/state"
+CURRENT_RELEASE="${STATE_DIR}/current-release"
+VERIFIED_RELEASE="${STATE_DIR}/verified-release"
+PREVIOUS_RELEASE="${STATE_DIR}/previous-release"
+
+LOCK_FILE="/run/lock/tuttoseriea-production-deploy.lock"
+PROJECT="tuttoseriea-production"
+
+if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: invalid git SHA" >&2
+    exit 1
+fi
+
+if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "ERROR: invalid image digest" >&2
+    exit 1
+fi
+
+if [[ "$#" -eq 3 ]]; then
+    if [[ ! "$AI_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo "ERROR: invalid AI service image digest" >&2
+        exit 1
+    fi
+fi
+
+REQUESTED_VALUE="${GIT_SHA} ${IMAGE_DIGEST}"
+if [[ "$#" -eq 3 ]]; then
+    REQUESTED_VALUE="${REQUESTED_VALUE} ${AI_IMAGE_DIGEST}"
+fi
+
+read_release() {
+    local file="$1"
+    local label="$2"
+    local -a lines
+
+    mapfile -t lines < "$file"
+
+    if [[ "${#lines[@]}" -ne 1 ]]; then
+        echo "ERROR: invalid ${label} format" >&2
+        return 1
+    fi
+
+    if [[ ! "${lines[0]}" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}(\ sha256:[0-9a-f]{64})?$ ]]; then
+        echo "ERROR: invalid ${label} format" >&2
+        return 1
+    fi
+
+    printf '%s\n' "${lines[0]}"
+}
+
+atomic_write_release() (
+    set -e
+
+    local target="$1"
+    local value="$2"
+    local base
+    local temp
+
+    base="$(basename "$target")"
+    temp="$(/usr/bin/mktemp "${STATE_DIR}/.${base}.XXXXXX")"
+
+    trap '/usr/bin/rm -f "$temp"' EXIT
+
+    printf '%s\n' "$value" > "$temp"
+    /usr/bin/chmod 600 "$temp"
+    /usr/bin/sync "$temp"
+    /usr/bin/mv -f "$temp" "$target"
+    /usr/bin/sync "$STATE_DIR"
+
+    trap - EXIT
+)
+
+run_web_to_ai_internal_smoke() {
+    local -a web_containers
+
+    mapfile -t web_containers < <(
+        /usr/bin/docker ps \
+            --filter "label=com.docker.compose.project=${PROJECT}" \
+            --filter "label=com.docker.compose.service=web" \
+            --format '{{.ID}}'
+    )
+
+    if [[ "${#web_containers[@]}" -ne 1 ]]; then
+        echo "ERROR: expected exactly one running production web container" >&2
+        exit 1
+    fi
+
+    /usr/bin/docker exec -i "${web_containers[0]}" node - <<'NODE'
+const url = process.env.AI_SERVICE_URL;
+const key = process.env.AI_SERVICE_INTERNAL_API_KEY;
+
+if (!url) {
+  throw new Error("AI_SERVICE_URL is required in the web container");
+}
+
+if (!key) {
+  throw new Error("AI_SERVICE_INTERNAL_API_KEY is required in the web container");
+}
+
+const endpoint = new URL("/internal/health", url);
+const response = await fetch(endpoint, {
+  headers: {
+    "X-Internal-API-Key": key,
+  },
+});
+
+if (response.status !== 200) {
+  throw new Error(`AI internal health returned HTTP ${response.status}`);
+}
+
+await response.arrayBuffer();
+NODE
+
+    echo "PRODUCTION web-to-ai internal smoke passed."
+}
+
+exec 9>"$LOCK_FILE"
+
+if ! /usr/bin/flock -n 9; then
+    echo "ERROR: production deployment or verification already in progress" >&2
+    exit 1
+fi
+
+if [[ ! -f "$CURRENT_RELEASE" ]]; then
+    echo "ERROR: production current-release does not exist" >&2
+    exit 1
+fi
+
+CURRENT_VALUE="$(read_release "$CURRENT_RELEASE" "production current-release")"
+
+if [[ "$REQUESTED_VALUE" != "$CURRENT_VALUE" ]]; then
+    echo "ERROR: requested release is not the current production release" >&2
+    exit 1
+fi
+
+VERIFIED_VALUE=""
+PREVIOUS_VALUE=""
+
+if [[ -f "$VERIFIED_RELEASE" ]]; then
+    VERIFIED_VALUE="$(read_release "$VERIFIED_RELEASE" "production verified-release")"
+fi
+
+if [[ -f "$PREVIOUS_RELEASE" ]]; then
+    PREVIOUS_VALUE="$(read_release "$PREVIOUS_RELEASE" "production previous-release")"
+fi
+
+if [[ "$#" -eq 3 ]]; then
+    run_web_to_ai_internal_smoke
+fi
+
+if [[ -n "$PREVIOUS_VALUE" && "$CURRENT_VALUE" == "$PREVIOUS_VALUE" ]]; then
+    atomic_write_release "$VERIFIED_RELEASE" "$REQUESTED_VALUE"
+    /usr/bin/rm -f "$PREVIOUS_RELEASE"
+    /usr/bin/sync "$STATE_DIR"
+
+    echo "PRODUCTION rollback release verified."
+    echo "Verified release recorded."
+    echo "Previous release cleared."
+    exit 0
+fi
+
+if [[ "$VERIFIED_VALUE" == "$CURRENT_VALUE" ]]; then
+    echo "PRODUCTION release is already verified."
+    exit 0
+fi
+
+if [[ -n "$VERIFIED_VALUE" && -n "$PREVIOUS_VALUE" && "$VERIFIED_VALUE" != "$PREVIOUS_VALUE" ]]; then
+    echo "ERROR: invalid production release state" >&2
+    exit 1
+fi
+
+atomic_write_release "$VERIFIED_RELEASE" "$REQUESTED_VALUE"
+
+echo "PRODUCTION release verified."
+echo "Verified release recorded."

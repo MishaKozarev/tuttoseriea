@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 0 ]]; then
+    echo "ERROR: this command accepts no arguments" >&2
+    exit 1
+fi
+
+STATE_FILE="/srv/tuttoseriea/production/state/previous-release"
+LOCK_FILE="/run/lock/tuttoseriea-production-deploy.lock"
+
+exec 9>"$LOCK_FILE"
+
+if ! /usr/bin/flock -n 9; then
+    echo "ERROR: production state operation already in progress" >&2
+    exit 1
+fi
+
+if [[ ! -f "$STATE_FILE" ]]; then
+    echo "ERROR: production previous-release does not exist" >&2
+    exit 1
+fi
+
+mapfile -t LINES < "$STATE_FILE"
+
+if [[ "${#LINES[@]}" -ne 1 ]]; then
+    echo "ERROR: invalid production previous-release format" >&2
+    exit 1
+fi
+
+if [[ ! "${LINES[0]}" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}(\ sha256:[0-9a-f]{64})?$ ]]; then
+    echo "ERROR: invalid production previous-release format" >&2
+    exit 1
+fi
+
+printf '%s\n' "${LINES[0]}"

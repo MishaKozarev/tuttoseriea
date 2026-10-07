@@ -1,0 +1,144 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 3 ]]; then
+    echo "ERROR: expected git SHA, web image digest, and AI service image digest" >&2
+    exit 1
+fi
+
+GIT_SHA="$1"
+IMAGE_DIGEST="$2"
+AI_IMAGE_DIGEST="$3"
+
+COMPOSE_FILE="/srv/tuttoseriea/staging/config/compose.yaml"
+MIGRATION_ENV="/srv/tuttoseriea/staging/config/migration.env"
+AI_SERVICE_ENV="/srv/tuttoseriea/staging/config/ai-service.env"
+
+STATE_DIR="/srv/tuttoseriea/staging/state"
+CURRENT_RELEASE="${STATE_DIR}/current-release"
+
+IMAGE_REPOSITORY="ghcr.io/mishakozarev/tuttoseriea/web"
+AI_IMAGE_REPOSITORY="ghcr.io/mishakozarev/tuttoseriea/ai-service"
+LOCK_FILE="/run/lock/tuttoseriea-staging-deploy.lock"
+STAGING_NETWORK="tuttoseriea-staging_default"
+
+if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: invalid git SHA" >&2
+    exit 1
+fi
+
+if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "ERROR: invalid image digest" >&2
+    exit 1
+fi
+
+if [[ ! "$AI_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "ERROR: invalid AI service image digest" >&2
+    exit 1
+fi
+
+if [[ ! -f "$MIGRATION_ENV" ]]; then
+    echo "ERROR: staging migration.env does not exist" >&2
+    exit 1
+fi
+
+if [[ ! -f "$AI_SERVICE_ENV" ]]; then
+    echo "ERROR: staging ai-service.env does not exist" >&2
+    exit 1
+fi
+
+exec 9>"$LOCK_FILE"
+
+if ! /usr/bin/flock -n 9; then
+    echo "ERROR: staging deployment already in progress" >&2
+    exit 1
+fi
+
+WEB_IMAGE="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+AI_SERVICE_IMAGE="${AI_IMAGE_REPOSITORY}@${AI_IMAGE_DIGEST}"
+export WEB_IMAGE AI_SERVICE_IMAGE
+
+echo "STAGING deployment"
+echo "Git SHA: ${GIT_SHA}"
+echo "Web image: ${WEB_IMAGE}"
+echo "AI service image: ${AI_SERVICE_IMAGE}"
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" \
+    config --quiet
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" \
+    pull
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" \
+    up -d postgres
+
+echo "Waiting for STAGING PostgreSQL..."
+
+DB_READY=0
+
+for _ in {1..30}; do
+    if /usr/bin/docker compose \
+        -f "$COMPOSE_FILE" \
+        exec -T postgres \
+        pg_isready \
+        -U tuttoseriea_staging \
+        -d tuttoseriea_staging \
+        >/dev/null 2>&1; then
+        DB_READY=1
+        break
+    fi
+
+    sleep 2
+done
+
+if [[ "$DB_READY" -ne 1 ]]; then
+    echo "ERROR: staging PostgreSQL did not become ready" >&2
+    exit 1
+fi
+
+echo "Applying STAGING database migrations."
+
+/usr/bin/docker run --rm \
+    --network "$STAGING_NETWORK" \
+    --env-file "$MIGRATION_ENV" \
+    "$WEB_IMAGE" \
+    node scripts/migrate-db.mjs
+
+echo "Provisioning STAGING database runtime role."
+
+/usr/bin/docker run --rm \
+    --network "$STAGING_NETWORK" \
+    --env-file "$MIGRATION_ENV" \
+    "$WEB_IMAGE" \
+    node scripts/provision-db-role.mjs
+
+echo "Updating STAGING services."
+
+/usr/bin/docker compose \
+    -f "$COMPOSE_FILE" \
+    up -d --remove-orphans
+
+TEMP_STATE="$(/usr/bin/mktemp "${STATE_DIR}/.current-release.XXXXXX")"
+
+cleanup() {
+    rm -f "$TEMP_STATE"
+}
+
+trap cleanup EXIT
+
+printf '%s %s %s\n' "$GIT_SHA" "$IMAGE_DIGEST" "$AI_IMAGE_DIGEST" > "$TEMP_STATE"
+chmod 600 "$TEMP_STATE"
+
+/usr/bin/sync "$TEMP_STATE"
+/usr/bin/mv -f "$TEMP_STATE" "$CURRENT_RELEASE"
+/usr/bin/sync "$STATE_DIR"
+
+trap - EXIT
+
+echo "STAGING containers updated."
+echo "Database provisioning/migrations completed."
+echo "Current release recorded."
+echo "Health/smoke verification is still required."

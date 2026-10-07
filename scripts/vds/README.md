@@ -5,10 +5,27 @@ operational contracts. Each live copy is provisioned manually from a trusted
 `main` commit; the normal application deployment does not install or update
 these files.
 
-The canonical STAGING boundary sources and destinations are:
+The provisioning chain is reviewed repository canonical source -> explicit
+manual infrastructure provisioning -> root-owned live VDS file. Merging these
+sources does not install them or change running services. Deployment-state
+writers retain the captured release transitions and include the MASTER-approved
+final state-directory sync after each rename and after clearing previous-release.
+Applying that durability correction on the VDS requires later explicit provisioning.
+
+The canonical sources and intended destinations are:
 
 | Repository source | VDS destination | Owner/group | Mode |
 | --- | --- | --- | --- |
+| `scripts/vds/tuttoseriea-deploy-staging` | `/usr/local/sbin/tuttoseriea-deploy-staging` | `root:root` | `0755` |
+| `scripts/vds/tuttoseriea-verify-staging` | `/usr/local/sbin/tuttoseriea-verify-staging` | `root:root` | `0700` |
+| `scripts/vds/tuttoseriea-deploy-production` | `/usr/local/sbin/tuttoseriea-deploy-production` | `root:root` | `0755` |
+| `scripts/vds/tuttoseriea-verify-production` | `/usr/local/sbin/tuttoseriea-verify-production` | `root:root` | `0700` |
+| `scripts/vds/tuttoseriea-rollback-production` | `/usr/local/sbin/tuttoseriea-rollback-production` | `root:root` | `0700` |
+| `scripts/vds/tuttoseriea-read-previous-production` | `/usr/local/sbin/tuttoseriea-read-previous-production` | `root:root` | `0700` |
+| `scripts/vds/tuttoseriea-ssh-production` | `/usr/local/sbin/tuttoseriea-ssh-production` | `root:root` | `0755` |
+| `scripts/vds/tuttoseriea-read-release-state-production` | `/usr/local/sbin/tuttoseriea-read-release-state-production` | `root:root` | `0700` |
+| `scripts/vds/compose-staging.yaml` | `/srv/tuttoseriea/staging/config/compose.yaml` | `root:root` | `0600` |
+| `scripts/vds/compose-production.yaml` | `/srv/tuttoseriea/production/config/compose.yaml` | `root:root` | `0600` |
 | `scripts/vds/tuttoseriea-ssh-staging` | `/usr/local/sbin/tuttoseriea-ssh-staging` | `root:root` | `0755` |
 | `scripts/vds/tuttoseriea-deploy.sudoers` | `/etc/sudoers.d/tuttoseriea-deploy` | `root:root` | `0440` |
 | `scripts/vds/tuttoseriea-read-current-staging` | `/usr/local/sbin/tuttoseriea-read-current-staging` | `root:root` | `0755` |
@@ -24,6 +41,51 @@ not provision or alter Production:
 ```text
 /usr/local/sbin/tuttoseriea-run-job-production
 ```
+
+The full Production reader is a new reviewed source for trusted root-owned
+infrastructure consumers; its live installation is not implied by repository
+delivery. It accepts no arguments and reads only current-release,
+verified-release and previous-release in `/srv/tuttoseriea/production/state`.
+It uses non-blocking flock on `/run/lock/tuttoseriea-production-deploy.lock`,
+with the existing `exec 9>"$LOCK_FILE"` open/create pattern. It does not modify
+release-state or invoke Docker. Its complete snapshot output is:
+
+```text
+current <GIT_SHA WEB_IMAGE_DIGEST AI_SERVICE_IMAGE_DIGEST | absent>
+verified <GIT_SHA WEB_IMAGE_DIGEST AI_SERVICE_IMAGE_DIGEST | absent>
+previous <GIT_SHA WEB_IMAGE_DIGEST AI_SERVICE_IMAGE_DIGEST | absent>
+```
+
+All existing records must be exactly one canonical three-field tuple; empty,
+malformed and legacy two-field records fail closed with no partial stdout.
+Missing records are explicitly absent. The reader has no deploy sudoers rule
+and no forced-command route. The existing narrow previous-release SSH interface
+and legacy argument handling remain unchanged.
+
+The two Compose sources are explicit environment files with relative references
+to separately provisioned runtime.env, ai-service.env and postgres.env. They
+preserve the captured project names, ports, services and project-scoped volume.
+Real env files remain outside Git. Normal application deployment reads the live
+Compose file; it does not generate or replace it.
+
+## Repository checks
+
+From the repository root on Linux with Bash, flock, Node.js and Docker Compose CLI:
+
+```bash
+bash scripts/check-run-job-wrapper.sh
+bash scripts/check-vds-infrastructure.sh
+/usr/sbin/visudo -cf scripts/vds/tuttoseriea-deploy.sudoers
+```
+
+The focused check uses disposable fixture copies and Docker/sudo/sync command
+stubs; it never executes the canonical deploy scripts against live paths or
+starts application containers. It exercises real flock and verifies state
+transitions, write/rename/directory-sync ordering and injected failure behavior.
+Compose config parsing does not resolve runtime env files or image digests.
+For split LOCAL verification, --shell-only runs Linux fixture checks and
+--compose-only runs Compose checks; each reports the omitted component as not_run.
+Missing native visudo must be reported explicitly; CI retains its native check.
 
 Live ad hoc edits are not the normal workflow. If emergency recovery requires a
 live change, the resulting contract must be reconciled back into these reviewed

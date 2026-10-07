@@ -1,0 +1,36 @@
+name: tuttoseriea-staging
+
+services:
+  web:
+    image: "${WEB_IMAGE:?WEB_IMAGE is required}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8898:3000"
+    env_file:
+      - ./runtime.env
+    depends_on:
+      ai-service:
+        condition: service_healthy
+
+  ai-service:
+    image: "${AI_SERVICE_IMAGE:?AI_SERVICE_IMAGE is required}"
+    restart: unless-stopped
+    env_file:
+      - ./ai-service.env
+
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    restart: unless-stopped
+    env_file:
+      - ./postgres.env
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:

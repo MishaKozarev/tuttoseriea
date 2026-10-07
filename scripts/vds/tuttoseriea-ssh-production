@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+
+COMMAND="${SSH_ORIGINAL_COMMAND:-}"
+
+if [[ "$COMMAND" == "previous-release" ]]; then
+    exec /usr/bin/sudo -n \
+        /usr/local/sbin/tuttoseriea-read-previous-production
+fi
+
+if [[ "$COMMAND" =~ ^(deploy|verify|rollback)\ ([0-9a-f]{40})\ (sha256:[0-9a-f]{64})(\ (sha256:[0-9a-f]{64}))?$ ]]; then
+    ACTION="${BASH_REMATCH[1]}"
+    GIT_SHA="${BASH_REMATCH[2]}"
+    IMAGE_DIGEST="${BASH_REMATCH[3]}"
+    AI_IMAGE_DIGEST="${BASH_REMATCH[5]:-}"
+else
+    echo "ERROR: invalid production command" >&2
+    exit 1
+fi
+
+case "$ACTION" in
+    deploy)
+        if [[ -n "$AI_IMAGE_DIGEST" ]]; then
+            exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-deploy-production \
+                "$GIT_SHA" "$IMAGE_DIGEST" "$AI_IMAGE_DIGEST"
+        fi
+
+        exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-deploy-production \
+            "$GIT_SHA" "$IMAGE_DIGEST"
+        ;;
+    verify)
+        if [[ -n "$AI_IMAGE_DIGEST" ]]; then
+            exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-verify-production \
+                "$GIT_SHA" "$IMAGE_DIGEST" "$AI_IMAGE_DIGEST"
+        fi
+
+        exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-verify-production \
+            "$GIT_SHA" "$IMAGE_DIGEST"
+        ;;
+    rollback)
+        if [[ -n "$AI_IMAGE_DIGEST" ]]; then
+            exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-rollback-production \
+                "$GIT_SHA" "$IMAGE_DIGEST" "$AI_IMAGE_DIGEST"
+        fi
+
+        exec /usr/bin/sudo -n /usr/local/sbin/tuttoseriea-rollback-production \
+            "$GIT_SHA" "$IMAGE_DIGEST"
+        ;;
+esac
