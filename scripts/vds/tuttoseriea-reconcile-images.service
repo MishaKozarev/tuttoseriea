@@ -1,0 +1,14 @@
+[Unit]
+Description=TuttoSerieA host-wide release-aware image reconciliation
+After=docker.service
+Requisite=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/sbin/tuttoseriea-reconcile-images --apply
+TimeoutStartSec=5min
+SuccessExitStatus=75
+NoNewPrivileges=true
