@@ -55,7 +55,7 @@ done
 '''
 
 IMAGE_FORMAT = ('{"id":{{json .Id}},"digests":{{json .RepoDigests}},"tags":{{json .RepoTags}},'
-                '"source":{{json (index .Config.Labels "org.opencontainers.image.source")}}}')
+                '"source":{{with (index .Config "Labels")}}{{json (index . "org.opencontainers.image.source")}}{{else}}null{{end}}}')
 CONTAINER_FORMAT = '{"id":{{json .Id}},"image":{{json .Image}},"running":{{json .State.Running}}}'
 
 class Failure(Exception):

@@ -195,6 +195,20 @@ private copies of the units with fixture executable/dependency locations; it
 does not load/activate units. An unavailable analyzer is reported as not_run;
 CI requires it and runs this native check.
 
+The explicit `--docker-format-only` mode instead performs only read-only image
+inspect calls through the real LOCAL Docker CLI, against the already present
+`pgvector/pgvector:0.8.6-pg18` image. It tests the canonical Go template with
+absent image labels and compares the required metadata projection; it never
+pulls images or invokes the reconciler. It uses a fixed local daemon endpoint,
+not a caller-selected Docker context. Run it separately with:
+
+```bash
+bash scripts/check-image-retention.sh --docker-format-only
+```
+
+CI requires both modes. Optional OCI source labels may be absent; this does not
+relax RepoDigest-to-ID validation, protection or candidate classification.
+
 Live ad hoc edits are not the normal workflow. If emergency recovery requires a
 live change, the resulting contract must be reconciled back into these reviewed
 sources before later provisioning treats the repository as authoritative.
