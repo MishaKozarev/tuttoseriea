@@ -73,6 +73,10 @@ jobs:
         shell: bash
         run: bash scripts/check-run-job-wrapper.sh
 
+      - name: Check canonical VDS infrastructure
+        shell: bash
+        run: bash scripts/check-vds-infrastructure.sh
+
       - name: Check VDS sudoers template
         shell: bash
         run: /usr/sbin/visudo -cf scripts/vds/tuttoseriea-deploy.sudoers

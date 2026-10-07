@@ -1,0 +1,54 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 0 ]]; then
+    echo "ERROR: this command accepts no arguments" >&2
+    exit 1
+fi
+
+STATE_DIR="/srv/tuttoseriea/production/state"
+LOCK_FILE="/run/lock/tuttoseriea-production-deploy.lock"
+
+exec 9>"$LOCK_FILE"
+
+if ! /usr/bin/flock -n 9; then
+    echo "ERROR: production state operation already in progress" >&2
+    exit 1
+fi
+
+labels=(current verified previous)
+records=()
+
+for label in "${labels[@]}"; do
+    file="${STATE_DIR}/${label}-release"
+
+    if [[ ! -e "$file" && ! -L "$file" ]]; then
+        records+=("${label} absent")
+        continue
+    fi
+
+    if [[ ! -f "$file" || ! -r "$file" ]]; then
+        echo "ERROR: unreadable production ${label}-release" >&2
+        exit 1
+    fi
+
+    lines=()
+    if ! mapfile -t lines < "$file"; then
+        echo "ERROR: cannot read production ${label}-release" >&2
+        exit 1
+    fi
+
+    if [[ "${#lines[@]}" -ne 1 ]]; then
+        echo "ERROR: invalid production ${label}-release format" >&2
+        exit 1
+    fi
+
+    if [[ ! "${lines[0]}" =~ ^[0-9a-f]{40}\ sha256:[0-9a-f]{64}\ sha256:[0-9a-f]{64}$ ]]; then
+        echo "ERROR: invalid production ${label}-release format" >&2
+        exit 1
+    fi
+
+    records+=("${label} ${lines[0]}")
+done
+
+printf '%s\n' "${records[@]}"
