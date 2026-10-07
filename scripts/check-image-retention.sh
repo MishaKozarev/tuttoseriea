@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bash -n "$SCRIPT_DIR/vds/tuttoseriea-reconcile-images"
-exec python3 -I -u - "$SCRIPT_DIR" <<'PY'
+exec python3 -I -u - "$SCRIPT_DIR" "$@" <<'PY'
 import ast
 import hashlib
 import json
@@ -14,15 +14,45 @@ import tempfile
 from pathlib import Path
 
 require = lambda condition, message: condition or (_ for _ in ()).throw(AssertionError(message))
-require(sys.platform == "linux", "image-retention behavior checks require Linux and real flock")
+require(sys.argv[2:] in ([], ["--docker-format-only"]),
+        "usage: check-image-retention.sh [--docker-format-only]")
 scripts = Path(sys.argv[1])
 source = (scripts / "vds/tuttoseriea-reconcile-images").read_text()
 body = source.split("<<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
-ast.parse(body)
+tree = ast.parse(body)
+image_format = ast.literal_eval(next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                                    and any(isinstance(target, ast.Name) and target.id == "IMAGE_FORMAT"
+                                            for target in node.targets)))
 web = "ghcr.io/mishakozarev/tuttoseriea/web"
 ai = "ghcr.io/mishakozarev/tuttoseriea/ai-service"
 pg = "pgvector/pgvector:0.8.6-pg18"
 project = "https://github.com/MishaKozarev/tuttoseriea"
+
+if sys.argv[2:]:
+    require(sys.platform in ("linux", "win32"), "format check requires a LOCAL Linux/Windows Docker daemon")
+    docker_cli = shutil.which("docker")
+    require(docker_cli, "Docker CLI is required for the explicit read-only format check")
+    endpoint = "npipe:////./pipe/dockerDesktopLinuxEngine" if sys.platform == "win32" else "unix:///var/run/docker.sock"
+    base = [docker_cli, "--config", str(scripts / "vds"), "--host", endpoint]
+
+    def inspect_format(template):
+        result = subprocess.run([*base, "image", "inspect", "--format", template, pg],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        require(result.returncode == 0, "LOCAL Docker image format failed; diagnostics suppressed")
+        return json.loads(result.stdout)
+
+    # Use the real CLI's template renderer without pulling or mutating any image.
+    labels = inspect_format('{{json (index .Config "Labels")}}')
+    require(labels is None or labels == {}, "pgvector sample must cover absent/empty image labels")
+    expected = inspect_format('{"id":{{json .Id}},"digests":{{json .RepoDigests}},"tags":{{json .RepoTags}}}')
+    projected = inspect_format(image_format)
+    require(set(projected) == {"id", "digests", "tags", "source"} and projected["source"] is None,
+            "absent optional Labels must project to source=null without exposing other config")
+    require({key: projected[key] for key in expected} == expected, "required image metadata changed")
+    print("image_retention_docker_format_check=passed (real LOCAL CLI; no labels; read-only image inspect)")
+    sys.exit(0)
+
+require(sys.platform == "linux", "image-retention behavior checks require Linux and real flock")
 def sha(value):
     return "sha256:" + format(value, "064x")
 def image_id(value):
@@ -61,6 +91,7 @@ if args == ["image", "ls", "--all", "--no-trunc", "--quiet"]:
     save()
     print("\n".join(sorted(data["images"])))
 elif args[:3] == ["image", "inspect", "--format"]:
+    assert args[3] == __IMAGE_FORMAT__, "fake CLI must receive the canonical metadata projection"
     reference = args[-1]
     matches = [item for item in data["images"].values()
                if reference == item["id"] or reference in item["digests"] or reference in item["tags"]]
@@ -120,7 +151,8 @@ with tempfile.TemporaryDirectory(prefix="tuttoseriea-image-retention.") as direc
     reader_template = reader_source.read_text()
     reader_template = reader_template.replace("/srv/tuttoseriea/production/state", str(prod))
     reader_template = reader_template.replace("/run/lock/tuttoseriea-production-deploy.lock", str(root / "production.lock"))
-    docker.write_text(FAKE_DOCKER.replace("__PYTHON__", sys.executable).replace("__ROOT__", repr(str(root))))
+    docker.write_text(FAKE_DOCKER.replace("__PYTHON__", sys.executable).replace("__ROOT__", repr(str(root)))
+                      .replace("__IMAGE_FORMAT__", repr(image_format)))
     docker.chmod(0o700)
 
     def install_reader(value=reader_template):
@@ -201,6 +233,23 @@ with tempfile.TemporaryDirectory(prefix="tuttoseriea-image-retention.") as direc
     require(output["pgvector_protected"][0]["image_id"] == image_id(9), "pgvector unprotected")
     require(output["running_protected"][0]["image"] == image_id(10), "outside-state running image unprotected")
     print("default_dry_run_current_neq_verified_prod_previous_running_pgvector_unrelated=passed")
+
+    data = baseline()
+    for item in data["images"].values():
+        item["source"] = None
+    set_data(data)
+    output, after = run()
+    require(output["protection_complete"] and not after.get("removed")
+            and len(output["staging_protected"]) == 4 and len(output["production_protected"]) == 6
+            and output["pgvector_protected"][0]["image_id"] == image_id(9)
+            and {item["image_id"] for item in output["candidates"]} == {image_id(11), image_id(12)},
+            "optional absent source labels changed protection or candidate rules")
+    data = baseline()
+    data["images"][image_id(11)].update(source=None, digests=[], tags=[web + ":sha-obsolete"])
+    set_data(data)
+    output, after = run("--apply", 2)
+    require(output["ambiguous"] and not after.get("removed"), "tags without RepoDigests allowed deletion")
+    print("absent_optional_source_labels_preserve_protection_and_digest_authority=passed")
 
     baseline()
     output, after = run("--apply")

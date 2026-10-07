@@ -82,6 +82,7 @@ jobs:
         run: |
           command -v systemd-analyze
           bash scripts/check-image-retention.sh
+          bash scripts/check-image-retention.sh --docker-format-only
 
       - name: Check VDS sudoers template
         shell: bash
