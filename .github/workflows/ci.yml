@@ -77,6 +77,12 @@ jobs:
         shell: bash
         run: bash scripts/check-vds-infrastructure.sh
 
+      - name: Check host-wide image retention
+        shell: bash
+        run: |
+          command -v systemd-analyze
+          bash scripts/check-image-retention.sh
+
       - name: Check VDS sudoers template
         shell: bash
         run: /usr/sbin/visudo -cf scripts/vds/tuttoseriea-deploy.sudoers

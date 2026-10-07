@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily TuttoSerieA host-wide image reconciliation
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+Unit=tuttoseriea-reconcile-images.service
+
+[Install]
+WantedBy=timers.target

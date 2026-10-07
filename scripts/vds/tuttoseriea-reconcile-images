@@ -1,0 +1,479 @@
+#!/bin/bash
+set -euo pipefail
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LC_ALL=C \
+    /usr/bin/python3 -I - "$@" <<'PY'
+import array
+import fcntl
+import hashlib
+import json
+import os
+import re
+import selectors
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+OWNER_UID = 0
+OWNER_GID = 0
+SECURE_ROOT = Path("/")
+STAGING_STATE = Path("/srv/tuttoseriea/staging/state")
+STAGING_LOCK = Path("/run/lock/tuttoseriea-staging-deploy.lock")
+PRODUCTION_LOCK = Path("/run/lock/tuttoseriea-production-deploy.lock")
+RECONCILE_LOCK = Path("/run/lock/tuttoseriea-image-reconcile.lock")
+PRODUCTION_READER = Path("/usr/local/sbin/tuttoseriea-read-release-state-production")
+READER_SHA = "113ff4f062d66586af3017cb43e41bee280ad9bb272aad32a9c1beaa155cb30b"
+REPOSITORIES = ("ghcr.io/mishakozarev/tuttoseriea/web", "ghcr.io/mishakozarev/tuttoseriea/ai-service")
+PROJECT_SOURCE = "https://github.com/MishaKozarev/tuttoseriea"
+PGVECTOR = "pgvector/pgvector:0.8.6-pg18"
+DOCKER = ("/usr/bin/docker", "--host", "unix:///var/run/docker.sock")
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "LC_ALL": "C"}
+ID_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
+TUPLE_PATTERN = re.compile(r"[0-9a-f]{40} sha256:[0-9a-f]{64} sha256:[0-9a-f]{64}\Z")
+MARKER = b"__TUTTOSERIEA_SNAPSHOT_END__\n"
+
+# Sourcing preserves the reader's FD 9. SCM_RIGHTS transfers the same locked
+# open file description to the parent, so helper death cannot release it.
+WORKER = r'''set -euo pipefail
+set --
+while IFS= read -r reconcile_request; do
+    case "$reconcile_request" in
+        snapshot)
+            . /usr/local/sbin/tuttoseriea-read-release-state-production
+            /usr/bin/python3 -I -c 'import array, socket
+s = socket.socket(fileno=__LEASE_FD__)
+s.sendmsg([b"L"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [9]))])'
+            printf '%s\n' '__TUTTOSERIEA_SNAPSHOT_END__'
+            ;;
+        release) exit 0 ;;
+        *) exit 2 ;;
+    esac
+done
+'''
+
+IMAGE_FORMAT = ('{"id":{{json .Id}},"digests":{{json .RepoDigests}},"tags":{{json .RepoTags}},'
+                '"source":{{json (index .Config.Labels "org.opencontainers.image.source")}}}')
+CONTAINER_FORMAT = '{"id":{{json .Id}},"image":{{json .Image}},"running":{{json .State.Running}}}'
+
+class Failure(Exception):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+def require(condition, message, code=2):
+    if not condition:
+        raise Failure(code, message)
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+def secure_directory(path):
+    require(path == SECURE_ROOT or SECURE_ROOT in path.parents, "path outside trusted root")
+    for parent in [*reversed(path.parents), path]:
+        if parent != SECURE_ROOT and SECURE_ROOT not in parent.parents:
+            continue
+        info = parent.lstat()
+        require(stat.S_ISDIR(info.st_mode) and info.st_uid == OWNER_UID and info.st_gid == OWNER_GID,
+                "unsafe directory ownership/type")
+        require(not info.st_mode & 0o022 or
+                (parent == Path("/run/lock") and info.st_mode & stat.S_ISVTX), "unsafe writable directory")
+        require(not os.listxattr(parent, follow_symlinks=False), "directory ACL/xattrs need review")
+
+def read_owned(path, mode):
+    secure_directory(path.parent)
+    before = path.lstat()
+    require(stat.S_ISREG(before.st_mode) and before.st_uid == OWNER_UID and before.st_gid == OWNER_GID
+            and before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == mode, "unsafe file metadata")
+    require(not os.listxattr(path, follow_symlinks=False), "file ACL/xattrs need review")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as handle:
+        opened = os.fstat(handle.fileno())
+        require((opened.st_dev, opened.st_ino) == (before.st_dev, before.st_ino), "file identity changed")
+        data = handle.read()
+        after = os.fstat(handle.fileno())
+    require((before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+            (after.st_size, after.st_mtime_ns, after.st_ctime_ns), "file changed during read")
+    return data
+
+def open_lock(path):
+    secure_directory(path.parent)
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == OWNER_UID and info.st_gid == OWNER_GID
+                and info.st_nlink == 1 and not info.st_mode & 0o022, "unsafe lock metadata")
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        info, opened = path.lstat(), os.fstat(fd)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == OWNER_UID and info.st_gid == OWNER_GID
+                and info.st_nlink == 1 and not info.st_mode & 0o022
+                and (info.st_dev, info.st_ino) == (opened.st_dev, opened.st_ino), "unsafe lock metadata")
+        require(not os.listxattr(path, follow_symlinks=False), "lock ACL/xattrs need review")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+class Lock:
+    def __init__(self, path):
+        self.path = path
+        self.fd = open_lock(path)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.identity = (os.fstat(self.fd).st_dev, os.fstat(self.fd).st_ino)
+            self.validate()
+        except BlockingIOError:
+            self.close()
+            raise Failure(75, "coordination lock busy")
+        except BaseException:
+            self.close()
+            raise
+
+    def validate(self):
+        info = self.path.lstat()
+        require(self.fd is not None and stat.S_ISREG(info.st_mode) and info.st_uid == OWNER_UID
+                and info.st_gid == OWNER_GID and info.st_nlink == 1 and not info.st_mode & 0o022
+                and (info.st_dev, info.st_ino) == self.identity, "coordination lock changed")
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+def tuple_value(value):
+    require(isinstance(value, str) and TUPLE_PATTERN.fullmatch(value), "malformed release tuple")
+    return value.split(" ")
+
+def staging_snapshot():
+    result = {}
+    for label in ("current", "verified"):
+        raw = read_owned(STAGING_STATE / (label + "-release"), 0o600)
+        value = (raw[:-1] if raw.endswith(b"\n") else raw).decode("ascii")
+        result[label] = tuple_value(value)
+    return result
+
+def production_snapshot(raw):
+    require(len(raw) <= 2048 and raw.endswith(b"\n"), "invalid production output framing")
+    lines = raw[:-1].decode("ascii").split("\n")
+    require(len(lines) == 3, "production output must contain exactly three records")
+    result = {}
+    for label, line in zip(("current", "verified", "previous"), lines):
+        require(line.startswith(label + " "), "invalid production output order/label")
+        value = line[len(label) + 1:]
+        result[label] = None if value == "absent" else tuple_value(value)
+    return result
+
+class ProductionLease:
+    def __init__(self):
+        self.process = None
+        self.identity = None
+        self.fd = None
+        self.channel = None
+        self.verify_reader()
+        # The unchanged reader uses exec 9>; establish a safe root-owned regular
+        # lock file first, without acquiring it or following a symlink.
+        descriptor = open_lock(PRODUCTION_LOCK)
+        try:
+            info = os.fstat(descriptor)
+            self.identity = (info.st_dev, info.st_ino)
+        finally:
+            os.close(descriptor)
+        channel, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        try:
+            # FD 9 belongs to the canonical reader; keep the private channel above it.
+            descriptor = fcntl.fcntl(peer.fileno(), fcntl.F_DUPFD_CLOEXEC, 10)
+            peer.close()
+            peer = socket.socket(fileno=descriptor)
+            worker = WORKER.replace("__LEASE_FD__", str(peer.fileno()))
+            self.process = subprocess.Popen(["/bin/bash", "--noprofile", "--norc", "-c", worker],
+                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, env=ENV, close_fds=True,
+                                            pass_fds=(peer.fileno(),))
+            self.channel = channel
+            self.channel.settimeout(15)
+        except BaseException:
+            channel.close()
+            raise
+        finally:
+            peer.close()
+
+    def verify_reader(self):
+        require(digest(read_owned(PRODUCTION_READER, 0o700)) == READER_SHA,
+                "production reader missing, unsafe, or not the reviewed canonical source")
+
+    def snapshot(self):
+        self.verify_reader()
+        require(self.process.poll() is None, "production reader helper failed")
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+        self.process.stdin.write(b"snapshot\n")
+        self.process.stdin.flush()
+        output = b""
+        deadline = time.monotonic() + 15
+        with selectors.DefaultSelector() as selector:
+            selector.register(self.process.stdout, selectors.EVENT_READ)
+            while not output.endswith(MARKER):
+                remaining = deadline - time.monotonic()
+                require(remaining > 0, "production reader timed out")
+                require(selector.select(remaining), "production reader timed out")
+                part = os.read(self.process.stdout.fileno(), 4096)
+                require(part, "production reader failed; incomplete protection => NO DELETE")
+                output += part
+                require(len(output) <= 4096, "oversized production reader output")
+        result = production_snapshot(output[:-len(MARKER)])
+        payload, ancillary, flags, address = self.channel.recvmsg(
+            1, socket.CMSG_SPACE(array.array("i").itemsize), socket.MSG_CMSG_CLOEXEC)
+        descriptors = array.array("i")
+        for level, kind, data in ancillary:
+            require(level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS,
+                    "invalid production lock handoff")
+            descriptors.frombytes(data)
+        if payload != b"L" or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) or len(descriptors) != 1:
+            for descriptor in descriptors:
+                os.close(descriptor)
+            raise Failure(2, "invalid production lock handoff")
+        self.fd = descriptors[0]
+        self.validate()
+        return result
+
+    def validate(self):
+        require(self.process is not None and self.process.poll() is None, "production lock lease lost")
+        held = Path("/proc") / str(self.process.pid) / "fd/9"
+        require(self.fd is not None, "production lock handoff missing")
+        info, opened, received = PRODUCTION_LOCK.lstat(), held.stat(), os.fstat(self.fd)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == OWNER_UID and info.st_gid == OWNER_GID
+                and info.st_nlink == 1 and not info.st_mode & 0o022
+                and (info.st_dev, info.st_ino) == (opened.st_dev, opened.st_ino)
+                and (info.st_dev, info.st_ino) == (received.st_dev, received.st_ino),
+                "production lock lease identity mismatch")
+        current = (info.st_dev, info.st_ino)
+        require(self.identity is None or self.identity == current, "production lock identity changed")
+        self.identity = current
+
+    def close(self):
+        if self.process is not None:
+            try:
+                self.process.stdin.close()
+                self.process.wait(timeout=3)
+            except (OSError, subprocess.TimeoutExpired):
+                self.process.kill()
+                self.process.wait()
+            self.process.stdout.close()
+            self.process.stderr.close()
+            self.process = None
+        if self.channel is not None:
+            self.channel.close()
+            self.channel = None
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+def docker(arguments, allow_failure=False, held_fds=()):
+    result = subprocess.run([*DOCKER, *arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            env=ENV, timeout=30, close_fds=True, pass_fds=held_fds)
+    if not allow_failure:
+        require(result.returncode == 0, "Docker operation failed; diagnostics suppressed", 1)
+    return result
+
+def json_output(result):
+    return json.loads(result.stdout)
+
+def image_ids():
+    values = set(docker(["image", "ls", "--all", "--no-trunc", "--quiet"]).stdout.decode("ascii").splitlines())
+    require(all(ID_PATTERN.fullmatch(value) for value in values), "invalid local image IDs")
+    return values
+
+def inspect_image(reference):
+    item = json_output(docker(["image", "inspect", "--format", IMAGE_FORMAT, reference]))
+    require(isinstance(item, dict) and ID_PATTERN.fullmatch(item.get("id", "")), "invalid image metadata")
+    for field in ("digests", "tags"):
+        item[field] = [] if item.get(field) is None else item[field]
+        require(isinstance(item[field], list) and all(isinstance(value, str) for value in item[field]),
+                "invalid image aliases")
+        item[field] = sorted(set(item[field]))
+    return item
+
+def inventory():
+    result = {}
+    bindings = {}
+    for image_id in sorted(image_ids()):
+        item = inspect_image(image_id)
+        require(item["id"] == image_id, "local image identity mismatch")
+        for reference in item["digests"]:
+            require(reference not in bindings or bindings[reference] == image_id,
+                    "RepoDigest maps to multiple local image IDs")
+            bindings[reference] = image_id
+        result[image_id] = item
+    return result
+
+def containers(images):
+    identifiers = docker(["ps", "--all", "--no-trunc", "--quiet"]).stdout.decode("ascii").splitlines()
+    result = []
+    for identifier in sorted(set(identifiers)):
+        require(re.fullmatch(r"[0-9a-f]{64}", identifier), "invalid container ID")
+        item = json_output(docker(["inspect", "--format", CONTAINER_FORMAT, identifier]))
+        require(isinstance(item, dict) and item.get("id") == identifier
+                and item.get("image") in images and isinstance(item.get("running"), bool),
+                "container image mapping unavailable/ambiguous")
+        result.append(item)
+    return result
+
+def protection(staging, production, images, report):
+    protected = set()
+    for name, records in (("staging", staging), ("production", production)):
+        entries = []
+        for label, value in records.items():
+            if value is None:
+                continue
+            for repository, image_digest in zip(REPOSITORIES, value[1:]):
+                reference = repository + "@" + image_digest
+                item = inspect_image(reference)
+                require(item["id"] in images and reference in item["digests"]
+                        and item["digests"] == images[item["id"]]["digests"],
+                        "protected release digest/ID mapping incomplete or changed")
+                protected.add(item["id"])
+                entries.append({"release": label, "reference": reference, "image_id": item["id"]})
+        report[name + "_protected"] = entries
+    references = containers(images)
+    report["running_protected"] = [item for item in references if item["running"]]
+    protected.update(item["image"] for item in references)
+    report["container_retained"] = [item for item in references if not item["running"]]
+    pgvector = inspect_image(PGVECTOR)
+    require(pgvector["id"] in images, "required pgvector mapping missing")
+    protected.add(pgvector["id"])
+    report["pgvector_protected"] = [{"reference": PGVECTOR, "image_id": pgvector["id"]}]
+    return protected
+
+def classify(images, protected):
+    candidates, retained, ambiguous = [], [], []
+    for image_id, item in sorted(images.items()):
+        if image_id in protected:
+            retained.append({"image_id": image_id, "reason": "protected_image_id_all_aliases"})
+            continue
+        repositories = set()
+        invalid = False
+        for reference in item["digests"]:
+            repository, separator, value = reference.partition("@")
+            if not separator or not ID_PATTERN.fullmatch(value):
+                invalid = True
+            repositories.add(repository)
+        tag_repositories = {reference.rsplit(":", 1)[0] for reference in item["tags"]}
+        project = bool(repositories.intersection(REPOSITORIES) or tag_repositories.intersection(REPOSITORIES)
+                       or item.get("source") == PROJECT_SOURCE)
+        if repositories and not repositories.intersection(REPOSITORIES) and not project:
+            retained.append({"image_id": image_id, "reason": "unrelated_repository"})
+            continue
+        if not item["digests"] and tag_repositories and not project:
+            retained.append({"image_id": image_id, "reason": "unrelated_tagged_image"})
+            continue
+        if invalid or len(repositories) != 1 or not repositories.issubset(REPOSITORIES) or \
+                not tag_repositories.issubset(REPOSITORIES):
+            ambiguous.append({"image_id": image_id, "reason": "unclassified_or_shared_aliases"})
+            continue
+        candidates.append({"image_id": image_id, "repository": next(iter(repositories)),
+                           "digests": item["digests"], "tags": item["tags"]})
+    return candidates, retained, ambiguous
+
+def refresh(lease, locks, report):
+    report["protection_complete"] = False
+    for lock in locks:
+        lock.validate()
+    staging = staging_snapshot()
+    production = lease.snapshot()
+    images = inventory()
+    protected = protection(staging, production, images, report)
+    lease.validate()
+    report["protection_complete"] = True
+    return images, protected
+
+def execute(mode, report, lease, locks):
+    images, protected = refresh(lease, locks, report)
+    candidates, report["retained"], report["ambiguous"] = classify(images, protected)
+    report["candidates"] = candidates
+    report["protection_complete"] = True
+    require(not report["ambiguous"], "ambiguous images retained; destructive apply forbidden")
+    if mode == "--dry-run":
+        return
+    for candidate in candidates:
+        image_id = candidate["image_id"]
+        fresh, protected = refresh(lease, locks, report)
+        current, retained, ambiguous = classify(fresh, protected)
+        report["retained"], report["ambiguous"] = retained, ambiguous
+        require(not ambiguous, "new image ambiguity; remaining deletes stopped")
+        if image_id not in fresh:
+            report["skipped"].append({"image_id": image_id, "reason": "already_absent"})
+            continue
+        if image_id in protected:
+            report["skipped"].append({"image_id": image_id, "reason": "became_protected"})
+            continue
+        require(candidate in current, "candidate aliases/classification changed; remaining deletes stopped")
+        for lock in locks:
+            lock.validate()
+        lease.validate()
+        attempt = {"image_id": image_id, "outcome": "unconfirmed"}
+        report["delete_attempts"].append(attempt)
+        result = docker(["image", "rm", "--no-prune", image_id], allow_failure=True,
+                        held_fds=(*[lock.fd for lock in locks], lease.fd))
+        if result.returncode != 0:
+            if image_id not in image_ids():
+                attempt["outcome"] = "absent_after_cli_error"
+                report["skipped"].append({"image_id": image_id, "reason": "disappeared_during_delete"})
+            else:
+                attempt["outcome"] = "failed_image_still_present"
+            raise Failure(1, "exact image deletion failed; remaining deletes stopped")
+        require(image_id not in image_ids(), "image deletion incomplete; remaining deletes stopped", 1)
+        attempt["outcome"] = "deleted"
+        report["deleted"].append(image_id)
+        lease.validate()
+
+def main():
+    mode = "--dry-run"
+    report = {"version": 1, "mode": mode, "status": "incomplete", "protection_complete": False,
+              "staging_protected": [], "production_protected": [], "running_protected": [],
+              "pgvector_protected": [], "container_retained": [], "candidates": [], "deleted": [],
+              "delete_attempts": [], "retained": [], "ambiguous": [], "skipped": [], "errors": []}
+    locks, lease, code = [], None, 0
+    try:
+        require(len(sys.argv) <= 2 and (len(sys.argv) == 1 or sys.argv[1] in ("--dry-run", "--apply")),
+                "usage: tuttoseriea-reconcile-images [--dry-run|--apply]")
+        mode = sys.argv[1] if len(sys.argv) == 2 else mode
+        report["mode"] = mode
+        require(sys.platform == "linux" and os.geteuid() == OWNER_UID, "Linux root is required")
+        locks.append(Lock(RECONCILE_LOCK))
+        locks.append(Lock(STAGING_LOCK))
+        lease = ProductionLease()
+        execute(mode, report, lease, locks)
+        report["status"] = "complete"
+    except Failure as error:
+        code = error.code
+        report["errors"].append(error.message)
+        report["status"] = "partial" if report["delete_attempts"] else "blocked"
+    except BaseException as error:
+        code = 1
+        report["errors"].append("operational failure: " + type(error).__name__)
+        report["status"] = "partial" if report["delete_attempts"] else "blocked"
+    finally:
+        for resource in ([lease] if lease is not None else []) + list(reversed(locks)):
+            try:
+                resource.close()
+            except BaseException as error:
+                code = 1
+                report["errors"].append("coordination cleanup failure: " + type(error).__name__)
+                report["status"] = "partial" if report["delete_attempts"] else "blocked"
+    print(json.dumps(report, sort_keys=True, indent=2))
+    print("image_retention mode={} status={} candidates={} deleted={} ambiguous={} errors={}".format(
+          mode, report["status"], len(report["candidates"]), len(report["deleted"]),
+          len(report["ambiguous"]), len(report["errors"])), file=sys.stderr)
+    return code
+
+def interrupted(signum, frame):
+    raise Failure(1, "interrupted; remaining deletes stopped")
+
+signal.signal(signal.SIGTERM, interrupted)
+signal.signal(signal.SIGINT, interrupted)
+sys.exit(main())
+PY
