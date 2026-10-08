@@ -41,6 +41,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const environment = process.argv[2];
 const config = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const loggingPolicy = { driver: "json-file", options: { "max-size": "20m", "max-file": "5" } };
+function assertLoggingPolicy(service, name) {
+  assert.deepEqual(service.logging, loggingPolicy, name + ": unexpected logging policy");
+}
 assert.equal(config.name, "tuttoseriea-" + environment);
 assert.deepEqual(Object.keys(config.services).sort(), ["ai-service", "postgres", "web"]);
 assert.equal(config.services.web.image, "${WEB_IMAGE:?WEB_IMAGE is required}");
@@ -49,11 +53,24 @@ assert.equal(config.services.postgres.image, "pgvector/pgvector:0.8.6-pg18");
 for (const [name, service] of Object.entries(config.services)) {
   assert.equal(service.restart, "unless-stopped");
   const allowed = {
-    web: ["image", "restart", "ports", "env_file", "depends_on", "networks"],
-    "ai-service": ["image", "restart", "env_file", "networks"],
-    postgres: ["image", "restart", "env_file", "volumes", "healthcheck", "networks"],
+    web: ["image", "restart", "logging", "ports", "env_file", "depends_on", "networks"],
+    "ai-service": ["image", "restart", "logging", "env_file", "networks"],
+    postgres: ["image", "restart", "logging", "env_file", "volumes", "healthcheck", "networks"],
   }[name];
   assert.ok(Object.keys(service).every((key) => allowed.includes(key)), name + ": unexpected runtime setting");
+  assertLoggingPolicy(service, name);
+  const invalidPolicies = [
+    undefined,
+    { driver: "local", options: loggingPolicy.options },
+    { driver: "json-file", options: {} },
+    { driver: "json-file", options: { "max-size": "10m", "max-file": "5" } },
+    { driver: "json-file", options: { "max-size": "20m", "max-file": "3" } },
+    { driver: "json-file", options: { "max-size": "20m", "max-file": 5 } },
+    { driver: "json-file", options: { ...loggingPolicy.options, compress: "true" } },
+  ];
+  for (const logging of invalidPolicies) {
+    assert.throws(() => assertLoggingPolicy({ ...service, logging }, name), { name: "AssertionError" });
+  }
   const expectedFile = { web: "./runtime.env", "ai-service": "./ai-service.env", postgres: "./postgres.env" }[name];
   assert.equal(service.env_file.length, 1);
   assert.equal(service.env_file[0].path ?? service.env_file[0], expectedFile);
@@ -76,6 +93,7 @@ assert.deepEqual(config.services.postgres.healthcheck, {
   test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"],
   timeout: "5s", interval: "10s", retries: 5, start_period: "10s",
 });
+console.log("vds_logging_policy_check=" + environment + " passed (three services; invalid policies rejected)");
 NODE
   done
   printf 'vds_compose_check=passed\n'
