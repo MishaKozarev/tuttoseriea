@@ -324,20 +324,30 @@ def containers(images):
 
 def protection(staging, production, images, report):
     protected = set()
+    bindings = {reference: item["id"] for item in images.values() for reference in item["digests"]}
     for name, records in (("staging", staging), ("production", production)):
         entries = []
+        health = "HEALTHY"
         for label, value in records.items():
             if value is None:
                 continue
             for repository, image_digest in zip(REPOSITORIES, value[1:]):
                 reference = repository + "@" + image_digest
+                # Only a complete, validated inventory proves local absence.
+                if reference not in bindings:
+                    missing = {"environment": name, "release": label, "reference": reference}
+                    if missing not in report["missing_protected"]:
+                        report["missing_protected"].append(missing)
+                    health = "DEGRADED"
+                    continue
                 item = inspect_image(reference)
-                require(item["id"] in images and reference in item["digests"]
+                require(item["id"] == bindings[reference] and reference in item["digests"]
                         and item["digests"] == images[item["id"]]["digests"],
                         "protected release digest/ID mapping incomplete or changed")
                 protected.add(item["id"])
                 entries.append({"release": label, "reference": reference, "image_id": item["id"]})
         report[name + "_protected"] = entries
+        report[name + "_protection"] = health
     references = containers(images)
     report["running_protected"] = [item for item in references if item["running"]]
     protected.update(item["image"] for item in references)
@@ -380,6 +390,8 @@ def classify(images, protected):
 
 def refresh(lease, locks, report):
     report["protection_complete"] = False
+    report["cleanup_authority"] = "NO_DELETE"
+    report["staging_protection"] = report["production_protection"] = "UNKNOWN"
     for lock in locks:
         lock.validate()
     staging = staging_snapshot()
@@ -396,6 +408,7 @@ def execute(mode, report, lease, locks):
     report["candidates"] = candidates
     report["protection_complete"] = True
     require(not report["ambiguous"], "ambiguous images retained; destructive apply forbidden")
+    report["cleanup_authority"] = "AVAILABLE"
     if mode == "--dry-run":
         return
     for candidate in candidates:
@@ -404,6 +417,7 @@ def execute(mode, report, lease, locks):
         current, retained, ambiguous = classify(fresh, protected)
         report["retained"], report["ambiguous"] = retained, ambiguous
         require(not ambiguous, "new image ambiguity; remaining deletes stopped")
+        report["cleanup_authority"] = "AVAILABLE"
         if image_id not in fresh:
             report["skipped"].append({"image_id": image_id, "reason": "already_absent"})
             continue
@@ -433,6 +447,8 @@ def execute(mode, report, lease, locks):
 def main():
     mode = "--dry-run"
     report = {"version": 1, "mode": mode, "status": "incomplete", "protection_complete": False,
+              "staging_protection": "UNKNOWN", "production_protection": "UNKNOWN",
+              "cleanup_authority": "NO_DELETE", "missing_protected": [],
               "staging_protected": [], "production_protected": [], "running_protected": [],
               "pgvector_protected": [], "container_retained": [], "candidates": [], "deleted": [],
               "delete_attempts": [], "retained": [], "ambiguous": [], "skipped": [], "errors": []}
@@ -464,10 +480,18 @@ def main():
                 code = 1
                 report["errors"].append("coordination cleanup failure: " + type(error).__name__)
                 report["status"] = "partial" if report["delete_attempts"] else "blocked"
+    if code:
+        report["cleanup_authority"] = "NO_DELETE"
     print(json.dumps(report, sort_keys=True, indent=2))
-    print("image_retention mode={} status={} candidates={} deleted={} ambiguous={} errors={}".format(
+    for missing in report["missing_protected"]:
+        print("WARNING missing_protected environment={environment} release={release} reference={reference}: "
+              "absent from validated local inventory during this run; no pull/restore performed".format(**missing),
+              file=sys.stderr)
+    print("image_retention mode={} status={} candidates={} deleted={} ambiguous={} errors={} "
+          "missing_protected={} staging_protection={} production_protection={} cleanup_authority={}".format(
           mode, report["status"], len(report["candidates"]), len(report["deleted"]),
-          len(report["ambiguous"]), len(report["errors"])), file=sys.stderr)
+          len(report["ambiguous"]), len(report["errors"]), len(report["missing_protected"]),
+          report["staging_protection"], report["production_protection"], report["cleanup_authority"]), file=sys.stderr)
     return code
 
 def interrupted(signum, frame):

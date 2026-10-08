@@ -114,8 +114,8 @@ Coordination order is fixed: `/run/lock/tuttoseriea-image-reconcile.lock`, then
 locks through every deletion. Re-sourcing the reader reacquires only the last
 lock; snapshots and mappings are revalidated afterward, before any delete.
 Busy, lost or replaced locks, unsafe ownership/modes/ACLs, malformed/missing
-STAGING state, reader failure/drift, or unavailable/ambiguous Docker mappings
-stop deletion. Trusted directories must be root-owned and not group/world
+STAGING state, reader failure/drift, failed Docker queries or unsafe/ambiguous
+mappings stop deletion. Trusted directories must be root-owned and not group/world
 writable (the root-owned sticky `/run/lock` exception is allowed), with no
 unreviewed ACLs/xattrs. State files must be root-owned `0600` regular files.
 The Production lock file is checked/created safely without following symlinks
@@ -135,7 +135,23 @@ config digests. Candidate IDs need unambiguous whitelist RepoDigests and no
 foreign aliases; tags, age, source labels or dangling status alone never
 authorize deletion. A protected ID retains every alias. Third-party images
 remain untouched; unclassified/digestless or mixed aliases are retained and
-block destructive apply. Even one incomplete environment blocks all deletion.
+block destructive apply. Even one incomplete environment snapshot or unsafe
+mapping blocks all deletion.
+
+MASTER-approved degraded-but-operational protection distinguishes missing local
+images from invalid release state. After a complete validated local inventory,
+a valid release RepoDigest with no local binding is recorded as
+`missing_protected` with its environment, release label and exact reference.
+It is not malformed state. The reconciler never pulls or restores that image.
+Existing release bindings still require exact inspect-to-inventory agreement;
+inventory/inspect errors or contradictory/ambiguous mappings are not absence.
+
+Missing local release images alone allow cleanup when both state snapshots are
+valid, all existing protected mappings are unambiguous, runtime and pgvector
+protection is valid, and classification introduces no unsafe ambiguity. Missing
+state, malformed records, reader/lock failures, missing runtime/pgvector
+mappings or other incomplete safety information still mean NO DELETE. Candidate
+authority and exact-ID retention rules are unchanged.
 
 Apply uses only the initially calculated candidates, refreshing release and
 container protection and checking unchanged aliases before each exact
@@ -153,6 +169,18 @@ No env values or raw Docker/reader diagnostics are printed. Exit codes are
 `0` complete, `2` invalid/incomplete/ambiguous protection, `75` reconciler or
 STAGING lock contention, and `1` operational failure. Production lock contention
 is reader failure (`2`). `partial` means a delete was attempted before failure.
+
+Both dry-run and apply include `missing_protected` in JSON and print one
+`WARNING missing_protected` line per observed missing reference to stderr.
+Warnings are deduplicated and retained through all refreshes in that invocation,
+including when an image later becomes available; they recur on every invocation
+while the absence persists. No warning acknowledgement or mutable warning state
+is created. `staging_protection` and `production_protection` report `HEALTHY`,
+`DEGRADED` (a missing local release image), or `UNKNOWN` (not yet validated) for
+the latest snapshot. `cleanup_authority` is `AVAILABLE` only after all safety
+gates pass; any failure reports `NO_DELETE`. A successful degraded run still
+exits `0` with `status=complete`: `protection_complete=true` means deletion safety
+information is complete, not that every release image exists locally.
 
 The oneshot unit calls explicit `--apply` and requires Docker already active;
 it cannot start Docker. The timer source schedules daily at 03:30 UTC with up to
@@ -190,7 +218,10 @@ real Docker socket or deletes real images. Every fake delete checks that all
 three real flock locks are held, including forced helper termination. It covers
 independent releases, reader/state
 failures, ambiguous mappings, aliases, late protection changes, exact deletion,
-partial failure and idempotency. When available, systemd-analyze validates
+partial failure and idempotency. Missing STAGING verified/current and Production
+previous images are tested in dry-run and fake apply, including persistent
+warnings, remaining protected images, reappearing aliases and all blocking
+state/mapping/runtime failures. When available, systemd-analyze validates
 private copies of the units with fixture executable/dependency locations; it
 does not load/activate units. An unavailable analyzer is reported as not_run;
 CI requires it and runs this native check.

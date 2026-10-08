@@ -88,15 +88,22 @@ if args == ["image", "ls", "--all", "--no-trunc", "--quiet"]:
         data["images"].pop(data["disappear"], None)
     if data.get("new_alias") and data["lists"] == 2:
         data["images"][data["new_alias"]]["tags"] = ["example/foreign:alias"]
+    if data.get("restore_protected_alias") and data["lists"] == 2:
+        alias = data["restore_protected_alias"]
+        data["images"][alias["image_id"]]["digests"].append(alias["reference"])
     save()
     print("\n".join(sorted(data["images"])))
 elif args[:3] == ["image", "inspect", "--format"]:
     assert args[3] == __IMAGE_FORMAT__, "fake CLI must receive the canonical metadata projection"
     reference = args[-1]
+    if data.get("inspect_failure") == reference:
+        save(); sys.exit(43)
     matches = [item for item in data["images"].values()
                if reference == item["id"] or reference in item["digests"] or reference in item["tags"]]
     if len(matches) != 1:
         save(); sys.exit(44)
+    if data.get("contradictory_reference") == reference:
+        matches[0] = dict(matches[0], id="sha256:" + "f" * 64)
     output(matches[0])
 elif args == ["ps", "--all", "--no-trunc", "--quiet"]:
     data["container_lists"] = data.get("container_lists", 0) + 1
@@ -210,6 +217,17 @@ with tempfile.TemporaryDirectory(prefix="tuttoseriea-image-retention.") as direc
         result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
         require(result.returncode == expected, "wrong exit: " + result.stderr.decode(errors="replace"))
         output = json.loads(result.stdout)
+        require(output["cleanup_authority"] == ("NO_DELETE" if expected else "AVAILABLE"),
+                "cleanup authority differs from validated outcome")
+        missing = output["missing_protected"]
+        require(len(missing) == len({(item["environment"], item["release"], item["reference"]) for item in missing}),
+                "missing protection warnings duplicated across apply refreshes")
+        diagnostics = result.stderr.decode()
+        require(diagnostics.count("WARNING missing_protected ") == len(missing),
+                "missing protection warnings absent from stderr")
+        for item in missing:
+            require("environment={environment} release={release} reference={reference}".format(**item) in diagnostics,
+                    "missing protection warning lost its identity")
         require(before == state_bytes(), "reconciler wrote release state")
         require("Config.Env" not in result.stdout.decode(), "unexpected env output")
         trace = [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
@@ -227,6 +245,8 @@ with tempfile.TemporaryDirectory(prefix="tuttoseriea-image-retention.") as direc
     data = baseline()
     output, after = run(None)
     require(output["mode"] == "--dry-run" and not after.get("removed"), "default mode mutated images")
+    require(output["staging_protection"] == output["production_protection"] == "HEALTHY"
+            and not output["missing_protected"], "healthy baseline reported as degraded")
     require({item["image_id"] for item in output["candidates"]} == {image_id(11),image_id(12)}, "wrong obsolete candidates")
     require(len(output["staging_protected"]) == 4 and len(output["production_protected"]) == 6,
             "incomplete release protection")
@@ -312,11 +332,92 @@ with tempfile.TemporaryDirectory(prefix="tuttoseriea-image-retention.") as direc
     require(not after.get("removed"), "Docker unavailable allowed delete")
     print("Docker_unavailable_no_delete=passed")
 
-    for identifier in (image_id(1), image_id(9)):
-        data = baseline(); data["images"].pop(identifier); set_data(data)
+    missing_cases = (
+        ("staging", "verified", (3,)), ("staging", "verified", (4,)),
+        ("staging", "verified", (3, 4)), ("staging", "current", (1,)),
+        ("production", "previous", (7,)), ("production", "previous", (8,)),
+        ("production", "previous", (7, 8)),
+    )
+    for environment, label, numbers in missing_cases:
+        for mode in ("--dry-run", "--apply"):
+            data = baseline()
+            missing = [{"environment": environment, "release": label,
+                        "reference": data["images"].pop(image_id(number))["digests"][0]} for number in numbers]
+            protected_ids = {image_id(number) for number in range(1, 11)} - {image_id(number) for number in numbers}
+            set_data(data)
+            output, after = run(mode)
+            require(output["status"] == "complete" and output["protection_complete"]
+                    and output["missing_protected"] == missing and not output["errors"],
+                    "valid missing local release images blocked operational cleanup")
+            require(output[environment + "_protection"] == "DEGRADED"
+                    and output[("production" if environment == "staging" else "staging") + "_protection"] == "HEALTHY",
+                    "degraded environment health incorrect")
+            require(protected_ids.issubset(after["images"]), "existing protected image deleted")
+            require(set(output["deleted"]) == ({image_id(11), image_id(12)} if mode == "--apply" else set()),
+                    "missing protected image changed exact candidate authority")
+            trace = [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+            require(not any(command[:2] == ["image", "inspect"] and
+                            command[-1] in {item["reference"] for item in missing} for command in trace),
+                    "absent inventory reference inspected as an operational Docker error")
+            if mode == "--apply":
+                output, after = run(mode)
+                require(not output["deleted"] and output["missing_protected"] == missing,
+                        "missing protection warning disappeared on idempotent apply")
+    print("missing_staging_verified_current_production_previous_dry_run_apply_warnings_protection=passed")
+
+    data = baseline(); data["images"].pop(image_id(3))
+    data["restore_protected_alias"] = {"image_id": image_id(11), "reference": web + "@" + sha(21)}
+    set_data(data)
+    output, after = run("--apply")
+    require(output["deleted"] == [image_id(12)] and image_id(11) in after["images"]
+            and output["skipped"][0]["reason"] == "became_protected"
+            and output["staging_protection"] == "HEALTHY"
+            and output["missing_protected"] == [{"environment": "staging", "release": "verified", "reference": web + "@" + sha(21)}],
+            "apply refresh lost observed warning or deleted newly resolved protected image")
+    print("missing_protection_warning_persists_when_alias_reappears_before_apply=passed")
+
+    data = baseline(); data["images"].pop(image_id(3))
+    data["images"][image_id(11)]["digests"] = []; set_data(data)
+    output, after = run("--apply", 2)
+    require(output["missing_protected"] and output["ambiguous"] and not after.get("removed"),
+            "missing protection downgraded an ambiguous local image")
+    data = baseline(); data["images"].pop(image_id(3))
+    data["images"][image_id(11)]["digests"] = data["images"][image_id(1)]["digests"][:]; set_data(data)
+    output, after = run("--apply", 2)
+    require(not after.get("removed"), "missing release allowed contradictory RepoDigest bindings")
+    data = baseline(); data["images"].pop(image_id(3))
+    (stage / "verified-release").write_text("malformed\n"); set_data(data)
+    output, after = run("--apply", 2)
+    require(not after.get("removed") and not output["protection_complete"],
+            "missing image downgraded malformed release state")
+    data = baseline(); data["images"].pop(image_id(7))
+    (prod / "previous-release").write_text("malformed\n"); set_data(data)
+    output, after = run("--apply", 2)
+    require(not after.get("removed") and not output["protection_complete"],
+            "missing image downgraded malformed Production state")
+    print("missing_protected_does_not_override_malformed_state_or_ambiguous_mapping=passed")
+
+    for reference in (image_id(1), web + "@" + sha(11)):
+        data = baseline(); data["inspect_failure"] = reference; set_data(data)
         output, after = run("--apply", 1)
-        require(not after.get("removed") and not output["protection_complete"], "incomplete protected mapping allowed delete")
-    print("missing_release_or_pgvector_mapping_no_delete=passed")
+        require(not output["missing_protected"] and not after.get("removed") and not output["protection_complete"],
+                "existing image inspection error downgraded to missing protection")
+    data = baseline(); data["contradictory_reference"] = web + "@" + sha(11); set_data(data)
+    output, after = run("--apply", 2)
+    require(not after.get("removed") and not output["missing_protected"],
+            "contradictory protected reference identity allowed deletion")
+    print("inventory_existing_reference_errors_and_contradictory_identity_no_delete=passed")
+
+    data = baseline(); data["images"].pop(image_id(9)); set_data(data)
+    output, after = run("--apply", 1)
+    require(not after.get("removed") and not output["protection_complete"] and not output["missing_protected"],
+            "missing required pgvector mapping downgraded to warning")
+    data = baseline(); data["images"].pop(image_id(3))
+    data["containers"]["a" * 64]["image"] = image_id(3); set_data(data)
+    output, after = run("--apply", 2)
+    require(not after.get("removed") and not output["protection_complete"] and output["missing_protected"],
+            "incomplete running-container image protection downgraded to warning")
+    print("missing_pgvector_or_running_container_mapping_no_delete=passed")
 
     data = baseline(); data["images"][image_id(11)]["digests"] = []; set_data(data)
     output, after = run("--apply", 2)
