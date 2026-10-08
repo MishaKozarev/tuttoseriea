@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+WARNING_THRESHOLD=70
+CRITICAL_THRESHOLD=85
+
+usage="$(LC_ALL=C df --output=pcent / 2>/dev/null | awk 'NR == 2 { sub(/%$/, "", $1); print $1 }')" || usage=""
+if [[ ! "$usage" =~ ^[0-9]+$ ]]; then
+  printf 'status=CRITICAL usage_percent=unknown threshold=%s\n' "$CRITICAL_THRESHOLD"
+  exit 2
+fi
+usage=$((10#$usage))
+
+if (( usage >= CRITICAL_THRESHOLD )); then
+  status=CRITICAL
+  threshold="$CRITICAL_THRESHOLD"
+  result=2
+elif (( usage >= WARNING_THRESHOLD )); then
+  status=WARNING
+  threshold="$WARNING_THRESHOLD"
+  result=1
+else
+  status=OK
+  threshold="$WARNING_THRESHOLD"
+  result=0
+fi
+
+printf 'status=%s usage_percent=%s threshold=%s\n' "$status" "$usage" "$threshold"
+exit "$result"

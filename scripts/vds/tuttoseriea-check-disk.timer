@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly TuttoSerieA root filesystem usage check
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=tuttoseriea-check-disk.service
+
+[Install]
+WantedBy=timers.target

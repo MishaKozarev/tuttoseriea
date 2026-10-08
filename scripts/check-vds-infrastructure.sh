@@ -102,6 +102,7 @@ else
 fi
 if [[ "$mode" == --compose-only ]]; then
   printf 'vds_shell_behavior_check=not_run\n'
+  printf 'vds_disk_monitor_check=not_run\n'
   exit 0
 fi
 
@@ -113,6 +114,57 @@ export VDS_TEST_ROOT="$scratch" VDS_TEST_TRACE="${scratch}/trace"
 export VDS_REAL_FLOCK="$real_flock" VDS_REAL_MV="$real_mv" VDS_REAL_RM="$real_rm"
 export VDS_FAIL_EVENT=""
 mkdir -p "$scratch/bin" "$scratch/scripts" "$scratch/srv"/{staging,production}/{state,config}
+
+disk_script="$VDS_DIR/tuttoseriea-check-disk"
+disk_service="$VDS_DIR/tuttoseriea-check-disk.service"
+disk_timer="$VDS_DIR/tuttoseriea-check-disk.timer"
+grep -Fxq 'Type=oneshot' "$disk_service" || error "Disk service must be oneshot"
+grep -Fxq 'User=root' "$disk_service" || error "Disk service must use root"
+grep -Fxq 'Group=root' "$disk_service" || error "Disk service must use root group"
+grep -Fxq 'ExecStart=/usr/local/sbin/tuttoseriea-check-disk' "$disk_service" || error "Unexpected disk check entrypoint"
+grep -Fxq 'OnCalendar=hourly' "$disk_timer" || error "Disk timer must run hourly"
+grep -Fxq 'Unit=tuttoseriea-check-disk.service' "$disk_timer" || error "Unexpected disk timer target"
+grep -Fxq 'Persistent=true' "$disk_timer" || error "Disk timer must catch up missed checks"
+if grep -Eq '\b(docker|systemctl|sudo|rm|mv|cp|install|chmod|chown|mkdir|truncate|tee|dd|prune|cleanup|deploy|verify|rollback|migration|release-state)\b' \
+  "$disk_script" "$disk_service" "$disk_timer"; then
+  error "Disk monitoring must not mutate runtime or perform cleanup"
+fi
+mkdir -p "$scratch/disk-bin" "$scratch/units"
+cat > "$scratch/disk-bin/df" <<'STUB'
+#!/usr/bin/env bash
+[[ "$#" == 2 && "$1" == --output=pcent && "$2" == / ]] || exit 99
+[[ "$VDS_DISK_VALUE" != df-error ]] || exit 1
+printf 'Use%%\n %s\n' "$VDS_DISK_VALUE"
+STUB
+chmod +x "$scratch/disk-bin/df"
+check_disk() {
+  local value="$1" status="$2" usage="$3" threshold="$4" expected_exit="$5" actual result=0
+  actual="$(PATH="$scratch/disk-bin:$PATH" VDS_DISK_VALUE="$value" bash "$disk_script")" || result=$?
+  [[ "$result" == "$expected_exit" && "$actual" == "status=$status usage_percent=$usage threshold=$threshold" ]] ||
+    error "Unexpected disk result for $value: exit=$result $actual"
+}
+check_disk 0% OK 0 70 0
+check_disk 69% OK 69 70 0
+check_disk 70% WARNING 70 70 1
+check_disk 84% WARNING 84 70 1
+check_disk 85% CRITICAL 85 85 2
+check_disk 100% CRITICAL 100 85 2
+check_disk 101% CRITICAL 101 85 2
+check_disk 070% WARNING 70 70 1
+check_disk '' CRITICAL unknown 85 2
+check_disk invalid CRITICAL unknown 85 2
+check_disk df-error CRITICAL unknown 85 2
+printf 'vds_disk_monitor_check=passed (root target, 70/85 boundaries, exit codes, read failures, no mutation)\n'
+if command -v systemd-analyze >/dev/null; then
+  sed 's|ExecStart=/usr/local/sbin/tuttoseriea-check-disk|ExecStart=/usr/bin/true|' \
+    "$disk_service" > "$scratch/units/tuttoseriea-check-disk.service"
+  cp "$disk_timer" "$scratch/units/tuttoseriea-check-disk.timer"
+  SYSTEMD_UNIT_PATH="$scratch/units:" systemd-analyze --man=no verify \
+    "$scratch/units/tuttoseriea-check-disk.service" "$scratch/units/tuttoseriea-check-disk.timer"
+  printf 'vds_disk_native_unit_verify=passed (private copies; no activation)\n'
+else
+  printf 'vds_disk_native_unit_verify=not_run (systemd-analyze unavailable)\n'
+fi
 
 # Only disposable copies use test paths and stubs; canonical interfaces stay fixed.
 for source in "$VDS_DIR"/tuttoseriea-*; do

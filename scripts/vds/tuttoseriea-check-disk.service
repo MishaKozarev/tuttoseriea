@@ -1,0 +1,10 @@
+[Unit]
+Description=TuttoSerieA root filesystem usage check
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/tuttoseriea-check-disk
+TimeoutStartSec=30s
+NoNewPrivileges=true
