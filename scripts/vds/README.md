@@ -37,6 +37,9 @@ The canonical sources and intended destinations are:
 | `scripts/vds/tuttoseriea-reconcile-images` | `/usr/local/sbin/tuttoseriea-reconcile-images` | `root:root` | `0700` |
 | `scripts/vds/tuttoseriea-reconcile-images.service` | `/etc/systemd/system/tuttoseriea-reconcile-images.service` | `root:root` | `0644` |
 | `scripts/vds/tuttoseriea-reconcile-images.timer` | `/etc/systemd/system/tuttoseriea-reconcile-images.timer` | `root:root` | `0644` |
+| `scripts/vds/tuttoseriea-check-disk` | `/usr/local/sbin/tuttoseriea-check-disk` | `root:root` | `0700` |
+| `scripts/vds/tuttoseriea-check-disk.service` | `/etc/systemd/system/tuttoseriea-check-disk.service` | `root:root` | `0644` |
+| `scripts/vds/tuttoseriea-check-disk.timer` | `/etc/systemd/system/tuttoseriea-check-disk.timer` | `root:root` | `0644` |
 
 The run-job templates also include a Production delegator, but this change does
 not provision or alter Production:
@@ -70,6 +73,19 @@ to separately provisioned runtime.env, ai-service.env and postgres.env. They
 preserve the captured project names, ports, services and project-scoped volume.
 Real env files remain outside Git. Normal application deployment reads the live
 Compose file; it does not generate or replace it.
+
+## Storage operations status
+
+MASTER-confirmed live state for this closeout, not independently re-inspected
+from LOCAL:
+
+- Host-wide image retention: DONE. The reconciler is installed, the first
+  explicitly approved apply passed, and its daily timer is active.
+- STAGING and PRODUCTION log rotation: DONE. All six runtime containers use
+  `json-file`, `max-size=20m`, `max-file=5`; both environment health checks passed.
+- Disk monitoring: repository sources implement the approved hourly root
+  filesystem check with warning/critical thresholds 70/85. Live provisioning
+  and timer activation remain separate; this closeout does not perform them.
 
 ## Docker log rotation
 
@@ -238,12 +254,50 @@ information is complete, not that every release image exists locally.
 
 The oneshot unit calls explicit `--apply` and requires Docker already active;
 it cannot start Docker. The timer source schedules daily at 03:30 UTC with up to
-ten minutes of jitter and persistent catch-up. These sources are NOT installed
-or activated by this change, CI, or application delivery. Future rollout must
-separately approve trusted manual provisioning, inspect a successful dry-run,
-perform the first explicitly approved manual apply, then approve timer
-activation as a separate step. No deploy/verify hooks or SSH/sudoers expansion
-are included.
+ten minutes of jitter and persistent catch-up. MASTER confirms that live
+provisioning, the first approved manual apply and daily timer activation are
+complete. Repository changes, CI and application delivery still do not install
+or activate operational files; future changes require separate approval.
+No deploy/verify hooks or SSH/sudoers expansion are included.
+
+The known approved `missing_protected` condition can leave STAGING protection
+`DEGRADED` while PRODUCTION is `HEALTHY` and cleanup authority is `AVAILABLE`.
+This remains visible in every dry-run/apply report while the local image is
+absent. It does not authorize pulling/restoring images or bypassing any of the
+existing invalid-state, reader, lock or ambiguity gates described above.
+
+## Root filesystem disk monitoring
+
+`tuttoseriea-check-disk` reads only `/` usage with Linux `df --output=pcent /`.
+It prints one line containing `status`, `usage_percent` and `threshold`:
+
+| Root usage | Status | Exit code | Reported threshold |
+| --- | --- | --- | --- |
+| Below 70% | `OK` | `0` | `70` |
+| At least 70%, below 85% | `WARNING` | `1` | `70` |
+| At least 85% | `CRITICAL` | `2` | `85` |
+
+Read/parse failure reports `status=CRITICAL usage_percent=unknown threshold=85`
+and exits `2`, never a false OK. The root-owned oneshot service runs this script;
+the timer uses `OnCalendar=hourly` with persistent catch-up. Output goes to the
+systemd journal. Warning/critical exits leave a visible failed service result;
+there is no automatic retry/cleanup or external notification delivery.
+
+The check has no Docker dependency and does not operate on containers, images,
+logs, application/deployment state or the database. It is observation only.
+Installing these three files and activating the hourly timer require separate
+manual provisioning; no provisioning bundle is included in this change.
+
+Read-only LOCAL check on Linux:
+
+```bash
+bash scripts/vds/tuttoseriea-check-disk
+echo "exit_code=$?"
+```
+
+Exit `1` or `2` is the documented warning/critical result, not a cleanup request.
+After separate live provisioning, operators can read the latest output with
+`journalctl -u tuttoseriea-check-disk.service -n 10 --no-pager`.
 
 ## Repository checks
 
@@ -265,6 +319,12 @@ Compose config parsing does not resolve runtime env files or image digests.
 For split LOCAL verification, --shell-only runs Linux fixture checks and
 --compose-only runs Compose checks; each reports the omitted component as not_run.
 Missing native visudo must be reported explicitly; CI retains its native check.
+
+The same infrastructure check tests disk usage at the 70/85 boundaries, exit
+codes and df/parse failures using a df stub that accepts only `/`. It validates
+the hourly oneshot/timer sources and absence of mutation/cleanup commands.
+When available, systemd-analyze verifies private unit copies without loading or
+activating them; otherwise the native verification is explicitly `not_run`.
 
 The image-retention check uses a private disposable filesystem, the canonical
 Production reader fixture and a fake Docker CLI only. It never accesses the
