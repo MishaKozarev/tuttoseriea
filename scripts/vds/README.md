@@ -71,6 +71,60 @@ preserve the captured project names, ports, services and project-scoped volume.
 Real env files remain outside Git. Normal application deployment reads the live
 Compose file; it does not generate or replace it.
 
+## Docker log rotation
+
+Both canonical Compose sources explicitly set this policy on `web`,
+`ai-service` and `postgres`:
+
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+```
+
+The policy bounds Docker json-file rotation per container. It does not change
+application log formats or configure global Docker daemon logging. Runtime
+credentials and secret env values must not be included in rollout output.
+
+Repository delivery alone does not change existing container log options.
+Container recreation is required; a process/container restart is insufficient.
+Logging-only rollout is a separately approved manual operation, not app
+promotion. A manual provisioning/rollout bundle is prepared only after required
+CI passes and is not executed automatically.
+
+STAGING is rolled out first. PRODUCTION requires a separate explicit logging
+rollout approval after successful STAGING health verification; there is no
+automatic transition to PRODUCTION. Each phase updates only that environment's
+live Compose from its trusted canonical source (root:root, 0600), with an atomic
+write and private preimage backup.
+
+Preflight must use the approved release readers and existing deployment locks,
+validate live Compose and current runtime configuration, and preserve that
+environment's currently deployed immutable Web/AI digests. The existing
+PostgreSQL image ID and persistent volume must also remain unchanged. Missing
+required images, non-logging configuration/env/mount drift or a live logging
+driver other than json-file stop rollout; no pull, build or retag is used to
+repair a mismatch. No deploy/verify/rollback hooks, migrations, DB provisioning,
+release-state writes, image cleanup, reconciler or timer changes are allowed.
+
+Recreation includes the PostgreSQL container and requires a brief maintenance
+interruption, without schema/data/volume changes. Verify PostgreSQL readiness,
+AI health, Web `/api/health`, the documented internal Web-to-AI auth/connectivity
+smoke, unchanged image IDs/mounts/runtime settings and exact Docker `LogConfig`.
+
+Rollback is limited to the selected environment's logging rollout: restore its
+Compose preimage and captured prior logging options, recreating affected
+containers on the same original images and persistent volume. Stop on unrelated
+drift; do not force recovery or use application/database rollback. Old container
+log history is not restored by this rollback, and Docker-owned log files must
+not be manually edited or removed.
+
+`bash scripts/check-vds-infrastructure.sh --compose-only` validates the exact
+policy through the existing structured Compose model checks and rejects missing,
+incorrect or additional logging options while retaining other runtime checks.
+
 ## Host-wide image retention
 
 `tuttoseriea-reconcile-images` is a Linux root-owned infrastructure consumer for
