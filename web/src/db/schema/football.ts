@@ -33,6 +33,7 @@ export const footballCompetitions = footballSchema.table(
     slug: text("slug").notNull(),
     nameRu: text("name_ru"),
     nameRuReviewStatus: text("name_ru_review_status"),
+    localizationRevision: integer("localization_revision").default(0).notNull(),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
   },
@@ -41,6 +42,7 @@ export const footballCompetitions = footballSchema.table(
       "competitions_provider_competition_id_unique",
     ).on(table.provider, table.providerCompetitionId),
     slugUnique: uniqueIndex("competitions_slug_unique").on(table.slug),
+    localizationRevisionCheck: check("competitions_localization_revision_check", sql`${table.localizationRevision} >= 0`),
     nameRuReviewConsistencyCheck: check(
       "competitions_name_ru_review_consistency_check",
       sql`(
@@ -101,6 +103,7 @@ export const footballClubs = footballSchema.table(
     slug: text("slug").notNull(),
     nameRu: text("name_ru"),
     nameRuReviewStatus: text("name_ru_review_status"),
+    localizationRevision: integer("localization_revision").default(0).notNull(),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
   },
@@ -110,6 +113,7 @@ export const footballClubs = footballSchema.table(
       table.providerClubId,
     ),
     slugUnique: uniqueIndex("clubs_slug_unique").on(table.slug),
+    localizationRevisionCheck: check("clubs_localization_revision_check", sql`${table.localizationRevision} >= 0`),
     nameRuReviewConsistencyCheck: check(
       "clubs_name_ru_review_consistency_check",
       sql`(
@@ -343,6 +347,7 @@ export const footballPlayers = footballSchema.table(
     slug: text("slug").notNull(),
     nameRu: text("name_ru"),
     nameRuReviewStatus: text("name_ru_review_status"),
+    localizationRevision: integer("localization_revision").default(0).notNull(),
     firstname: text("firstname"),
     lastname: text("lastname"),
     age: integer("age"),
@@ -363,6 +368,7 @@ export const footballPlayers = footballSchema.table(
       table.providerPlayerId,
     ),
     slugUnique: uniqueIndex("players_slug_unique").on(table.slug),
+    localizationRevisionCheck: check("players_localization_revision_check", sql`${table.localizationRevision} >= 0`),
     agePositiveCheck: check(
       "players_age_positive_check",
       sql`${table.age} is null or ${table.age} > 0`,

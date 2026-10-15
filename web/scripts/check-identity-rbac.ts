@@ -190,6 +190,26 @@ async function main(): Promise<void> {
       throw new Error("emailHasPermission granted ordinary access");
     }
 
+    for (const access of [writerAccess, adminAccess, multiRoleAccess, ordinaryAccess]) {
+      if (!access || hasPermissionForRoles(access.roles, PERMISSION_IDS.footballAdmin)) {
+        throw new Error("Identity without super_admin unexpectedly has football.admin");
+      }
+    }
+
+    if (
+      !superAdminAccess ||
+      !hasPermissionForRoles(superAdminAccess.roles, PERMISSION_IDS.footballAdmin) ||
+      !(await emailHasPermission(superAdmin.email, PERMISSION_IDS.footballAdmin))
+    ) {
+      throw new Error("Expected super_admin identity to have football.admin");
+    }
+
+    for (const fixture of [writer, admin, multiRole, ordinary]) {
+      if (await emailHasPermission(fixture.email, PERMISSION_IDS.footballAdmin)) {
+        throw new Error("emailHasPermission granted unauthorized Football Admin access");
+      }
+    }
+
     await expectPostgresErrorCode(
       () =>
         client.query(
@@ -231,6 +251,7 @@ async function main(): Promise<void> {
   console.log("identity_accounts_1_to_1=true");
   console.log("identity_account_roles_multi_role=true");
   console.log("identity_admin_access_mapping=true");
+  console.log("identity_football_admin_super_admin_only=true");
   console.log("identity_runtime_write_denied=true");
 }
 

@@ -4,13 +4,14 @@ export type StaffRoleId = (typeof STAFF_ROLE_IDS)[number];
 
 export const PERMISSION_IDS = {
   adminAccess: "admin.access",
+  footballAdmin: "football.admin",
 } as const;
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
 
 const rolePermissions: Record<StaffRoleId, readonly PermissionId[]> = {
   admin: [PERMISSION_IDS.adminAccess],
-  super_admin: [PERMISSION_IDS.adminAccess],
+  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin],
   writer: [PERMISSION_IDS.adminAccess],
 };
 

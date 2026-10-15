@@ -54,6 +54,10 @@ const jobsTablePrivileges = [
     tableName: "executions",
     privileges: ["SELECT", "INSERT", "UPDATE"],
   },
+  {
+    tableName: "admin_requests",
+    privileges: ["SELECT", "INSERT"],
+  },
 ];
 const footballTablePrivileges = [
   {
@@ -763,7 +767,8 @@ async function main() {
     console.log(`football_schema=${footballSchemaName}`);
     console.log("auth_table_grants=exact");
     console.log("identity_table_grants=select_only");
-    console.log("jobs_table_grants=select_insert_update");
+    console.log("jobs_table_grants=exact");
+    console.log("jobs_admin_requests_grants=select_insert");
     console.log("football_table_grants=exact");
     console.log("application_role_superuser=false");
     console.log("application_role_create_schema=false");

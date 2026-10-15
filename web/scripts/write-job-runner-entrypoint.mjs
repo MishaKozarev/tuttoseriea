@@ -21,3 +21,8 @@ await writeFile(
   'require("./jobs/match-data-backfill-cli.js").startMatchDataBackfillCli();\n',
   "utf8",
 );
+await writeFile(
+  path.join(runnerDirectory, "admin-consumer.js"),
+  'require("./jobs/admin-consumer-cli.js").startAdminConsumerCli();\n',
+  "utf8",
+);
