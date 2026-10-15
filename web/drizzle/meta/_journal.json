@@ -120,6 +120,20 @@
       "when": 1791244916580,
       "tag": "0016_organic_stark_industries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792048914561,
+      "tag": "0017_parched_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792060405935,
+      "tag": "0018_silky_scorpion",
+      "breakpoints": true
     }
   ]
 }

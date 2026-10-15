@@ -5,6 +5,7 @@ import { getJobDefinition } from "./registry";
 import { JobRepository } from "./repository";
 import {
   JobLeaseLostError,
+  JobUsageError,
   RUNNER_EXIT_CODES,
   type ClaimedJobExecution,
   type JobExecution,
@@ -27,6 +28,8 @@ export type RunJobInput = {
   repository?: JobRepository;
   runnerId?: string;
   beforeProviderRequestAttempt?: () => Promise<void>;
+  executionId?: string;
+  adminRequestId?: string;
 };
 
 export type RunJobResult = {
@@ -88,6 +91,10 @@ function createContext(
 }
 
 export async function runJobOnce(input: RunJobInput): Promise<RunJobResult> {
+  if (input.adminRequestId !== undefined &&
+      (!input.executionId || !input.adminRequestId || typeof input.beforeProviderRequestAttempt !== "function")) {
+    throw new JobUsageError("Admin execution requires an existing execution ID, request ID and provider gate");
+  }
   const definition = getJobDefinition(input.registry, input.type);
   const parsed = definition.parseArguments(input.args);
   const runnerId = input.runnerId ?? createRunnerId();
@@ -98,18 +105,41 @@ export async function runJobOnce(input: RunJobInput): Promise<RunJobResult> {
       jobsSchema: input.config.jobsSchema,
     });
 
-  const execution = await repository.createOrGetActiveExecution({
-    type: definition.type,
-    idempotencyKey: parsed.idempotencyKey,
-    payload: parsed.payload,
-    maxAttempts: input.config.maxAttempts,
-  });
+  const scope = { type: definition.type, idempotencyKey: parsed.idempotencyKey };
+  let execution: JobExecution;
 
-  const claimed = await repository.claimExecution(
-    execution.id,
-    runnerId,
-    input.config.leaseSeconds,
-  );
+  if (input.executionId !== undefined) {
+    const existing = await repository.getExecution(input.executionId);
+
+    if (
+      !existing || existing.type !== scope.type || existing.idempotencyKey !== scope.idempotencyKey ||
+      Object.entries(parsed.payload).some(([key, value]) =>
+        JSON.stringify(existing.payload[key]) !== JSON.stringify(value),
+      )
+    ) {
+      throw new JobUsageError("Execution ID does not match the canonical job scope");
+    }
+
+    if (input.adminRequestId !== undefined) {
+      await repository.recoverExpiredExecution(existing.id, scope, input.adminRequestId);
+    } else {
+      await repository.recoverExpiredExecution(existing.id, scope);
+    }
+    execution = existing;
+  } else {
+    execution = await repository.createOrGetActiveExecution({
+      ...scope,
+      payload: parsed.payload,
+      maxAttempts: input.config.maxAttempts,
+    });
+  }
+
+  const claimed = input.adminRequestId !== undefined
+    ? await repository.claimExecution(execution.id, runnerId, input.config.leaseSeconds, scope, input.adminRequestId)
+    : await repository.claimExecution(
+        execution.id, runnerId, input.config.leaseSeconds,
+        input.executionId !== undefined ? scope : undefined,
+      );
 
   if (!claimed) {
     const current = (await repository.getExecution(execution.id)) ?? execution;

@@ -12,6 +12,9 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+import { identityAccounts } from "./identity";
+import { footballMatches } from "./football";
+
 export const jobsSchema = pgSchema("jobs");
 
 export const jobExecutions = jobsSchema.table(
@@ -70,3 +73,27 @@ export const jobExecutions = jobsSchema.table(
     ),
   }),
 );
+
+// Immutable request attribution; execution state belongs exclusively to executions.
+export const jobAdminRequests = jobsSchema.table("admin_requests", {
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
+  actorAccountId: text("actor_account_id").notNull().references(() => identityAccounts.id, { onDelete: "restrict" }),
+  requestKey: text("request_key").notNull(),
+  jobType: text("job_type").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  matchId: text("match_id").references(() => footballMatches.id, { onDelete: "restrict" }),
+  executionId: text("execution_id").notNull().references(() => jobExecutions.id, { onDelete: "restrict" }),
+  correlationId: text("correlation_id").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+}, (table) => ({
+  requestUnique: uniqueIndex("admin_requests_actor_request_unique").on(table.actorAccountId, table.requestKey),
+  executionIndex: index("admin_requests_execution_idx").on(table.executionId),
+  historyIndex: index("admin_requests_created_idx").on(table.createdAt, table.id),
+  scopeCheck: check("admin_requests_scope_check", sql`(
+    (${table.jobType} in ('football.sync-serie-a-foundation', 'football.sync-serie-a-matches',
+      'football.sync-serie-a-standings', 'football.sync-serie-a-squads', 'football.sync-serie-a-player-statistics')
+      and ${table.matchId} is null)
+    or (${table.jobType} in ('football.sync-serie-a-match-events', 'football.sync-serie-a-match-lineups',
+      'football.sync-serie-a-match-statistics') and ${table.matchId} is not null)
+  )`),
+}));

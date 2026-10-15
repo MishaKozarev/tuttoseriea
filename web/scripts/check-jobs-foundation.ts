@@ -270,6 +270,160 @@ async function getAvailableDelaySeconds(
   return Number(value);
 }
 
+async function checkBoundExecutionContract(
+  migrationPool: pg.Pool,
+  executionsTable: string,
+  repository: JobRepository,
+  registry: JobRegistry,
+  typePrefix: string,
+): Promise<void> {
+  const config = getJobRunnerConfig();
+  const create = (scope: string, suffix = "success", maxAttempts = 3) =>
+    repository.createOrGetActiveExecution({
+      type: `${typePrefix}${suffix}`,
+      idempotencyKey: `scope:${scope}`,
+      payload: { scope, dispatcher: { phase: "active-poll" } },
+      maxAttempts,
+    });
+  const bound = (executionId: string, scope: string, suffix = "success") => ({
+    type: `${typePrefix}${suffix}`,
+    args: ["--scope", scope],
+    executionId,
+    registry,
+    config,
+    repository,
+  });
+
+  const rollbackMarker = new Error("request transaction rollback fixture");
+  try {
+    await repository.withTransaction(async (client) => {
+      await repository.createOrGetActiveExecution({
+        type: `${typePrefix}success`, idempotencyKey: "scope:bound-rollback",
+        payload: { scope: "bound-rollback" }, maxAttempts: 3,
+      }, client);
+      throw rollbackMarker;
+    });
+  } catch (error) {
+    if (error !== rollbackMarker) {
+      throw error;
+    }
+  }
+  assertCondition(
+    await countRows(migrationPool, executionsTable, "type = $1 and idempotency_key = $2", [
+      `${typePrefix}success`, "scope:bound-rollback",
+    ]) === 0,
+    "execution creation escaped its caller's rolled-back transaction",
+  );
+
+  const selected = await create("bound-concurrent");
+  const competing = await Promise.all([
+    runJobOnce(bound(selected.id, "bound-concurrent")),
+    runJobOnce(bound(selected.id, "bound-concurrent")),
+  ]);
+  assertCondition(
+    competing.filter((result) => result.outcome.status === "success").length === 1 &&
+      competing.every((result) =>
+        result.outcome.status !== "lease_lost" && result.outcome.execution.id === selected.id,
+      ),
+    "bound runners did not share exactly one claim/execution",
+  );
+  assertCondition(
+    (await repository.getExecution(selected.id))?.payload.dispatcher !== undefined,
+    "bound runner discarded lifecycle metadata",
+  );
+
+  const lifecycleOwned = await create("bound-lifecycle-owner");
+  const lifecycleClaim = await repository.claimExecution(lifecycleOwned.id, "lifecycle-check-owner", 60);
+  if (!lifecycleClaim) {
+    throw new Error("lifecycle coordination fixture was not claimed");
+  }
+  const alreadyOwned = await runJobOnce(bound(lifecycleOwned.id, "bound-lifecycle-owner"));
+  assertCondition(
+    alreadyOwned.outcome.status === "no_op" && alreadyOwned.outcome.reason === "duplicate_active" &&
+      (await repository.getExecution(lifecycleOwned.id))?.claimedBy === "lifecycle-check-owner",
+    "bound runner bypassed an existing shared-runner owner",
+  );
+
+  for (const suffix of ["success", "failure"]) {
+    const scope = `bound-terminal-${suffix}`;
+    const execution = await create(scope, suffix);
+    await runJobOnce(bound(execution.id, scope, suffix));
+    const replay = await runJobOnce(bound(execution.id, scope, suffix));
+    assertCondition(
+      replay.outcome.status === "no_op" && replay.outcome.execution.id === execution.id &&
+        await countRows(migrationPool, executionsTable, "type = $1 and idempotency_key = $2", [
+          execution.type, execution.idempotencyKey,
+        ]) === 1,
+      "bound terminal replay created or ran another execution",
+    );
+  }
+
+  const retry = await create("bound-retry", "retry");
+  await runJobOnce(bound(retry.id, "bound-retry", "retry"));
+  const restartedRepository = new JobRepository(config);
+  try {
+    const input = { ...bound(retry.id, "bound-retry", "retry"), repository: restartedRepository };
+    assertCondition(
+      (await runJobOnce(input)).outcome.status === "no_op" &&
+        (await restartedRepository.getExecution(retry.id))?.attemptCount === 1,
+      "restarted bound runner claimed a retry before available_at",
+    );
+    await migrationPool.query(
+      `update ${executionsTable} set available_at = now() - interval '1 second' where id = $1`,
+      [retry.id],
+    );
+    const resumed = await runJobOnce(input);
+    assertCondition(
+      resumed.outcome.status === "retry_scheduled" &&
+        resumed.outcome.execution.id === retry.id && resumed.outcome.execution.attemptCount === 2,
+      "restarted bound runner did not resume the same due retry",
+    );
+  } finally {
+    await restartedRepository.close();
+  }
+
+  for (const maxAttempts of [1, 3]) {
+    const scope = `bound-expired-${maxAttempts}`;
+    const execution = await create(scope, "success", maxAttempts);
+    const oldClaim = await repository.claimExecution(execution.id, "bound-stale-owner", 60);
+    if (!oldClaim) {
+      throw new Error("bound stale fixture was not claimed");
+    }
+    await migrationPool.query(
+      `update ${executionsTable} set lease_expires_at = now() - interval '1 second' where id = $1`,
+      [execution.id],
+    );
+    const recovered = await runJobOnce(bound(execution.id, scope));
+    const state = await repository.getExecution(execution.id);
+    assertCondition(
+      maxAttempts === 1
+        ? recovered.outcome.status === "no_op" && state?.status === "failed" &&
+          state.lastErrorCode === "lease_expired"
+        : recovered.outcome.status === "success" && state?.attemptCount === 2,
+      "bound stale recovery did not preserve the selected ID/attempt limit",
+    );
+    assertCondition(
+      await repository.finalizeSuccess({
+        id: execution.id, runnerId: "bound-stale-owner", claimVersion: oldClaim.claimVersion,
+      }) === null,
+      "bound recovery allowed a stale owner to finalize",
+    );
+    assertCondition(
+      await countRows(migrationPool, executionsTable, "type = $1 and idempotency_key = $2", [
+        execution.type, execution.idempotencyKey,
+      ]) === 1,
+      "bound stale recovery inserted a replacement execution",
+    );
+  }
+
+  const leaseLoss = await create("bound-lease-loss", "lease-loss");
+  const lost = await runJobOnce(bound(leaseLoss.id, "bound-lease-loss", "lease-loss"));
+  assertCondition(
+    lost.outcome.status === "lease_lost" && lost.outcome.executionId === leaseLoss.id,
+    "bound runner did not preserve fencing on lease loss",
+  );
+}
+
 async function main(): Promise<void> {
   const jobsSchema = process.env.DATABASE_JOBS_SCHEMA ?? "jobs";
   const executionsTable = `${quoteIdentifier(jobsSchema)}.${quoteIdentifier("executions")}`;
@@ -587,6 +741,8 @@ async function main(): Promise<void> {
       "lease/fencing loss did not return the lease lost outcome",
     );
 
+    await checkBoundExecutionContract(migrationPool, executionsTable, repository, registry, typePrefix);
+
     console.log("Jobs foundation check passed.");
     console.log("jobs_create_claim_finalize=true");
     console.log("jobs_duplicate_concurrent_create=true");
@@ -599,6 +755,11 @@ async function main(): Promise<void> {
     console.log("jobs_stale_recovery=true");
     console.log("jobs_exhausted_stale_marked_failed=true");
     console.log("jobs_heartbeat_fencing=true");
+    console.log("jobs_execution_id_concurrent_scope_coordination=true");
+    console.log("jobs_execution_id_terminal_no_replacement=true");
+    console.log("jobs_execution_id_retry_restart=true");
+    console.log("jobs_execution_id_stale_recovery_fencing=true");
+    console.log("jobs_execution_create_joins_caller_transaction=true");
   } finally {
     const deletedRows = await deleteCheckRows(migrationPool, executionsTable, typePrefix);
 

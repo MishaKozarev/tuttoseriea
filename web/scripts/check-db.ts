@@ -250,7 +250,7 @@ async function assertNoUnexpectedJobsTablePrivileges(
           join pg_namespace n on n.oid = c.relnamespace
           where n.nspname = 'jobs'
             and c.relkind in ('r', 'p', 'v', 'm', 'f')
-            and c.relname <> 'executions'
+            and c.relname not in ('executions', 'admin_requests')
             and (
               has_table_privilege(current_user, c.oid, 'SELECT')
               or has_table_privilege(current_user, c.oid, 'INSERT')
@@ -277,6 +277,7 @@ async function assertJobsExecutionAccess(db: ReturnType<typeof getDb>): Promise<
     "INSERT",
     "UPDATE",
   ]);
+  await assertExactTablePrivileges(db, "jobs", "admin_requests", ["SELECT", "INSERT"]);
   await assertNoUnexpectedJobsTablePrivileges(db);
 }
 
@@ -516,7 +517,8 @@ async function main(): Promise<void> {
   console.log("runtime_role_default_privileges=false");
   console.log("runtime_role_ddl_denied=true");
   console.log("identity_role_table_grants=select_only");
-  console.log("jobs_role_table_grants=select_insert_update");
+  console.log("jobs_role_table_grants=exact");
+  console.log("jobs_admin_requests_update_delete_denied=true");
   console.log("football_role_table_grants=exact");
 }
 
