@@ -40,7 +40,7 @@ async function main() {
     const before = await count();
     await pool.query("begin");
     for (const identity of identities) {
-      await pool.query("insert into auth.users (id, email, email_verified_flag) values ($1, $2, true)", [identity.userId, `${identity.userId}@synchronization-check.invalid`]);
+      await pool.query("insert into auth.users (id, email) values ($1, $2)", [identity.userId, `${identity.userId}@synchronization-check.invalid`]);
       await pool.query("insert into identity.accounts (id, auth_user_id) values ($1, $2)", [identity.accountId, identity.userId]);
       await pool.query("insert into identity.account_roles (account_id, role_id) values ($1, $2)", [identity.accountId, identity.role]);
       await pool.query("insert into auth.credential_accounts(id,user_id,account_id,provider_id,password) values($1,$2,$2,'credential',$3)", [randomUUID(),identity.userId,passwordHash]);
@@ -86,12 +86,16 @@ async function main() {
       const context = await localContext();
       const page = await context.newPage();
       await page.goto(`/admin/login?${new URLSearchParams({ returnTo: pagePath })}`);
+      await expect(page.getByRole("button", { name: "Подтвердить email", exact: true })).toHaveCount(0);
       await page.getByLabel("Email", { exact: true }).fill(`${identity.userId}@synchronization-check.invalid`);
       await page.getByLabel("Пароль", { exact: true }).fill(password);
       await page.getByRole("button", { name: "Войти", exact: true }).click();
       if (identity.role === "super_admin") {
         await expect(page).toHaveURL(/\/admin\/login\/two-factor/);
         assert.equal((await context.request.get("/api/admin/football/jobs")).status(), 401, "Enrollment session bypassed MFA");
+        await page.goto(pagePath);
+        await expect(page).toHaveURL(/\/admin\/login\/two-factor/);
+        await expect(page.getByRole("radio")).toHaveCount(0);
         await page.getByLabel("Действующий пароль", { exact: true }).fill(password);
         const enabling = page.waitForResponse(response => response.url().endsWith("/two-factor/enable") && response.request().method() === "POST");
         await page.getByRole("button", { name: "Подключить TOTP" }).click();
@@ -231,6 +235,9 @@ async function main() {
       await context.close();
     }
     assert.equal(await count(), before, "Browser check admitted a live Admin request");
+    const verification = await pool.query<{ email_verified_flag: boolean }>("select email_verified_flag from auth.users where id=any($1::text[])", [identities.map(identity => identity.userId)]);
+    assert.equal(verification.rows.length, identities.length);
+    assert(verification.rows.every(row => row.email_verified_flag === false), "Staff login changed the email verification fact");
   } catch (error) {
     if (error instanceof Error && ["confirmation and lost response", "status refresh", "mobile layout", "localization browser flow", "Football Data read browser flow"].includes(phase)) {
       let diagnostic = error.message;
@@ -249,6 +256,7 @@ async function main() {
   }
   console.log("football_admin_ui_check=passed");
   console.log("football_admin_ui_auth_matrix=anonymous_writer_admin_super_admin");
+  console.log("football_admin_ui_unverified_staff_login=true pre_mfa_full_access=false");
   console.log("football_admin_ui_confirmation_replay_get_refresh_mobile=true");
   console.log("football_admin_ui_localization_save_review_conflict_reload_mobile=true");
   console.log("football_admin_ui_data_read_auth_tabs_search_filters_mobile=true");

@@ -11,7 +11,7 @@ export async function staffAuthRequest(path: string, body: Record<string, unknow
 }
 const messages: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: "Неверный email или пароль.", INVALID_PASSWORD: "Проверьте действующий пароль и требования к новому.",
-  EMAIL_NOT_VERIFIED: "Подтвердите email перед входом.", INVALID_CODE: "Неверный код подтверждения.",
+  INVALID_CODE: "Неверный код подтверждения.",
   INVALID_BACKUP_CODE: "Неверный или уже использованный резервный код.",
   AUTH_RATE_LIMITED: "Слишком много попыток. Повторите позже.", TOO_MANY_REQUESTS: "Слишком много попыток. Повторите позже.",
   PASSWORD_OPERATION_INVALID: "Подтверждение истекло. Начните смену пароля заново.",
@@ -21,7 +21,7 @@ type Props = { mode: "login" | "enroll" | "challenge" | "password"; returnTo?: s
 export function StaffAuthForm({ mode, returnTo = "/admin" }: Props) {
   const router = useRouter();
   const navigate = (path: string) => { router.replace(path); router.refresh(); };
-  const [pending, setPending] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [pending, setPending] = useState(false), [error, setError] = useState("");
   const [enrollment, setEnrollment] = useState<{ totpURI: string; backupCodes: string[] } | null>(null);
   const [operationId, setOperationId] = useState<string | null>(null);
   const [backup, setBackup] = useState(false);
@@ -75,14 +75,9 @@ export function StaffAuthForm({ mode, returnTo = "/admin" }: Props) {
       <p>После подтверждения TOTP все сессии будут отозваны.</p>
     </>}
     {(mode === "challenge" || enrollment || operationId) && <label className="block">{backup ? "Резервный код" : "Код TOTP"}<input className={input} name="code" autoComplete="one-time-code" inputMode={backup ? "text" : "numeric"} pattern={backup ? undefined : "[0-9]{6}"} required /></label>}
-    {error && <p role="alert" className="text-destructive">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {error && <p role="alert" className="text-destructive">{error}</p>}
     <Button type="submit" disabled={pending}>{pending ? "Проверка…" : mode === "login" ? "Войти" : mode === "enroll" && !enrollment ? "Подключить TOTP" : "Подтвердить"}</Button>
     {mode === "challenge" && <Button type="button" variant="outline" disabled={pending} onClick={() => setBackup(!backup)}>{backup ? "Использовать TOTP" : "Использовать резервный код"}</Button>}
-    {mode === "login" && <Button type="button" variant="outline" disabled={pending} onClick={async event => {
-      const email = new FormData(event.currentTarget.form!).get("email"); setPending(true); setError("");
-      try { await staffAuthRequest("/send-verification-email", { email, callbackURL: "/admin/login" }); setNotice("Если адрес разрешён, письмо подтверждения будет отправлено."); }
-      catch { setError("Доставка недоступна. Обратитесь к оператору."); } finally { setPending(false); }
-    }}>Подтвердить email</Button>}
   </form>{mode !== "login" && <Button variant="outline" disabled={pending} onClick={async () => {
     setPending(true);
     try { await staffAuthRequest("/sign-out", {}); navigate("/admin/login"); }
