@@ -4,7 +4,7 @@ import { config as dotenv } from "dotenv";
 import pg from "pg";
 import { handleStaffAuth } from "../src/auth/http";
 import { getAuthConfig } from "../src/auth/config";
-import { AuthSecurityStore, fullStaffSession } from "../src/auth/security-store";
+import { AuthSecurityStore, fullStaffSession, hasRequiredEmailVerification } from "../src/auth/security-store";
 import { operateStaff, notifyStaffOperation } from "../src/auth/operator";
 import { totpCode, updateCookies } from "./auth-test-helpers";
 import type { AuthEmail } from "../src/email/resend";
@@ -35,21 +35,15 @@ async function main() {
       console.error("Synthetic auth diagnostic:", cause.name, cause.message.split("\n")[0]);
     });
   }
-  async function provision(role: string) {
-    const email = `${role}-${suffix}@auth-check.invalid`, password = `Synthetic staff ${randomUUID()}`;
+  async function provision(role: string, label = role) {
+    const email = `${label}-${suffix}@auth-check.invalid`, password = `Synthetic staff ${randomUUID()}`;
     const operationId = randomUUID(); operationIds.push(operationId);
     const result = await operateStaff(owner, authConfig.secret, { action: "provision", email, roles: [role], operator: "test:operator", confirmation: email, operationId, password });
     const user = await store.user(email, "email"); assert(user);
     identities.push({ email, password, userId: user.userId, accountId: user.accountId });
     assert.equal(result.accountId, user.accountId);
-    // Provisioning is not email verification and never creates a session.
+    // The email fact stays false: staff must sign in without verification mail.
     assert.equal(user.emailVerified, false);
-    assert.equal((await call("/sign-in/email", { email, password })).status, 403);
-    assert.equal((await call("/send-verification-email", { email, callbackURL: "/admin/login" })).status, 200);
-    const message = emails.findLast(item => item.to === email && item.deliveryId.startsWith("verification/")); assert(message);
-    const link = message.text.match(/http[^\s]+/)![0];
-    const verified = await handleStaffAuth(new Request(link), runtime, authConfig, fakeSend);
-    assert([200, 302].includes(verified.status)); assert.equal(verified.headers.getSetCookie().length, 0);
     return identities[identities.length - 1];
   }
   try {
@@ -66,13 +60,15 @@ async function main() {
     for (const path of ["/sign-up/email", "/request-password-reset", "/reset-password", "/change-password", "/set-password", "/change-email", "/two-factor/disable", "/sign-in/magic-link", "/signin/nodemailer"]) assert.equal((await call(path, {})).status, 404, path);
     assert.equal((await handleStaffAuth(new Request(`${authConfig.origin}/api/auth/sign-in/email`, { method: "POST", headers: { origin: "https://evil.invalid", "content-type": "application/json" }, body: "{}" }), runtime, authConfig, fakeSend)).status, 403);
     assert.equal((await call("/sign-in/email", {}, "", { ...authConfig, writesEnabled: false })).status, 503);
-    phase = "writer / admin authentication";
+    phase = "writer / admin authentication without email verification";
     for (const role of ["writer", "admin"]) {
       const user = await provision(role);
       assert.equal((await call("/sign-in/email", { email: user.email, password: "incorrect credential" })).status, 401);
       const login = await call("/sign-in/email", { email: user.email, password: user.password }); assert.equal(login.status, 200, await login.clone().text());
       assert.equal((await login.clone().json()).token, undefined);
+      assert.equal((await login.clone().json()).user.emailVerified, false);
       const cookie = updateCookies(login); assert(cookie.includes("tuttoseriea-auth.session_token"));
+      assert.equal((await (await call("/get-session", undefined, cookie)).json()).user.emailVerified, false);
       assert.equal((await call("/password-change/start", { currentPassword: user.password, newPassword: "Synthetic new password" }, cookie)).status, 403);
       assert.equal((await call("/two-factor/enable", { password: user.password }, cookie)).status, 403);
       assert.equal((await call("/sign-out", {}, cookie)).status, 200);
@@ -80,9 +76,21 @@ async function main() {
       await owner.query("update identity.accounts set status='disabled' where id=$1", [user.accountId]);
       assert.equal((await call("/sign-in/email", { email: user.email, password: user.password })).status, 403);
     }
+    phase = "ordinary Identity / forged staff fields";
+    const ordinary = await provision("writer", "ordinary");
+    await owner.query("delete from identity.account_roles where account_id=$1", [ordinary.accountId]);
+    assert.equal(hasRequiredEmailVerification(await store.user(ordinary.userId)), false);
+    assert.equal((await call("/sign-in/email", { email: ordinary.email, password: ordinary.password })).status, 403);
+    assert.equal((await call("/sign-in/email", { email: ordinary.email, password: ordinary.password, roles: ["super_admin"], emailVerified: true })).status, 400);
+    assert.equal((await owner.query("select count(*)::int as count from auth.staff_sessions where user_id=$1", [ordinary.userId])).rows[0].count, 0);
+    await owner.query("update auth.users set email_verified_flag=true where id=$1", [ordinary.userId]);
+    assert.equal(hasRequiredEmailVerification(await store.user(ordinary.userId)), true);
+    assert.equal((await call("/sign-in/email", { email: ordinary.email, password: ordinary.password })).status, 403);
+    assert.equal(emails.length, 0);
     phase = "super admin enrollment boundary";
     const superAdmin = await provision("super_admin");
     const login = await call("/sign-in/email", { email: superAdmin.email, password: superAdmin.password }); assert.equal(login.status, 200, await login.clone().text());
+    assert.equal((await login.clone().json()).user.emailVerified, false);
     let cookie = updateCookies(login);
     const sessionRow = (await owner.query("select token from auth.staff_sessions where user_id=$1", [superAdmin.userId])).rows[0]; assert(sessionRow);
     assert.equal(fullStaffSession(await store.user(superAdmin.userId), await store.session(sessionRow.token)), false);
@@ -209,7 +217,11 @@ async function main() {
         oldPassword = newPassword;
       } finally { await holder.query("rollback"); holder.release(); }
     }
-    console.log("auth_password_mfa_operator_postgresql=PASS real_email_requests=0 football_jobs=0");
+    for (const identity of identities.filter(item => item.userId !== ordinary.userId)) {
+      assert.equal((await store.user(identity.userId))!.emailVerified, false);
+    }
+    assert.equal(emails.filter(message => message.deliveryId.startsWith("verification/")).length, 0);
+    console.log("auth_password_mfa_operator_postgresql=PASS staff_email_verification=not_required ordinary_email_policy=required real_email_requests=0 football_jobs=0");
   } finally {
     for (const item of identities) await owner.query("delete from auth.users where id=$1", [item.userId]);
     await owner.query("delete from auth.security_audit where operation_id=any($1::text[])", [operationIds]);

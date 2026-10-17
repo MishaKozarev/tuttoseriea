@@ -118,8 +118,14 @@ export function activeStaff(user: StaffSecurity | null): user is StaffSecurity {
     hasPermissionForRoles(user.roles.filter(isStaffRoleId), PERMISSION_IDS.adminAccess);
 }
 
+export function hasRequiredEmailVerification(user: StaffSecurity | null): boolean {
+  // Roles/status come from PostgreSQL Identity, never request fields. Keep email
+  // verification required by default for any future non-staff authentication.
+  return !!user && (user.emailVerified || activeStaff(user));
+}
+
 export function fullStaffSession(user: StaffSecurity | null, session: StaffSession | null): boolean {
   return activeStaff(user) && !!session && session.userId === user.userId &&
-    session.securityRevision === user.securityRevision && user.emailVerified &&
+    session.securityRevision === user.securityRevision && hasRequiredEmailVerification(user) &&
     (!user.roles.includes("super_admin") || (user.twoFactorEnabled && user.totpVerified && !!session.mfaVerifiedAt));
 }

@@ -6,7 +6,7 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { users, credentialAccounts, staffSessions, staffVerifications, twoFactors, authRateLimits } from "../db/schema/auth";
 import { normalizeIdentityEmail } from "../identity/email";
 import type { AuthConfig } from "./config";
-import { activeStaff, fullStaffSession, type StaffSecurity, type StaffSession, AuthSecurityStore } from "./security-store";
+import { activeStaff, fullStaffSession, hasRequiredEmailVerification, type StaffSecurity, type StaffSession, AuthSecurityStore } from "./security-store";
 import type { AuthEmail, AuthEmailSender } from "../email/resend";
 
 export const STAFF_AUTH_POST_PATHS = new Set([
@@ -67,7 +67,8 @@ export function createStaffAuth(
       ipAddress: { ipAddressHeaders: config.ipHeader ? [config.ipHeader] : [] },
     },
     emailAndPassword: {
-      enabled: true, disableSignUp: true, requireEmailVerification: true,
+      // The shared server policy below handles the Identity-based staff exemption.
+      enabled: true, disableSignUp: true, requireEmailVerification: false,
       minPasswordLength: 15, maxPasswordLength: 128,
     },
     emailVerification: {
@@ -137,7 +138,7 @@ export function createStaffAuth(
       user: { create: { before: async () => deny("REGISTRATION_CLOSED") } },
       session: { create: { before: async (session, ctx) => {
         const current = await store.user(session.userId);
-        if (!activeStaff(current) || !current.emailVerified || current.securityRevision !== state.revision) deny("ACCOUNT_UNAVAILABLE");
+        if (!activeStaff(current) || !hasRequiredEmailVerification(current) || current.securityRevision !== state.revision) deny("ACCOUNT_UNAVAILABLE");
         const verifiedPath = ctx?.path === "/two-factor/verify-totp" || ctx?.path === "/two-factor/verify-backup-code";
         return { data: { ...session, expiresAt: new Date(Date.now() + 8 * 60 * 60_000),
           securityRevision: current.securityRevision, mfaVerifiedAt: verifiedPath ? new Date() : null } };

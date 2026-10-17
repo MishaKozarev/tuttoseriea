@@ -9,11 +9,20 @@ describe("Staff auth forms", () => {
   it("uses password login and routes a pending MFA challenge without another login", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ twoFactorRedirect: true })); vi.stubGlobal("fetch", fetch);
     render(<StaffAuthForm mode="login" returnTo="/admin/football" />);
+    expect(screen.queryByRole("button", { name: "Подтвердить email" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "staff@example.invalid" } });
     fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "synthetic staff password" } });
     fireEvent.submit(screen.getByRole("button", { name: "Войти" }).closest("form")!);
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/admin/login/two-factor?returnTo=%2Fadmin%2Ffootball"));
     expect(fetch.mock.calls[0][0]).toBe("/api/auth/sign-in/email"); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("accepts staff password login without a verification action or verified email flag", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ user: { emailVerified: false } })); vi.stubGlobal("fetch", fetch);
+    render(<StaffAuthForm mode="login" />);
+    fireEvent.submit(screen.getByRole("button", { name: "Войти" }).closest("form")!);
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/admin"));
+    expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0][0]).toBe("/api/auth/sign-in/email");
+    expect(screen.queryByRole("button", { name: "Подтвердить email" })).toBeNull();
   });
   it("keeps invalid credentials visible without navigating or exposing server messages", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "INVALID_EMAIL_OR_PASSWORD", message: "internal secret" } }, { status: 401 })));
