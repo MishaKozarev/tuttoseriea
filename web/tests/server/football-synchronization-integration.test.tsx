@@ -30,7 +30,7 @@ const ready = async () => waitFor(() => expect(refresh().hasAttribute("disabled"
 beforeEach(() => {
   vi.resetAllMocks(); sessionStorage.clear(); record = null; lostResponse = false;
   vi.stubEnv("AUTH_URL", origin);
-  mocks.session.mockResolvedValue({ authenticated: true, identityAccess: { accountId: actor, authUserId: "user", roles: ["super_admin"], email: null } });
+  mocks.session.mockResolvedValue({ authenticated: true, mfaRequired: false, identityAccess: { accountId: actor, authUserId: "user", roles: ["super_admin"], email: null } });
   mocks.history.mockImplementation(async () => record ? [record] : []);
   mocks.get.mockImplementation(async () => record);
   mocks.admit.mockImplementation(async (actorId, command, correlationId) => {
@@ -126,7 +126,7 @@ describe("Synchronization UI through the real Admin HTTP boundary", () => {
   it.each([null, ["writer"], ["admin"]])("revalidates authorization on POST after the page has opened: %s", async (roles) => {
     render(<FootballSynchronization actorAccountId={actor} />); await ready();
     mocks.session.mockResolvedValue(roles === null ? { authenticated: false, identityAccess: null }
-      : { authenticated: true, identityAccess: { accountId: actor, roles, authUserId: "user", email: null } });
+      : { authenticated: true, mfaRequired: false, identityAccess: { accountId: actor, roles, authUserId: "user", email: null } });
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Отправить запрос на запуск" }));
     await ready();

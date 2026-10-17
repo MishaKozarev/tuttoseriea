@@ -134,6 +134,20 @@
       "when": 1792060405935,
       "tag": "0018_silky_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792192874464,
+      "tag": "0019_staff_password_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792195263436,
+      "tag": "0020_retire_legacy_auth",
+      "breakpoints": true
     }
   ]
 }

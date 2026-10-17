@@ -18,6 +18,7 @@ import type { CurrentIdentityAccess } from "@/src/identity/session";
 function authenticatedIdentity(roles: StaffRoleId[]): CurrentIdentityAccess {
   return {
     authenticated: true,
+    mfaRequired: false,
     identityAccess: {
       accountId: "account-id",
       authUserId: "auth-user-id",
@@ -84,6 +85,12 @@ describe("server-side Football Admin access", () => {
 });
 
 describe("Football Admin server-operation guard", () => {
+  it("rejects an enrollment-only or unproven session before any protected operation", async () => {
+    for (const mfaRequired of [true, undefined]) {
+      mocks.getCurrentIdentityAccess.mockResolvedValue({ ...authenticatedIdentity(["super_admin"]), mfaRequired });
+      await expect(requireFootballAdminAccess()).rejects.toMatchObject({ status: 401 });
+    }
+  });
   it.each(accessCases)("authorizes operations for $label", async ({ roles, allowed }) => {
     const currentIdentity = authenticatedIdentity(roles);
     mocks.getCurrentIdentityAccess.mockResolvedValue(currentIdentity);

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth } from "@/auth";
+import { getStaffSession } from "@/src/auth/session";
 import { getIdentityAccessByAuthUserId, type IdentityAccess } from "@/src/identity/repository";
 
 export type CurrentIdentityAccess =
@@ -11,17 +11,12 @@ export type CurrentIdentityAccess =
   | {
       authenticated: true;
       identityAccess: IdentityAccess | null;
+      mfaRequired: boolean;
     };
 
-function getSessionAuthUserId(session: unknown): string | null {
-  const userId = (session as { user?: { id?: unknown } } | null)?.user?.id;
-
-  return typeof userId === "string" && userId ? userId : null;
-}
-
 export async function getCurrentIdentityAccess(): Promise<CurrentIdentityAccess> {
-  const session = await auth();
-  const authUserId = getSessionAuthUserId(session);
+  const session = await getStaffSession();
+  const authUserId = session?.user.userId;
 
   if (!authUserId) {
     return {
@@ -33,5 +28,6 @@ export async function getCurrentIdentityAccess(): Promise<CurrentIdentityAccess>
   return {
     authenticated: true,
     identityAccess: await getIdentityAccessByAuthUserId(authUserId),
+    mfaRequired: !session?.fullAccess,
   };
 }

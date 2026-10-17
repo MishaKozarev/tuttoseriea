@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/components/admin/staff-session-controls", () => ({ StaffSessionControls: () => null }));
 vi.mock("@/src/identity/session", () => ({
   getCurrentIdentityAccess: mocks.getCurrentIdentityAccess,
 }));
@@ -45,6 +46,7 @@ import { footballOverviewFixture } from "../fixtures/football-overview";
 function setStaffIdentity(roles: StaffRoleId[]) {
   mocks.getCurrentIdentityAccess.mockResolvedValue({
     authenticated: true,
+    mfaRequired: false,
     identityAccess: {
       accountId: "account-id",
       authUserId: "auth-user-id",

@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import {
   index,
+  check,
   pgSchema,
   primaryKey,
   text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 import { users } from "./auth";
 
@@ -23,9 +25,11 @@ export const identityAccounts = identitySchema.table(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    status: text("status").notNull().default("active"),
   },
   (table) => ({
     authUserUnique: uniqueIndex("accounts_auth_user_id_unique").on(table.authUserId),
+    statusCheck: check("accounts_status_check", sql`${table.status} in ('active', 'disabled')`),
   }),
 );
 

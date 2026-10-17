@@ -16,24 +16,26 @@ const tableDmlPrivileges = ["SELECT", "INSERT", "UPDATE", "DELETE"];
 const authTablePrivileges = [
   {
     tableName: "users",
-    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    privileges: ["SELECT", "UPDATE"],
   },
   {
     tableName: "accounts",
-    privileges: ["SELECT", "INSERT", "DELETE"],
+    privileges: ["SELECT"],
   },
   {
     tableName: "sessions",
-    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    privileges: ["SELECT"],
   },
   {
     tableName: "verification_tokens",
-    privileges: ["SELECT", "INSERT", "DELETE"],
+    privileges: ["SELECT"],
   },
   {
     tableName: "authenticators",
-    privileges: ["SELECT", "INSERT", "UPDATE"],
+    privileges: ["SELECT"],
   },
+  ...["credential_accounts", "staff_sessions", "staff_verifications", "two_factors", "rate_limits", "password_operations", "totp_step_up_uses"].map(tableName => ({ tableName, privileges: tableDmlPrivileges })),
+  { tableName: "security_audit", privileges: ["INSERT"] },
 ];
 const identityTablePrivileges = [
   {

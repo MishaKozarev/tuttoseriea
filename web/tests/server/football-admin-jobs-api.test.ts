@@ -20,7 +20,7 @@ function request(value: unknown = body, headers: Record<string, string> = {}) {
   }, body: typeof value === "string" ? value : JSON.stringify(value) });
 }
 function session(roles: string[] = ["super_admin"]) {
-  return { authenticated: true, identityAccess: { accountId: "actual-actor", authUserId: "user", roles, email: null } };
+  return { authenticated: true, mfaRequired: false, identityAccess: { accountId: "actual-actor", authUserId: "user", roles, email: null } };
 }
 beforeEach(() => {
   vi.resetAllMocks();
