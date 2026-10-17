@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/src/identity/session", () => ({
-  getCurrentIdentityAccess: async () => ({ authenticated: true, identityAccess: {
+  getCurrentIdentityAccess: async () => ({ authenticated: true, mfaRequired: false, identityAccess: {
     accountId: process.env.FOOTBALL_ADMIN_TIMESTAMP_ACTOR, authUserId: "timestamp-check",
     roles: ["super_admin"], email: null,
   } }),

@@ -30,7 +30,7 @@ async function open() {
 
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv("AUTH_URL", origin); record = localizationFixture();
-  mocks.session.mockResolvedValue({ authenticated: true, identityAccess: { accountId: "actor", authUserId: "user", roles: ["super_admin"], email: null } });
+  mocks.session.mockResolvedValue({ authenticated: true, mfaRequired: false, identityAccess: { accountId: "actor", authUserId: "user", roles: ["super_admin"], email: null } });
   mocks.list.mockImplementation(async () => ({ items: [record], total: 1, page: 1, pageSize: 20, totalPages: 1 }));
   mocks.get.mockImplementation(async () => record);
   mocks.edit.mockImplementation(async (_kind: unknown, _id: unknown, edit: FootballLocalizationEdit) => {
@@ -60,7 +60,7 @@ describe("Localization UI through the actual Admin HTTP boundary", () => {
   });
   it.each([null, ["writer"], ["admin"]])("rechecks authorization on a write after the page opened: %s", async (roles) => {
     await open();
-    mocks.session.mockResolvedValue(roles === null ? { authenticated: false, identityAccess: null } : { authenticated: true, identityAccess: { accountId: "actor", roles } });
+    mocks.session.mockResolvedValue(roles === null ? { authenticated: false, identityAccess: null } : { authenticated: true, mfaRequired: false, identityAccess: { accountId: "actor", roles } });
     fireEvent.change(name(), { target: { value: "Имя" } }); fireEvent.click(save()); await ready();
     expect(screen.getByRole("alert").textContent).toContain(roles === null ? "UNAUTHORIZED" : "FORBIDDEN");
     expect(mocks.edit).not.toHaveBeenCalled(); expect(record.nameRu).toBeNull();

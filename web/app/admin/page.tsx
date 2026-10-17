@@ -4,9 +4,11 @@ import { AdminShell } from "@/components/layout/admin-shell";
 import { Container } from "@/components/layout/container";
 import { decideAdminAccess } from "@/src/identity/admin-access";
 import { getCurrentIdentityAccess } from "@/src/identity/session";
+import { StaffSessionControls } from "@/components/admin/staff-session-controls";
 
 export default async function AdminPage() {
-  const decision = decideAdminAccess(await getCurrentIdentityAccess(), "/admin");
+  const current = await getCurrentIdentityAccess();
+  const decision = decideAdminAccess(current, "/admin");
 
   if (decision.type === "redirect") {
     redirect(decision.location);
@@ -21,6 +23,7 @@ export default async function AdminPage() {
       <section className="py-10">
         <Container size="wide">
           <div className="space-y-3">
+            <StaffSessionControls superAdmin={current.identityAccess?.roles.includes("super_admin")} />
             <p className="text-sm font-medium text-muted-foreground">
               Stage 3.4
             </p>

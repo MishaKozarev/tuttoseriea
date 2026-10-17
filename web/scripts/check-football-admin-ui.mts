@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
 import { chromium, expect, type Browser } from "@playwright/test";
 import { Pool } from "pg";
+import { hashPassword } from "better-auth/crypto";
+import { totpCode } from "./auth-test-helpers";
 
 import { spawnNodeScript, waitForNextReady, stopProcessTree } from "./run-playwright-smoke.mjs";
 import { synchronizationFixture } from "../tests/fixtures/football-synchronization";
@@ -28,6 +30,8 @@ async function main() {
   const pool = new Pool({ connectionString: migration.toString(), max: 1 });
   const identities = ["writer", "admin", "super_admin"].map((role) => ({ role, userId: randomUUID(), accountId: randomUUID(), token: randomUUID() }));
   const origin = "http://127.0.0.1:3119";
+  const password = `Synthetic browser staff ${randomUUID()}`;
+  const passwordHash = await hashPassword(password);
   const pagePath = "/admin/football/synchronization";
   let server: ReturnType<typeof spawnNodeScript> | undefined;
   let browser: Browser | undefined;
@@ -36,16 +40,16 @@ async function main() {
     const before = await count();
     await pool.query("begin");
     for (const identity of identities) {
-      await pool.query("insert into auth.users (id, email) values ($1, $2)", [identity.userId, `${identity.userId}@synchronization-check.invalid`]);
+      await pool.query("insert into auth.users (id, email, email_verified_flag) values ($1, $2, true)", [identity.userId, `${identity.userId}@synchronization-check.invalid`]);
       await pool.query("insert into identity.accounts (id, auth_user_id) values ($1, $2)", [identity.accountId, identity.userId]);
       await pool.query("insert into identity.account_roles (account_id, role_id) values ($1, $2)", [identity.accountId, identity.role]);
-      await pool.query("insert into auth.sessions (session_token, user_id, expires) values ($1, $2, $3)", [identity.token, identity.userId, new Date(Date.now() + 60 * 60 * 1000)]);
+      await pool.query("insert into auth.credential_accounts(id,user_id,account_id,provider_id,password) values($1,$2,$2,'credential',$3)", [randomUUID(),identity.userId,passwordHash]);
     }
     await pool.query("commit");
     phase = "LOCAL Next startup";
     server = spawnNodeScript(resolve("node_modules/next/dist/bin/next"), ["start", "--hostname", "127.0.0.1", "--port", "3119"], {
-      env: { ...process.env, AUTH_URL: origin, AUTH_SECRET: "local-only-football-admin-browser-fixture-secret",
-        AUTH_STAFF_EMAIL_DELIVERY: "disabled", API_FOOTBALL_ENABLE_REAL: "false", FOOTBALL_ADMIN_CONSUMER_ENABLED: "false", NEXT_TELEMETRY_DISABLED: "1" },
+      env: { ...process.env, AUTH_URL: origin, BETTER_AUTH_SECRET: "synthetic-only-football-admin-browser-fixture-secret",
+        EMAIL_DELIVERY_MODE: "disabled", API_FOOTBALL_ENABLE_REAL: "false", FOOTBALL_ADMIN_CONSUMER_ENABLED: "false", NEXT_TELEMETRY_DISABLED: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     await waitForNextReady({ child: server });
@@ -80,8 +84,23 @@ async function main() {
     for (const identity of identities) {
       phase = `${identity.role} authorization`;
       const context = await localContext();
-      await context.addCookies([{ name: "authjs.session-token", value: identity.token, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax" }]);
       const page = await context.newPage();
+      await page.goto(`/admin/login?${new URLSearchParams({ returnTo: pagePath })}`);
+      await page.getByLabel("Email", { exact: true }).fill(`${identity.userId}@synchronization-check.invalid`);
+      await page.getByLabel("Пароль", { exact: true }).fill(password);
+      await page.getByRole("button", { name: "Войти", exact: true }).click();
+      if (identity.role === "super_admin") {
+        await expect(page).toHaveURL(/\/admin\/login\/two-factor/);
+        assert.equal((await context.request.get("/api/admin/football/jobs")).status(), 401, "Enrollment session bypassed MFA");
+        await page.getByLabel("Действующий пароль", { exact: true }).fill(password);
+        const enabling = page.waitForResponse(response => response.url().endsWith("/two-factor/enable") && response.request().method() === "POST");
+        await page.getByRole("button", { name: "Подключить TOTP" }).click();
+        const enrollment = await (await enabling).json() as { totpURI: string };
+        await page.getByRole("checkbox", { name: "Я сохранил резервные коды" }).check();
+        await page.getByLabel("Код TOTP", { exact: true }).fill(totpCode(enrollment.totpURI));
+        await page.getByRole("button", { name: "Подтвердить", exact: true }).click();
+      }
+      await expect(page).toHaveURL(new RegExp(pagePath));
       const response = await page.goto(pagePath);
       if (identity.role !== "super_admin") {
         await expect(page.getByRole("heading", { name: "Доступ запрещён" })).toBeVisible();

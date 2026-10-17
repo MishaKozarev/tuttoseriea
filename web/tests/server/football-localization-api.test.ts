@@ -22,7 +22,7 @@ function request(body: unknown = edit, headers: Record<string, string> = {}) {
 }
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv("AUTH_URL", origin);
-  mocks.session.mockResolvedValue({ authenticated: true, identityAccess: { accountId: "authorized-actor", authUserId: "user", email: null, roles: ["super_admin"] } });
+  mocks.session.mockResolvedValue({ authenticated: true, mfaRequired: false, identityAccess: { accountId: "authorized-actor", authUserId: "user", email: null, roles: ["super_admin"] } });
   mocks.list.mockResolvedValue({ items: [entity], total: 1, page: 1, pageSize: 20, totalPages: 1 });
   mocks.get.mockResolvedValue(entity);
   mocks.edit.mockResolvedValue({ ...entity, nameRu: edit.nameRu, nameRuReviewStatus: "unreviewed", localizationRevision: 1 });
@@ -32,7 +32,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("Football localization server boundary", () => {
   it.each([null, [], ["writer"], ["admin"], ["writer", "admin"]])("authorizes every read and write before repository access: %s", async (roles) => {
     mocks.session.mockResolvedValue(roles === null ? { authenticated: false, identityAccess: null }
-      : { authenticated: true, identityAccess: { accountId: "actor", roles } });
+      : { authenticated: true, mfaRequired: false, identityAccess: { accountId: "actor", roles } });
     const results = await Promise.all([LIST(new Request(`${origin}/api/admin/football/localization`)), GET(new Request(url), context), PATCH(request(), context)]);
     for (const result of results) {
       expect(result.status).toBe(roles === null ? 401 : 403);

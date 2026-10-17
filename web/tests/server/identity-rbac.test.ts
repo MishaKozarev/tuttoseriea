@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { canUseStaffMagicLinkLoginWithDependencies } from "@/src/auth/staff-login-policy-core";
 import {
   createAdminLoginPath,
   resolveAdminAuthRedirectUrl,
@@ -66,7 +65,7 @@ describe("admin return path", () => {
     );
   });
 
-  it("keeps Auth.js callback redirects inside the admin subtree", () => {
+  it("keeps authentication callback redirects inside the admin subtree", () => {
     expect(resolveAdminAuthRedirectUrl("/admin", "https://tuttoseriea.test")).toBe(
       "https://tuttoseriea.test/admin",
     );
@@ -99,6 +98,7 @@ describe("admin access decision", () => {
     expect(
       decideAdminAccess({
         authenticated: true,
+        mfaRequired: false,
         identityAccess: {
           accountId: "account-id",
           authUserId: "auth-user-id",
@@ -113,6 +113,7 @@ describe("admin access decision", () => {
     expect(
       decideAdminAccess({
         authenticated: true,
+        mfaRequired: false,
         identityAccess: {
           accountId: "account-id",
           authUserId: "auth-user-id",
@@ -124,31 +125,10 @@ describe("admin access decision", () => {
   });
 });
 
-describe("staff magic-link login policy", () => {
-  it("requires a provisioned staff identity for verification requests", async () => {
-    await expect(
-      canUseStaffMagicLinkLoginWithDependencies("unknown@example.invalid", true, {
-        emailHasAdminAccess: async () => false,
-        isEmailDeliveryEnabled: () => true,
-      }),
-    ).resolves.toBe(false);
-  });
-
-  it("does not allow verification requests when email delivery is disabled", async () => {
-    await expect(
-      canUseStaffMagicLinkLoginWithDependencies("writer@example.invalid", true, {
-        emailHasAdminAccess: async () => true,
-        isEmailDeliveryEnabled: () => false,
-      }),
-    ).resolves.toBe(false);
-  });
-
-  it("allows final callback only for staff identity with admin.access", async () => {
-    await expect(
-      canUseStaffMagicLinkLoginWithDependencies("writer@example.invalid", false, {
-        emailHasAdminAccess: async () => true,
-        isEmailDeliveryEnabled: () => false,
-      }),
-    ).resolves.toBe(true);
+describe("MFA authorization boundary", () => {
+  it("keeps an authenticated super admin outside protected operations until MFA", () => {
+    expect(decideAdminAccess({ authenticated: true, mfaRequired: true,
+      identityAccess: { accountId: "account", authUserId: "user", email: "staff@example.invalid", roles: ["super_admin"] } }, "/admin/football"))
+      .toEqual({ type: "redirect", location: "/admin/login/two-factor?returnTo=%2Fadmin%2Ffootball" });
   });
 });

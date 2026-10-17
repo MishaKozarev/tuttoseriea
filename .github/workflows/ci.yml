@@ -182,10 +182,11 @@ jobs:
           DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:check
 
-      - name: Check CI Auth.js adapter lifecycle
+      - name: Check CI password, MFA and operator lifecycle
         working-directory: web
         env:
           DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:auth:check
 
       - name: Check CI Identity RBAC foundation
@@ -328,6 +329,9 @@ jobs:
 
       - name: Check web container job runner runtime
         run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/cli.js --check-runtime
+
+      - name: Check immutable staff operator artifact
+        run: docker run --rm --network none --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/auth-tools/staff-auth.mjs --check-runtime
 
       - name: Check web container Match lifecycle dispatcher runtime
         run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/dispatcher.js --check-runtime

@@ -40,6 +40,10 @@ export function decideAdminAccess(
     };
   }
 
+  if (currentIdentityAccess.mfaRequired !== false) {
+    return { type: "redirect", location: `/admin/login/two-factor?${new URLSearchParams({ returnTo })}` };
+  }
+
   return {
     type: "allowed",
   };
