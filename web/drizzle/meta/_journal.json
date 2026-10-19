@@ -148,6 +148,13 @@
       "when": 1792195263436,
       "tag": "0020_retire_legacy_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792441301655,
+      "tag": "0021_mature_whistler",
+      "breakpoints": true
     }
   ]
 }

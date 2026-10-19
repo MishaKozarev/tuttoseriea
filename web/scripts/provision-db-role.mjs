@@ -62,6 +62,7 @@ const jobsTablePrivileges = [
   },
 ];
 const footballTablePrivileges = [
+  { tableName: "coaches", privileges: ["SELECT", "INSERT", "UPDATE"] },
   {
     tableName: "competitions",
     privileges: ["SELECT", "INSERT", "UPDATE"],

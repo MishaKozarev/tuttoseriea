@@ -448,6 +448,34 @@ export const footballMatchEvents = footballSchema.table(
   }),
 );
 
+export const footballCoaches = footballSchema.table("coaches", {
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
+  provider: text("provider").notNull(),
+  providerCoachId: integer("provider_coach_id").notNull(),
+  providerName: text("provider_name").notNull(),
+  providerPhotoUrl: text("provider_photo_url"),
+  nameRu: text("name_ru"),
+  nameRuReviewStatus: text("name_ru_review_status"),
+  localizationRevision: integer("localization_revision").default(0).notNull(),
+  nameSourceMatchId: text("name_source_match_id").notNull().references(() => footballMatches.id, { onDelete: "restrict" }),
+  photoSourceMatchId: text("photo_source_match_id").references(() => footballMatches.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  providerUnique: uniqueIndex("coaches_provider_coach_id_unique").on(table.provider, table.providerCoachId),
+  providerCheck: check("coaches_provider_check", sql`btrim(${table.provider}) <> ''`),
+  providerIdCheck: check("coaches_provider_coach_id_check", sql`${table.providerCoachId} > 0`),
+  nameCheck: check("coaches_provider_name_check", sql`btrim(${table.providerName}) <> ''`),
+  revisionCheck: check("coaches_localization_revision_check", sql`${table.localizationRevision} >= 0`),
+  localizationCheck: check("coaches_name_ru_review_consistency_check", sql`(
+    (${table.nameRu} is null and ${table.nameRuReviewStatus} is null) or
+    (${table.nameRu} is not null and btrim(${table.nameRu}) <> '' and ${table.nameRuReviewStatus} is not null
+      and ${table.nameRuReviewStatus} in ('unreviewed','reviewed')))`),
+  photoCheck: check("coaches_photo_source_consistency_check", sql`(
+    (${table.providerPhotoUrl} is null and ${table.photoSourceMatchId} is null) or
+    (${table.providerPhotoUrl} is not null and btrim(${table.providerPhotoUrl}) <> '' and ${table.photoSourceMatchId} is not null))`),
+}));
+
 export const footballMatchLineups = footballSchema.table(
   "match_lineups",
   {
@@ -464,6 +492,7 @@ export const footballMatchLineups = footballSchema.table(
     providerCoachId: integer("provider_coach_id"),
     providerCoachName: text("provider_coach_name"),
     providerCoachPhotoUrl: text("provider_coach_photo_url"),
+    coachId: text("coach_id").references(() => footballCoaches.id, { onDelete: "set null" }),
     providerColors: jsonb("provider_colors").$type<Record<string, unknown>>(),
     providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>().notNull(),
     observedAt: timestamp("observed_at", { mode: "date", withTimezone: true })
@@ -476,6 +505,8 @@ export const footballMatchLineups = footballSchema.table(
       table.clubId,
     ),
     clubIndex: index("match_lineups_club_id_idx").on(table.clubId),
+    coachIndex: index("match_lineups_coach_id_idx").on(table.coachId),
+    coachIdentityCheck: check("match_lineups_coach_identity_check", sql`${table.coachId} is null or ${table.providerCoachId} is not null`),
     providerCoachIdPositiveCheck: check(
       "match_lineups_provider_coach_id_positive_check",
       sql`${table.providerCoachId} is null or ${table.providerCoachId} > 0`,

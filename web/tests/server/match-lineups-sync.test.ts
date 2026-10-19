@@ -7,6 +7,11 @@ import type {
   ApiFootballResult,
 } from "@/src/football/api-football/node";
 import { syncMatchLineups } from "@/src/football/match-lineups-sync";
+// SQL/locking/rollback of this boundary is exercised against PostgreSQL by db:football-coaches:check.
+vi.mock("@/src/football/coaches-repository", () => ({
+  resolveCoachesForLineups: vi.fn(async (_db: unknown, _matchId: string, rows: { providerCoachId: number | null }[]) =>
+    rows.map((row) => ({ ...row, coachId: row.providerCoachId ? `coach-${row.providerCoachId}` : null }))),
+}));
 import {
   MATCH_LINEUPS_AWAY_PROVIDER_CLUB_ID,
   MATCH_LINEUPS_HOME_PROVIDER_CLUB_ID,
