@@ -4321,6 +4321,14 @@ async function cleanupMatchEventsRollbackFixture(
         and m.provider_fixture_id < 920001
     `);
     await client.query(`
+      delete from football.coaches c
+      using football.matches m
+      where (c.name_source_match_id = m.id or c.photo_source_match_id = m.id)
+        and m.provider = 'api-football'
+        and m.provider_fixture_id >= 910000
+        and m.provider_fixture_id < 920001
+    `);
+    await client.query(`
       delete from football.matches
       where provider = 'api-football'
         and provider_fixture_id >= 910000

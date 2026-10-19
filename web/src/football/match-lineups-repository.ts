@@ -58,6 +58,7 @@ export type InsertMatchLineupEntryInput = {
 
 export type ReplaceMatchLineupInput = {
   clubId: string;
+  coachId?: string | null;
   formation: string | null;
   providerCoachId: number | null;
   providerCoachName: string | null;
@@ -177,9 +178,10 @@ export async function replaceMatchLineups(
           provider_coach_name,
           provider_coach_photo_url,
           provider_colors,
-          provider_raw
+          provider_raw,
+          coach_id
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
+        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10)
       `,
       [
         lineupId,
@@ -191,6 +193,7 @@ export async function replaceMatchLineups(
         lineup.providerCoachPhotoUrl,
         JSON.stringify(lineup.providerColors),
         JSON.stringify(lineup.providerRaw),
+        lineup.coachId ?? null,
       ],
     );
 

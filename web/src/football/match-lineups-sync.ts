@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 
 import type { ApiFootballClient, ApiFootballResult } from "./api-football/node";
+import { resolveCoachesForLineups } from "./coaches-repository";
 import {
   isMatchActivityExpectedState,
   type NormalizedFixtureState,
@@ -584,7 +585,8 @@ export async function syncMatchLineups(
   }
 
   if (input.transactionClient) {
-    await replaceMatchLineups(input.transactionClient, context.matchId, resolved);
+    const linked = await resolveCoachesForLineups(input.transactionClient, context.matchId, resolved, context);
+    await replaceMatchLineups(input.transactionClient, context.matchId, linked);
     return success(context, resolved, anomalies);
   }
 
@@ -595,7 +597,8 @@ export async function syncMatchLineups(
     await client.query("begin");
     transactionStarted = true;
 
-    await replaceMatchLineups(client, context.matchId, resolved);
+    const linked = await resolveCoachesForLineups(client, context.matchId, resolved, context);
+    await replaceMatchLineups(client, context.matchId, linked);
 
     await client.query("commit");
     transactionStarted = false;

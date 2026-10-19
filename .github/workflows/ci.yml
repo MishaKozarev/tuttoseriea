@@ -217,6 +217,13 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:football:check
 
+      - name: Check Coach persistence, chronology and PostgreSQL concurrency
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:football-coaches:check
+
       - name: Check Football Admin Overview read model
         working-directory: web
         env:
@@ -332,6 +339,9 @@ jobs:
 
       - name: Check immutable staff operator artifact
         run: docker run --rm --network none --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/auth-tools/staff-auth.mjs --check-runtime
+
+      - name: Check immutable Coach operator artifact
+        run: docker run --rm --network none --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/football-tools/reconcile-lineup-coaches.mjs --check-runtime
 
       - name: Check web container Match lifecycle dispatcher runtime
         run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/dispatcher.js --check-runtime
