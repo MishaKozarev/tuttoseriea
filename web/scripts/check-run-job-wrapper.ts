@@ -12,6 +12,7 @@ const playerStatisticsJobType = "football.sync-serie-a-player-statistics";
 const matchEventsJobType = "football.sync-serie-a-match-events";
 const matchLineupsJobType = "football.sync-serie-a-match-lineups";
 const matchStatisticsJobType = "football.sync-serie-a-match-statistics";
+const coachesJobType = "football.sync-serie-a-coaches";
 const matchScopedJobTypes = [
   matchEventsJobType,
   matchLineupsJobType,
@@ -125,6 +126,10 @@ assert(
 assert(
   matchScopedJobTypes.every((type) => !validateRunJobType("production", type)),
   "PRODUCTION unexpectedly accepted a Match-scoped job type",
+);
+assert(
+  !validateRunJobType("staging", coachesJobType) && !validateRunJobType("production", coachesJobType),
+  "The root-only Coach job must remain excluded from repository/SSH launchers",
 );
 
 for (const jobType of matchScopedJobTypes) {
@@ -285,8 +290,8 @@ const readVdsAllowedTypes = (environment: "staging" | "production"): string[] | 
 
 assert(
   JSON.stringify(readVdsAllowedTypes("staging")) ===
-    JSON.stringify(stagingJobTypes),
-  "VDS common STAGING allowlist must contain exactly the eight approved job types",
+    JSON.stringify([...stagingJobTypes, coachesJobType]),
+  "VDS common STAGING allowlist must contain the original eight types plus the root-only Coach job",
 );
 assert(
   JSON.stringify(readVdsAllowedTypes("production")) ===
@@ -453,3 +458,5 @@ console.log("run_job_production_player_statistics_rejected=true");
 console.log("run_job_staging_forced_command_contract=true");
 console.log("run_job_staging_sudoers_contract=true");
 console.log("run_job_staging_wrapper_generic=true");
+console.log("run_job_coaches_staging_root_only=true");
+console.log("run_job_coaches_production_rejected=true");

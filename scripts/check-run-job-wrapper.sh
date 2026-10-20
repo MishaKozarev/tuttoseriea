@@ -15,6 +15,7 @@ player_statistics_type="football.sync-serie-a-player-statistics"
 match_events_type="football.sync-serie-a-match-events"
 match_lineups_type="football.sync-serie-a-match-lineups"
 match_statistics_type="football.sync-serie-a-match-statistics"
+coaches_type="football.sync-serie-a-coaches"
 valid_match_id="11111111-1111-4111-8111-111111111111"
 vds_common="${SCRIPT_DIR}/vds/tuttoseriea-run-job-common.sh"
 vds_reader="${SCRIPT_DIR}/vds/tuttoseriea-read-current-staging"
@@ -32,6 +33,8 @@ invalid_types=(
   "football.sync-serie-a-match-events --match-id ${valid_match_id}"
   "football.sync-serie-a-match-lineups --match-id ${valid_match_id}"
   "football.sync-serie-a-match-statistics --match-id ${valid_match_id}"
+  "football.sync-serie-a-coaches --id 2914"
+  "football.sync-serie-a-coaches;uname"
   "football.sync-serie-a-foundation;uname"
   "football.sync-serie-a-foundation$(printf '\n')echo"
   "football.sync-other"
@@ -291,6 +294,8 @@ reject_repository_launcher "$match_events_type" "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAA
 reject_repository_launcher "$match_events_type" "not-a-uuid"
 reject_repository_launcher "$foundation_type" "$valid_match_id"
 reject_repository_launcher "football.sync-other" "$valid_match_id"
+reject_repository_launcher "$coaches_type"
+reject_repository_launcher "$coaches_type" "$valid_match_id"
 
 assert_staging_dispatch() {
   local command="$1"
@@ -360,6 +365,9 @@ for forbidden_command in \
   "run-job ${standings_type} extra" \
   "run-job ${squads_type} extra" \
   "run-job ${player_statistics_type} extra" \
+  "run-job ${coaches_type}" \
+  "run-job ${coaches_type} --id 2914" \
+  "run-job ${coaches_type} --match-id ${valid_match_id}" \
   "run-job ${foundation_type} --match-id ${valid_match_id}" \
   "run-job ${match_events_type}" \
   "run-job ${match_events_type} --match-id AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" \
@@ -405,6 +413,31 @@ validate_job_type staging "$match_statistics_type" ||
   error "VDS common wrapper rejected the STAGING Match Statistics type"
 validate_job_type production "$foundation_type" ||
   error "VDS common wrapper rejected the PRODUCTION foundation type"
+
+# Exercise the real helper validators only: never invoke the job or Docker.
+validate_job_type staging "$coaches_type" ||
+  error "VDS common wrapper rejected the STAGING-only Coach type"
+validate_job_invocation staging "$coaches_type" ||
+  error "VDS common wrapper rejected the zero-argument Coach invocation"
+if validate_job_type production "$coaches_type" ||
+  validate_job_invocation production "$coaches_type"; then
+  error "VDS common wrapper expanded PRODUCTION to the Coach job"
+fi
+for coach_args in \
+  "extra" \
+  "--id 2914" \
+  "--match-id $valid_match_id" \
+  "--season 2025" \
+  "--env NAME=value" \
+  "--image example.invalid/web:latest" \
+  "--entrypoint /bin/sh"; do
+  read -r -a coach_argv <<< "$coach_args"
+  for coach_environment in staging production; do
+    if validate_job_invocation "$coach_environment" "$coaches_type" "${coach_argv[@]}"; then
+      error "VDS common wrapper accepted Coach arguments: ${coach_environment} ${coach_args}"
+    fi
+  done
+done
 
 for invalid_type in "${invalid_types[@]}"; do
   if validate_job_type staging "$invalid_type" ||
@@ -523,3 +556,6 @@ printf 'run_job_production_player_statistics_rejected=true\n'
 printf 'run_job_staging_forced_command_contract=true\n'
 printf 'run_job_staging_sudoers_contract=true\n'
 printf 'run_job_staging_wrapper_generic=true\n'
+printf 'run_job_coaches_staging_root_only=true\n'
+printf 'run_job_coaches_zero_arguments_only=true\n'
+printf 'run_job_coaches_production_rejected=true\n'
