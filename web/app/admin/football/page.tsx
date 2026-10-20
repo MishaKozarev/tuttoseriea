@@ -48,7 +48,8 @@ export default async function FootballAdminPage() {
             <Link href="/admin/football/synchronization" className="text-sm font-medium underline underline-offset-4">Синхронизация</Link>
             <Link href="/admin/football/localization" className="text-sm font-medium underline underline-offset-4">Локализация</Link>
             <Link href="/admin/football/data" className="text-sm font-medium underline underline-offset-4">Football данные</Link>
-          </nav>
+          <Link href="/admin/football/coaches" className="text-sm font-medium underline underline-offset-4">Тренеры</Link>
+      </nav>
           <section aria-labelledby="overview-heading" className="space-y-4">
             <h2 id="overview-heading" className="text-xl font-semibold">Обзор</h2>
             <p className="text-sm text-muted-foreground">

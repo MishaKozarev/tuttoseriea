@@ -30,8 +30,8 @@ describe("Football localization commands", () => {
 });
 
 describe("Football localization lookup", () => {
-  it("accepts only three entity kinds and existing text IDs", () => {
-    expect(["competitions", "clubs", "players"].map(localizationKind)).toHaveLength(3);
+  it("accepts the four allowed entity kinds and existing text IDs", () => {
+    expect(["competitions", "clubs", "players", "coaches"].map(localizationKind)).toHaveLength(4);
     expect(localizationId("legacy-football-id")).toBe("legacy-football-id");
     expect(() => localizationKind("seasons")).toThrow();
     expect(() => localizationId("../entity")).toThrow();

@@ -80,6 +80,10 @@ async function main() {
     await anonymousPage.goto("/admin/football/data");
     await expect(anonymousPage).toHaveURL(/\/admin\/login\?/);
     assert.equal(new URL(anonymousPage.url()).searchParams.get("returnTo"), "/admin/football/data");
+    await anonymousPage.goto("/admin/football/coaches");
+    await expect(anonymousPage).toHaveURL(/\/admin\/login\?/);
+    assert.equal(new URL(anonymousPage.url()).searchParams.get("returnTo"), "/admin/football/coaches");
+    assert.equal((await anonymous.request.patch("/api/admin/football/localization/coaches/fixture", { data: {}, headers: { origin } })).status(), 401);
     await anonymous.close();
     for (const identity of identities) {
       phase = `${identity.role} authorization`;
@@ -120,6 +124,10 @@ async function main() {
         await page.goto("/admin/football/data?view=players");
         await expect(page.getByRole("heading", { name: "Доступ запрещён" })).toBeVisible();
         await expect(page.getByRole("searchbox")).toHaveCount(0);
+        await page.goto("/admin/football/coaches");
+        await expect(page.getByRole("heading", { name: "Доступ запрещён" })).toBeVisible();
+        assert.equal((await context.request.get("/api/admin/football/localization?kind=coaches")).status(), 403);
+        assert.equal((await context.request.patch("/api/admin/football/localization/coaches/fixture", { data: {}, headers: { origin } })).status(), 403);
       } else {
         assert.equal(response?.status(), 200);
         assert.equal((await context.request.get("/api/admin/football/jobs")).status(), 200);
@@ -213,6 +221,23 @@ async function main() {
         assert.equal(writes, 3, "GET reconciliation repeated a mutation");
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Localization UI overflows mobile viewport");
         assert.equal(externalRequests, 0);
+        phase = "Coach localization browser flow";
+        localized = { ...localizationFixture("coaches"), providerName: "Fixture Coach", displayName: "Fixture Coach" };
+        await page.goto(`/admin/football/localization?kind=coaches&id=${localized.id}`);
+        await expect(find).toBeEnabled();
+        await expect(page.getByRole("region", { name: "Русское название: Fixture Coach" })).toBeVisible();
+        await name.fill("Тестовый тренер"); await save.click(); await expect(find).toBeEnabled();
+        await page.getByRole("checkbox").check(); await review.click(); await expect(find).toBeEnabled();
+        await expect(page.getByRole("region", { name: "Русское название: Fixture Coach" })).toContainText("Подтверждено (reviewed)");
+        assert.equal(writes, 5);
+        phase = "Coaches read browser flow";
+        await page.goto("/admin/football");
+        await page.getByRole("link", { name: "Тренеры", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Тренеры", exact: true })).toBeVisible();
+        await page.goto("/admin/football/coaches?query=missing-coach-browser-fixture");
+        await expect(page.getByRole("heading", { name: "Тренеры", exact: true })).toBeVisible();
+        await expect(page.getByText("По заданным условиям тренеры не найдены.")).toBeVisible();
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Coaches overflows mobile viewport");
         phase = "Football Data read browser flow";
         for (const [view, title] of [["clubs", "Клубы"], ["players", "Игроки"], ["matches", "Матчи"], ["standings", "Турнирная таблица"]]) {
           assert.equal((await page.goto(`/admin/football/data?view=${view}`))?.status(), 200);
@@ -229,7 +254,7 @@ async function main() {
         await expect(page.getByText("По заданным условиям ничего не найдено.")).toBeVisible();
         assert.equal(new URL(page.url()).searchParams.get("status"), "finished");
         assert.equal(commands.length, 2, "Data reads admitted a job");
-        assert.equal(writes, 3, "Data reads edited localization");
+        assert.equal(writes, 5, "Data reads edited localization");
         assert.equal(externalRequests, 0);
       }
       await context.close();
@@ -260,6 +285,7 @@ async function main() {
   console.log("football_admin_ui_confirmation_replay_get_refresh_mobile=true");
   console.log("football_admin_ui_localization_save_review_conflict_reload_mobile=true");
   console.log("football_admin_ui_data_read_auth_tabs_search_filters_mobile=true");
+  console.log("football_admin_ui_coaches_read_deep_link_shared_localization_mfa_auth_mobile=true");
   console.log("real_admissions=0 provider_requests=0 fixture_cleanup=complete");
 }
 

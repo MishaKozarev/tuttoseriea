@@ -106,6 +106,7 @@ describe("Football Admin route with the real access policy", () => {
     expect(screen.getByText("История запусков пуста.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Синхронизация" }).getAttribute("href")).toBe("/admin/football/synchronization");
     expect(screen.getByRole("link", { name: "Локализация" }).getAttribute("href")).toBe("/admin/football/localization");
+    expect(screen.getByRole("link", { name: "Тренеры" }).getAttribute("href")).toBe("/admin/football/coaches");
   });
 
   it("shows job status, safe error code and retry availability without raw provider details", async () => {

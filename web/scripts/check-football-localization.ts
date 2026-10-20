@@ -10,6 +10,8 @@ import { upsertClub, upsertSerieACompetition } from "../src/football/repository"
 import { upsertPlayer } from "../src/football/squads-repository";
 import { upsertPlayerProfile } from "../src/football/player-statistics-repository";
 import { quoteIdentifier } from "../src/jobs/config";
+import { resolveCoachesForLineups } from "../src/football/coaches-repository";
+import { checkCoachAdminReads } from "./check-football-coaches-admin";
 
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ path: ".env", quiet: true });
@@ -35,26 +37,46 @@ async function main() {
   // Only the fixture adapter rewrites SQL. Production repositories keep their canonical schema.
   const scope = (db: Queryable): Queryable => ({ query: ((sql: string, values?: unknown[]) => {
     assert.equal(typeof sql, "string");
-    const scopedSql = sql.replace(/\bfootball\.(competitions|clubs|players)\b/g, `${quoted}.$1`);
+    const scopedSql = sql.replace(/\bfootball\./g, `${quoted}.`);
     assert(!/\bfootball\./.test(scopedSql), "Fixture repository SQL must never reach canonical Football tables");
     return db.query(scopedSql, values);
   }) as Queryable["query"] });
   const repository = new FootballLocalizationRepository(scope(runtime));
   const ids = new Map<LocalizationKind, string>();
+  const tables = [...LOCALIZATION_KINDS, "seasons", "matches", "match_lineups"];
+  let coachMatch: string;
+  let awayClub: string;
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Provider requests forbidden in localization fixtures"); };
   let created = false;
-  const originalFingerprint = async () => Promise.all(LOCALIZATION_KINDS.map(async (kind) => {
+  const originalFingerprint = async () => Promise.all(tables.map(async (kind) => {
     const result = await owner.query(`select md5(coalesce(string_agg(
-      jsonb_build_array(id, slug, provider_name, name_ru, name_ru_review_status, localization_revision)::text, ',' order by id), '')) as fingerprint
-      from football.${kind}`);
+      to_jsonb(t)::text, ',' order by id), '')) as fingerprint
+      from football.${kind} t`);
     return result.rows[0].fingerprint;
   }));
   const before = await originalFingerprint();
   const row = async (kind: LocalizationKind, id: string) => (await owner.query(`select to_jsonb(t) as value from ${quoted}.${kind} t where id=$1`, [id])).rows[0].value as Record<string, unknown>;
   const immutable = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).filter(([key]) => !["name_ru", "name_ru_review_status", "localization_revision"].includes(key)));
-  const sync = (kind: LocalizationKind, name: string) => {
+  const sync = async (kind: LocalizationKind, name: string) => {
     const db = scope(runtime);
     if (kind === "competitions") return upsertSerieACompetition(db, { providerName: name, country: "Italy", type: "League", providerLogoUrl: "https://fixture.invalid/league" });
     if (kind === "clubs") return upsertClub(db, { providerClubId: 987001, providerName: name, code: "FIX", country: "Italy", founded: 1900, national: false, providerLogoUrl: "https://fixture.invalid/club" });
+    if (kind === "coaches") {
+      if (!coachMatch) {
+        const season = randomUUID(); coachMatch = randomUUID();
+        awayClub = await upsertClub(scope(owner), { providerClubId: 987003, providerName: "Fixture away", code: null, country: "Italy", founded: null, national: false, providerLogoUrl: null });
+        await owner.query(`insert into ${quoted}.seasons(id,competition_id,provider,provider_season_year,provider_current,display_label) values($1,$2,'api-football',2026,true,'2026/27')`, [season, ids.get("competitions")]);
+        await owner.query(`insert into ${quoted}.matches(id,provider,provider_fixture_id,slug,season_id,home_club_id,away_club_id,round,kickoff_at,status,polling_category,provider_status_short,provider_raw)
+          values($1,'api-football',987001,$1,$2,$3,$4,'Regular Season - 1','2026-10-01T12:00:00Z','finished','TERMINAL','FT','{}')`, [coachMatch, season, ids.get("clubs"), awayClub]);
+      }
+      const client = await runtime.connect();
+      try {
+        await client.query("begin");
+        const result = await resolveCoachesForLineups(scope(client), coachMatch, [{ providerCoachId: 987001, providerCoachName: name, providerCoachPhotoUrl: "https://fixture.invalid/coach" }]);
+        await client.query("commit"); return result[0].coachId!;
+      } catch (error) { await client.query("rollback"); throw error; } finally { client.release(); }
+    }
     return upsertPlayer(db, { providerPlayerId: 987002, providerName: name, age: 25, providerPhotoUrl: "https://fixture.invalid/player" });
   };
   const profileSync = () => upsertPlayerProfile(scope(runtime), {
@@ -66,9 +88,14 @@ async function main() {
     const role = (await runtime.query<{ current_user: string }>("select current_user")).rows[0].current_user;
     assert.notEqual(role, migrationUrl.username, "Check must use the restricted runtime DB role");
     await owner.query(`grant usage on schema ${quoted} to ${quoteIdentifier(role)}`);
+    for (const table of tables) {
+      await owner.query(`create table ${quoted}.${table} (like football.${table} including all)`);
+      const privileges = (await owner.query("select privilege_type from information_schema.role_table_grants where grantee=$1 and table_schema='football' and table_name=$2 order by privilege_type", [role, table])).rows.map(r => r.privilege_type);
+      await owner.query(`grant ${privileges.join(",")} on ${quoted}.${table} to ${quoteIdentifier(role)}`);
+    }
+    await owner.query(`alter table ${quoted}.coaches add foreign key(name_source_match_id) references ${quoted}.matches(id), add foreign key(photo_source_match_id) references ${quoted}.matches(id)`);
+    await owner.query(`alter table ${quoted}.match_lineups add foreign key(coach_id) references ${quoted}.coaches(id) on delete set null`);
     for (const kind of LOCALIZATION_KINDS) {
-      await owner.query(`create table ${quoted}.${kind} (like football.${kind} including all)`);
-      await owner.query(`grant select, insert, update on ${quoted}.${kind} to ${quoteIdentifier(role)}`);
       const id = await sync(kind, `Fixture ${kind}`); ids.set(kind, id);
       const missing = await repository.get(kind, id); assert(missing);
       assert.equal(missing.nameRu, null); assert.equal(missing.nameRuReviewStatus, null);
@@ -100,16 +127,16 @@ async function main() {
     }
 
     // Both runtime UPDATEs are genuinely in flight behind the same PostgreSQL row lock.
-    const race = async (edits: [FootballLocalizationEdit, FootballLocalizationEdit]) => {
+    const race = async (edits: [FootballLocalizationEdit, FootballLocalizationEdit], kind: LocalizationKind = "clubs") => {
       const blocker = await owner.connect();
       const clients = await Promise.all([runtime.connect(), runtime.connect()]);
-      const id = ids.get("clubs")!;
+      const id = ids.get(kind)!;
       let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
       try {
         await blocker.query("begin");
-        await blocker.query(`select id from ${quoted}.clubs where id=$1 for update`, [id]);
+        await blocker.query(`select id from ${quoted}.${kind} where id=$1 for update`, [id]);
         const pids = await Promise.all(clients.map(async (client) => (await client.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid));
-        pending = Promise.allSettled(clients.map((client, index) => new FootballLocalizationRepository(scope(client)).edit("clubs", id, edits[index])));
+        pending = Promise.allSettled(clients.map((client, index) => new FootballLocalizationRepository(scope(client)).edit(kind, id, edits[index])));
         let waiting = 0;
         const deadline = Date.now() + 5_000;
         while (waiting !== 2 && Date.now() < deadline) {
@@ -132,6 +159,10 @@ async function main() {
     assert.equal(club.localizationRevision, 5);
     await race([{ action: "save", nameRu: "Новая версия", expectedRevision: 5 }, { action: "review", nameRu: club.nameRu!, expectedRevision: 5, confirmed: true }]);
     club = (await repository.get("clubs", club.id))!; assert.equal(club.localizationRevision, 6);
+    await race([{ action: "save", nameRu: "Coach one", expectedRevision: 4 }, { action: "save", nameRu: "Coach two", expectedRevision: 4 }], "coaches");
+    const coachDraft = (await repository.get("coaches", ids.get("coaches")!))!;
+    await race([{ action: "save", nameRu: "Coach changed", expectedRevision: 5 }, { action: "review", nameRu: coachDraft.nameRu!, expectedRevision: 5, confirmed: true }], "coaches");
+    await checkCoachAdminReads({ owner, runtime, scope, quoted, coachId: ids.get("coaches")!, matchId: coachMatch!, homeClub: ids.get("clubs")!, awayClub: awayClub! });
     // ABA: returning to the same name/status cannot revive a stale editor's revision.
     await repository.edit("clubs", club.id, { action: "save", nameRu: "Временное имя", expectedRevision: 6 });
     const restored = await repository.edit("clubs", club.id, { action: "save", nameRu: club.nameRu!, expectedRevision: 7 });
@@ -160,6 +191,7 @@ async function main() {
     assert.deepEqual(await originalFingerprint(), before, "Canonical Football names or identities were changed by the fixture check");
   } finally {
     if (created) await owner.query(`drop schema ${quoted} cascade`);
+    globalThis.fetch = savedFetch;
     await runtime.end(); await owner.end();
   }
   console.log("football_localization_check=passed");
