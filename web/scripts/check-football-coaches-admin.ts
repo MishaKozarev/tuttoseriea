@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { readFootballCoaches } from "../src/admin/football-coaches-repository";
+import { upsertCoachProfile } from "../src/football/coach-profile-repository";
+import { parseCoachProfile } from "../src/football/coach-profile";
+import { coachProfileFixture } from "../tests/fixtures/coach-profile";
 import { parseFootballCoachesQuery } from "../src/admin/football-coaches";
 
 type Queryable = Pick<pg.Pool | pg.PoolClient, "query">;
@@ -29,6 +32,8 @@ export async function checkCoachAdminReads({ owner, runtime, scope, quoted, coac
   let model = await read();
   assert.equal(model.detail?.providerCoachId, coach.provider_coach_id);
   assert.equal(model.detail?.entity.slug, null);
+  assert.equal(model.detail?.profile?.career.length, 3);
+  assert.equal(model.detail?.profile?.firstname, "Fixture");
   assert.equal(model.detail?.providerPhotoUrl, "https://fixture.invalid/coach");
   assert.equal(model.detail?.observations[0].lastKnown.kind, "known");
   assert.equal(model.detail?.observations[0].sources[0].matchId, matchId);
@@ -55,9 +60,13 @@ export async function checkCoachAdminReads({ owner, runtime, scope, quoted, coac
   // Unassociated/orphaned profiles remain readable; matching names never merge identities.
   const orphan = randomUUID();
   await owner.query(`insert into ${quoted}.coaches(id,provider,provider_coach_id,provider_name,name_source_match_id) values($1,'api-football',980000,'Provider changed reviewed',$2)`, [orphan, matchId]);
-  assert.equal((await readFootballCoaches(db, parseFootballCoachesQuery({ id: orphan }))).detail?.observations.length, 0);
+  const missingProfile = (await readFootballCoaches(db, parseFootballCoachesQuery({ id: orphan }))).detail;
+  assert.equal(missingProfile?.observations.length, 0); assert.equal(missingProfile?.profile, null);
+  assert.equal(missingProfile?.entity.providerName, null); assert.equal(missingProfile?.providerPhotoUrl, null);
+  await upsertCoachProfile(db, parseCoachProfile(coachProfileFixture(980000,"Provider changed reviewed"),980000), new Date("2026-10-20T13:00:00Z"));
   assert.equal((await readFootballCoaches(db, parseFootballCoachesQuery({ id: randomUUID() }))).detail, null);
-  for (let i = 0; i < 23; i++) await owner.query(`insert into ${quoted}.coaches(id,provider,provider_coach_id,provider_name,name_source_match_id) values($1,'api-football',$2,$3,$4)`, [randomUUID(), 980001 + i, `Coach search ${String(i).padStart(2, "0")}`, matchId]);
+  for (let i = 0; i < 23; i++) await upsertCoachProfile(db,
+    parseCoachProfile(coachProfileFixture(980001 + i, `Coach search ${String(i).padStart(2, "0")}`),980001+i),new Date("2026-10-20T13:00:00Z"));
   const first = await readFootballCoaches(db, parseFootballCoachesQuery({ query: "COACH SEARCH" }));
   const second = await readFootballCoaches(db, parseFootballCoachesQuery({ query: "coach search", page: "2" }));
   assert.equal(first.page.total, 23); assert.equal(first.page.items.length, 20); assert.equal(second.page.items.length, 3);

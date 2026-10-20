@@ -12,9 +12,11 @@ describe("Coach operator admission", () => {
     ["--stage=local", "--action=plan"], ["--stage=local", "--action=apply"],
     ["--stage=local", "--action=plan", "--scope=all"], ["--stage=local", "--stage=staging", "--action=verify"],
     ["--stage=local", "--action=verify", "--batch=1"],
+    ["--stage=local", "--action=apply", "--pass=profiles", "--batch=1", `--confirm=${"a".repeat(64)}`],
+    ["--stage=local", "--action=apply", "--pass=links", "--batch=1", `--confirm=${"a".repeat(64)}`],
   ].map((args) => ({ args })))("rejects unsafe/ambiguous invocation %#", ({ args }) => expect(() => parseCoachOperatorArguments(args)).toThrow());
   it("bounds write invocations and requires the actual hash", () => {
-    const args = ["--stage=staging", "--action=apply", "--pass=profiles", `--confirm=${"a".repeat(64)}`];
+    const args = ["--stage=staging", "--action=apply", "--pass=identities", `--confirm=${"a".repeat(64)}`];
     expect(parseCoachOperatorArguments([...args, "--batch=8"]).batch).toBe(8);
     expect(() => parseCoachOperatorArguments([...args, "--batch=9"])).toThrow();
     expect(() => parseCoachOperatorArguments([...args, "--batch=01"])).toThrow();

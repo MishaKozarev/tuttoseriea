@@ -36,7 +36,7 @@ beforeEach(() => {
   mocks.edit.mockImplementation(async (_kind: unknown, _id: unknown, edit: FootballLocalizationEdit) => {
     if (edit.expectedRevision !== record.localizationRevision) throw new FootballLocalizationError("LOCALIZATION_CONFLICT", 409, "Reload localization");
     record = { ...record, nameRu: edit.nameRu, nameRuReviewStatus: edit.action === "review" ? "reviewed" : "unreviewed", localizationRevision: record.localizationRevision + 1 };
-    record.displayName = resolveFootballProperName({ providerName: record.providerName, nameRu: record.nameRu, reviewStatus: record.nameRuReviewStatus });
+    record.displayName = resolveFootballProperName({ providerName: record.providerName ?? record.displayName, nameRu: record.nameRu, reviewStatus: record.nameRuReviewStatus });
     return record;
   });
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (path, init) => {

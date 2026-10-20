@@ -75,12 +75,12 @@ const registryDefinitions = registry.match(
 )?.[1];
 const registeredDefinitions = registryDefinitions?.match(/syncSerieA[A-Za-z]+Job/gu) ?? [];
 assert(
-  registeredDefinitions.length === 8,
-  `Production job registry must remain at 8 types, got ${registeredDefinitions.length}`,
+  registeredDefinitions.length === 9 && registeredDefinitions.includes("syncSerieACoachesJob"),
+  `Application job registry must contain the eight existing jobs and the Coach profile job, got ${registeredDefinitions.length}`,
 );
 
 console.log("match_lifecycle_dispatcher_operational_check=passed");
 console.log("match_lifecycle_dispatcher_exact_image=true");
 console.log("match_lifecycle_dispatcher_no_arbitrary_args=true");
 console.log("match_lifecycle_dispatcher_production_unchanged=true");
-console.log("production_job_types=8");
+console.log("production_job_types=9");

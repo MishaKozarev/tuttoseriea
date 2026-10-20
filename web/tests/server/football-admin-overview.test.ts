@@ -4,12 +4,12 @@ vi.mock("server-only", () => ({}));
 
 import { buildFootballOverview, overviewTime } from "@/src/admin/football-overview";
 import { OVERVIEW_DATASETS } from "@/src/admin/football-overview-repository";
-import { productionJobRegistry } from "@/src/jobs/registry";
+import { ADMIN_JOB_TYPES } from "@/src/jobs/admin-contract";
 import { footballOverviewFixture } from "../fixtures/football-overview";
 
 describe("Football Overview evidence", () => {
-  it("maps the existing eight jobs without adding job types", () => {
-    expect(OVERVIEW_DATASETS.map((dataset) => dataset.jobType).sort()).toEqual([...productionJobRegistry.keys()].sort());
+  it("maps the eight Admin jobs without admitting the operator-only Coach profile job", () => {
+    expect(OVERVIEW_DATASETS.map((dataset) => dataset.jobType).sort()).toEqual([...ADMIN_JOB_TYPES].sort());
   });
 
   it("retains full persisted matches despite a failed synchronization", () => {

@@ -452,12 +452,23 @@ export const footballCoaches = footballSchema.table("coaches", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   provider: text("provider").notNull(),
   providerCoachId: integer("provider_coach_id").notNull(),
-  providerName: text("provider_name").notNull(),
+  providerName: text("provider_name"),
   providerPhotoUrl: text("provider_photo_url"),
+  firstname: text("firstname"),
+  lastname: text("lastname"),
+  age: integer("age"),
+  birthDate: date("birth_date", { mode: "string" }),
+  birthPlace: text("birth_place"),
+  birthCountry: text("birth_country"),
+  nationality: text("nationality"),
+  height: text("height"),
+  weight: text("weight"),
+  providerRaw: jsonb("provider_raw").$type<Record<string, unknown>>(),
+  profileObservedAt: timestamp("profile_observed_at", { mode: "date", withTimezone: true }),
   nameRu: text("name_ru"),
   nameRuReviewStatus: text("name_ru_review_status"),
   localizationRevision: integer("localization_revision").default(0).notNull(),
-  nameSourceMatchId: text("name_source_match_id").notNull().references(() => footballMatches.id, { onDelete: "restrict" }),
+  nameSourceMatchId: text("name_source_match_id").references(() => footballMatches.id, { onDelete: "restrict" }),
   photoSourceMatchId: text("photo_source_match_id").references(() => footballMatches.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -471,9 +482,11 @@ export const footballCoaches = footballSchema.table("coaches", {
     (${table.nameRu} is null and ${table.nameRuReviewStatus} is null) or
     (${table.nameRu} is not null and btrim(${table.nameRu}) <> '' and ${table.nameRuReviewStatus} is not null
       and ${table.nameRuReviewStatus} in ('unreviewed','reviewed')))`),
-  photoCheck: check("coaches_photo_source_consistency_check", sql`(
-    (${table.providerPhotoUrl} is null and ${table.photoSourceMatchId} is null) or
-    (${table.providerPhotoUrl} is not null and btrim(${table.providerPhotoUrl}) <> '' and ${table.photoSourceMatchId} is not null))`),
+  ageCheck: check("coaches_age_check", sql`${table.age} is null or ${table.age} >= 0`),
+  profileCheck: check("coaches_profile_source_check", sql`(
+    (${table.profileObservedAt} is null and ${table.providerRaw} is null) or
+    (${table.profileObservedAt} is not null and ${table.providerRaw} is not null
+      and jsonb_typeof(${table.providerRaw}) = 'object' and ${table.providerName} is not null))`),
 }));
 
 export const footballMatchLineups = footballSchema.table(

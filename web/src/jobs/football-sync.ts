@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 
 import {
   createApiFootballClient,
@@ -38,13 +38,18 @@ import { syncSerieAMatches } from "../football/serie-a-matches-sync";
 import { syncSerieAPlayerStatistics } from "../football/serie-a-player-statistics-sync";
 import { syncSerieASquads } from "../football/serie-a-squads-sync";
 import { syncSerieAStandings } from "../football/serie-a-standings-sync";
+import { syncSerieACoaches } from "../football/serie-a-coaches-sync";
+import { SERIE_A_COACHES_JOB_TYPE, SERIE_A_COACHES_IDEMPOTENCY_KEY } from "../football/foundation";
+import { quoteIdentifier } from "./config";
 import { logger } from "../logging/logger-core";
 import {
   JobConfigError,
   JobUsageError,
+  JobLeaseLostError,
   type JobDefinition,
   type JobExecutionContext,
   type JobHandlerResult,
+  type ClaimedJobExecution,
 } from "./types";
 
 const lowercaseUuidPattern =
@@ -89,6 +94,35 @@ async function runFootballSync(
     await pool?.end();
   }
 }
+
+export async function fenceCoachProfileExecution(transaction: Pick<PoolClient, "query">,
+  execution: ClaimedJobExecution, jobsSchema = process.env.DATABASE_JOBS_SCHEMA?.trim() || "jobs"): Promise<void> {
+  const table = `${quoteIdentifier(jobsSchema)}.executions`;
+  const result = await transaction.query(`select id from ${table} where id=$1 and status='running'
+    and claimed_by=$2 and claim_version=$3 and lease_expires_at>clock_timestamp() for update`,
+  [execution.id, execution.claimedBy, execution.claimVersion]);
+  if (!result.rows.length) throw new JobLeaseLostError();
+}
+
+export const syncSerieACoachesJob: JobDefinition = {
+  type: SERIE_A_COACHES_JOB_TYPE,
+  parseArguments: (args) => {
+    if (args.length) throw new JobUsageError(`${SERIE_A_COACHES_JOB_TYPE} does not accept job arguments`);
+    return { idempotencyKey: SERIE_A_COACHES_IDEMPOTENCY_KEY,
+      payload: { provider: "api-football", leagueId: SERIE_A_PROVIDER_LEAGUE_ID, season: SERIE_A_CURRENT_SEASON, scope: "coaches" } };
+  },
+  handle: async (context) => {
+    const payload = context.execution.payload;
+    if (payload.provider !== "api-football" || payload.leagueId !== SERIE_A_PROVIDER_LEAGUE_ID ||
+        payload.season !== SERIE_A_CURRENT_SEASON || payload.scope !== "coaches" || Object.keys(payload).length !== 4) {
+      return { status: "failed", errorCode: "job_invalid_payload", message: "Invalid Coach profile job scope" };
+    }
+    return runFootballSync(context, (client, pool) => syncSerieACoaches({ client, pool,
+      heartbeat: context.heartbeat,
+      fence: (transaction) => fenceCoachProfileExecution(transaction, context.execution),
+    }));
+  },
+};
 
 export const syncSerieAFoundationJob: JobDefinition = {
   type: SERIE_A_FOUNDATION_JOB_TYPE,

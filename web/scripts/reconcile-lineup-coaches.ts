@@ -19,7 +19,7 @@ async function main() {
     client = await pool.connect();
     const identity = (await client.query(`select current_database() as database,
       has_table_privilege(current_user,'football.match_lineups','UPDATE') as owner_write,
-      exists(select 1 from information_schema.columns where table_schema='football' and table_name='match_lineups' and column_name='coach_id') as migrated`)).rows[0];
+      exists(select 1 from information_schema.columns where table_schema='football' and table_name='coaches' and column_name='profile_observed_at') as migrated`)).rows[0];
     requireCoachCondition(identity.database === target.database && identity.owner_write && identity.migrated, "COACH_OWNER_SCHEMA_PREFLIGHT_FAILED");
     const runtimeRole = process.env.DATABASE_APP_ROLE;
     requireCoachCondition(runtimeRole, "COACH_RUNTIME_ROLE_REQUIRED");

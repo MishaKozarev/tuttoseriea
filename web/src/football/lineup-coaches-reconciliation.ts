@@ -16,12 +16,12 @@ export function parseCoachReconciliationArguments(args: readonly string[]): { ma
 }
 type StoredLineup = { id: string; coach_id: string | null; provider_coach_id: number | null;
   provider_coach_name: string | null; provider_coach_photo_url: string | null };
-export async function reconcileLockedLineupCoaches(db: CoachQueryable, matchId: string, linksOnly = false) {
+export async function reconcileLockedLineupCoaches(db: CoachQueryable, matchId: string) {
   const match = await lockCoachMatch(db, matchId);
   if (!match.in_scope) throw new Error("Reconciliation Match is outside current Serie A scope");
   const rows = (await db.query<StoredLineup>(`select id,coach_id,provider_coach_id,provider_coach_name,provider_coach_photo_url
     from football.match_lineups where match_id=$1 order by provider_coach_id nulls first,id`, [matchId])).rows;
-  const results: { lineupId: string; providerCoachId: number | null; coachId: string | null; created: boolean; linked: boolean; conflicts: string[] }[] = [];
+  const results: { lineupId: string; providerCoachId: number | null; coachId: string | null; created: boolean; linked: boolean }[] = [];
   for (const row of rows) {
     const input: CoachSnapshot = { providerCoachId: row.provider_coach_id, providerCoachName: row.provider_coach_name,
       providerCoachPhotoUrl: row.provider_coach_photo_url };
@@ -30,12 +30,12 @@ export async function reconcileLockedLineupCoaches(db: CoachQueryable, matchId: 
         [row.coach_id, match.provider, row.provider_coach_id])).rows[0];
       if (!existing) throw new Error("Existing Coach reference contradicts provider snapshot");
     }
-    const resolved = await resolveLineupCoach(db, match, linksOnly ? { ...input, providerCoachName: null, providerCoachPhotoUrl: null } : input);
+    const resolved = await resolveLineupCoach(db, match, input);
     if (row.coach_id && resolved.id !== row.coach_id) throw new Error("Existing Coach reference changed unexpectedly");
     const linked = !row.coach_id && resolved.id !== null;
     if (linked) await db.query("update football.match_lineups set coach_id=$2 where id=$1 and coach_id is null", [row.id, resolved.id]);
     results.push({ lineupId: row.id, providerCoachId: row.provider_coach_id, coachId: resolved.id,
-      created: resolved.created, linked, conflicts: resolved.conflicts });
+      created: resolved.created, linked });
   }
   return results;
 }
@@ -44,7 +44,7 @@ export async function previewLineupCoaches(db: CoachQueryable, matchIds: readonl
   // Caller uses a READ ONLY transaction. This preview has no creation/upsert path.
   return (await db.query(`select m.id as match_id, count(l.id)::int as snapshots,
       count(l.id) filter(where l.coach_id is null and l.provider_coach_id is not null)::int as unresolved_references,
-      count(l.id) filter(where l.provider_coach_id is not null and nullif(btrim(l.provider_coach_name),'') is null)::int as missing_names
+      count(l.id) filter(where l.provider_coach_id is null)::int as missing_provider_ids
     from football.matches m join football.seasons s on s.id=m.season_id
     join football.competitions c on c.id=s.competition_id
     left join football.match_lineups l on l.match_id=m.id

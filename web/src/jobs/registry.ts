@@ -1,6 +1,7 @@
 import { JobUsageError, type JobDefinition, type JobRegistry } from "./types";
 import {
   syncSerieAFoundationJob,
+  syncSerieACoachesJob,
   syncSerieAMatchEventsJob,
   syncSerieAMatchLineupsJob,
   syncSerieAMatchStatisticsJob,
@@ -12,6 +13,7 @@ import {
 
 export const productionJobRegistry: JobRegistry = createJobRegistry([
   syncSerieAFoundationJob,
+  syncSerieACoachesJob,
   syncSerieAMatchEventsJob,
   syncSerieAMatchLineupsJob,
   syncSerieAMatchStatisticsJob,
