@@ -13,7 +13,7 @@ export function FootballCoaches({ data, filter }: { data: FootballCoachesModel; 
   return <div className="space-y-6">
     <p className="text-sm text-muted-foreground">Сохранённые Coach identities из PostgreSQL. Разные provider IDs показаны отдельно, даже если имена похожи. Срез: {time(data.checkedAt)}.</p>
     <form method="get" action="/admin/football/coaches" className="flex flex-wrap items-end gap-3 rounded-lg border p-4">
-      <label className="flex-1 text-sm">Поиск по оригинальному или русскому имени<input type="search" name="query" maxLength={100} defaultValue={filter.query} className="mt-1 w-full rounded-lg border bg-background p-2" /></label>
+      <label className="flex-1 text-sm">Поиск по имени или provider Coach ID<input type="search" name="query" maxLength={100} defaultValue={filter.query} className="mt-1 w-full rounded-lg border bg-background p-2" /></label>
       <label className="text-sm">Статус перевода<select name="status" defaultValue={filter.status} className="mt-1 block rounded-lg border bg-background p-2">
         <option value="all">Все</option><option value="missing">Отсутствует</option><option value="unreviewed">Не подтверждено</option><option value="reviewed">Подтверждено</option>
       </select></label>
@@ -23,7 +23,8 @@ export function FootballCoaches({ data, filter }: { data: FootballCoachesModel; 
     {page.items.length === 0 && <p>По заданным условиям тренеры не найдены.</p>}
     <ul className="grid gap-3 md:grid-cols-2">{page.items.map((coach) => <li key={coach.id} className="flex gap-4 rounded-lg border p-4">
       <CoachPhoto url={coach.providerPhotoUrl} /><div className="min-w-0 space-y-1 text-sm">
-        <Link className={linkClass} href={footballCoachesHref(filter, { id: coach.id })}>{coach.providerName}</Link>
+        <Link className={linkClass} href={footballCoachesHref(filter, { id: coach.id })}>{coach.providerName ?? coach.displayName}</Link>
+        {coach.providerName === null && <p>Профиль Coaches API ещё не получен.</p>}
         <p>Русское имя: {coach.nameRu ?? "—"}</p><p>{localizationStatus(coach)}</p><p>Отображаемое имя: {coach.displayName}</p>
       </div>
     </li>)}</ul>
@@ -34,17 +35,33 @@ export function FootballCoaches({ data, filter }: { data: FootballCoachesModel; 
     </nav>
     {filter.id && !detail && <p role="alert">Тренер не найден. Проверьте внутренний ID или выберите запись из списка.</p>}
     {detail && <section className="space-y-4 rounded-lg border p-4" aria-labelledby="coach-detail-title">
-      <h2 id="coach-detail-title" className="text-xl font-semibold">{detail.entity.providerName}</h2>
+      <h2 id="coach-detail-title" className="text-xl font-semibold">{detail.entity.providerName ?? detail.entity.displayName}</h2>
       <CoachPhoto url={detail.providerPhotoUrl} />
       <dl className="space-y-2 break-words text-sm">
-        <div><dt>Оригинальное имя</dt><dd>{detail.entity.providerName}</dd></div>
+        <div><dt>Оригинальное имя из Coaches API</dt><dd>{detail.entity.providerName ?? "Ещё не получено"}</dd></div>
         <div><dt>Русское имя</dt><dd>{detail.entity.nameRu ?? "—"} · {localizationStatus(detail.entity)}</dd></div>
         <div><dt>Отображаемое имя</dt><dd>{detail.entity.displayName}</dd></div>
         <div><dt>Внутренний ID</dt><dd>{detail.entity.id}</dd></div>
         <div><dt>Provider identity</dt><dd>{detail.entity.provider} / {detail.providerCoachId}</dd></div>
-        <div><dt>Источник имени — Match</dt><dd>{detail.nameSourceMatchId}</dd></div>
-        <div><dt>Источник фото — Match</dt><dd>{detail.photoSourceMatchId ?? "—"}</dd></div>
       </dl>
+      <h3 className="text-lg font-semibold">Профиль Coaches API</h3>
+      {detail.profile ? <>
+        <p className="text-sm">Источник: /coachs?id={detail.providerCoachId}. Наблюдение: {time(detail.profile.observedAt)}.</p>
+        <dl className="space-y-2 text-sm">
+          <div><dt>Имя и фамилия</dt><dd>{[detail.profile.firstname, detail.profile.lastname].filter(Boolean).join(" ") || "—"}</dd></div>
+          <div><dt>Возраст по данным провайдера</dt><dd>{detail.profile.age ?? "—"}</dd></div>
+          <div><dt>Рождение: дата, место, страна</dt><dd>{[detail.profile.birthDate, detail.profile.birthPlace, detail.profile.birthCountry].filter(Boolean).join(", ") || "—"}</dd></div>
+          <div><dt>Национальность</dt><dd>{detail.profile.nationality ?? "—"}</dd></div>
+          <div><dt>Рост / вес</dt><dd>{detail.profile.height ?? "—"} / {detail.profile.weight ?? "—"}</dd></div>
+          <div><dt>Команда в ответе профиля</dt><dd>{detail.profile.team?.name ?? "—"} (не подтверждает действующее назначение)</dd></div>
+        </dl>
+        <h3 className="text-lg font-semibold">Карьера по данным Coaches API</h3>
+        <p className="text-sm text-muted-foreground">Срез истории провайдера. Незакрытые и пересекающиеся периоды не подтверждают действующий контракт.</p>
+        {detail.profile.career.length === 0 ? <p>Провайдер не указал периоды карьеры.</p> :
+          <ol className="space-y-2 text-sm">{detail.profile.career.map((period, index) => <li key={index}>
+            {period.team?.name ?? "Команда неизвестна"} · provider Team ID: {period.team?.id ?? "—"} · {period.start ?? "Дата начала неизвестна"} — {period.end ?? "Дата окончания не указана"}
+          </li>)}</ol>}
+      </> : <p>Известна Coach identity из Lineups. Полноценный профиль ещё не получен из Coaches API; имя и фото составов не подставляются.</p>}
       <Link className={linkClass} href={`/admin/football/localization?${new URLSearchParams({ kind: "coaches", id: detail.entity.id })}`}>Редактировать русское имя в Локализации</Link>
       <h3 className="text-lg font-semibold">Наблюдения по клубам</h3>
       <p className="text-sm text-muted-foreground">Источник — только сохранённые составы матчей. Это не история карьеры и не подтверждение действующего контракта. Замена состава может убрать наблюдение; отсутствие сведений не означает увольнение.</p>

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { API_FOOTBALL_PROVIDER, SERIE_A_CURRENT_SEASON, SERIE_A_PROVIDER_LEAGUE_ID } from "./foundation";
-import { coachCard, projectCoachProfile, usableCoachName, usableCoachPhoto,
+import { coachCard,
   type CoachCard, type CoachCandidate, type CoachRow, type CoachSnapshot, type LastKnownTeamCoach } from "./coaches";
-import { logger } from "../logging/logger-core";
 
 export type CoachQueryable = Pick<Pool | PoolClient, "query">;
 export type CoachMatch = { id: string; provider: string; kickoff_at: Date | null; in_scope: boolean };
@@ -27,45 +26,21 @@ export async function lockCoachMatch(db: CoachQueryable, matchId: string, expect
   return row;
 }
 
-export type CoachResolution = { id: string | null; created: boolean; conflicts: ("name" | "photo")[] };
+export type CoachResolution = { id: string | null; created: boolean };
 export async function resolveLineupCoach(db: CoachQueryable, match: CoachMatch, snapshot: CoachSnapshot): Promise<CoachResolution> {
   const providerId = snapshot.providerCoachId;
-  if (providerId === null) return { id: null, created: false, conflicts: [] };
+  if (providerId === null) return { id: null, created: false };
   if (!Number.isInteger(providerId) || providerId <= 0) throw new Error("Invalid Coach provider identity");
-  const name = usableCoachName(snapshot.providerCoachName);
-  const photo = usableCoachPhoto(snapshot.providerCoachPhotoUrl);
-  let row: CoachRow | undefined;
   const proposedId = randomUUID();
-  if (name) {
-    // Atomic uniqueness and row lock even when this observation must not change the profile.
-    row = (await db.query<CoachRow>(`
+  // Atomic identity upsert also serializes with profile/localization writes. Lineups never
+  // supply profile facts, even on the first insert or when the API profile is missing.
+  const row = (await db.query<CoachRow>(`
       /* coach:identity */
-      insert into football.coaches as existing
-        (id,provider,provider_coach_id,provider_name,provider_photo_url,name_source_match_id,photo_source_match_id)
-      values($1,$2,$3,$4,$5,$6,$7)
+      insert into football.coaches as existing (id,provider,provider_coach_id)
+      values($1,$2,$3)
       on conflict(provider,provider_coach_id) do update set id=existing.id returning *`,
-    [proposedId, match.provider, providerId, name, photo, match.id, photo ? match.id : null])).rows[0];
-  } else {
-    // No insertion follows this lookup: an ID-only snapshot never invents a name.
-    row = (await db.query<CoachRow>(`/* coach:resolve */ select * from football.coaches
-      where provider=$1 and provider_coach_id=$2 for update`, [match.provider, providerId])).rows[0];
-  }
-  if (!row) return { id: null, created: false, conflicts: [] };
-  // Fresh statement after the Coach lock wait; do not cache mutable Match dates.
-  const sources = (await db.query<{ id: string; kickoff_at: Date | null }>(`
-    /* coach:sources */ select id,kickoff_at from football.matches where id=any($1::text[])`,
-  [[match.id, row.name_source_match_id, row.photo_source_match_id].filter((id): id is string => id !== null)])).rows;
-  const dates = new Map(sources.map((source) => [source.id, source.kickoff_at]));
-  const incomingAt = dates.get(match.id) ?? null;
-  const projected = projectCoachProfile(row, snapshot, match.id, incomingAt,
-    dates.get(row.name_source_match_id) ?? null, dates.get(row.photo_source_match_id!) ?? null);
-  await db.query(`/* coach:profile */ update football.coaches
-    set provider_name=$2,name_source_match_id=$3,provider_photo_url=$4,photo_source_match_id=$5,updated_at=now()
-    where id=$1 and (provider_name,name_source_match_id,provider_photo_url,photo_source_match_id)
-      is distinct from ($2::text,$3::text,$4::text,$5::text)`,
-  [row.id, projected.facts.provider_name, projected.facts.name_source_match_id,
-    projected.facts.provider_photo_url, projected.facts.photo_source_match_id]);
-  return { id: row.id, created: row.id === proposedId, conflicts: projected.conflicts };
+    [proposedId, match.provider, providerId])).rows[0];
+  return { id: row.id, created: row.id === proposedId };
 }
 
 export async function resolveCoachesForLineups<T extends CoachSnapshot>(db: CoachQueryable, matchId: string,
@@ -75,9 +50,6 @@ export async function resolveCoachesForLineups<T extends CoachSnapshot>(db: Coac
   for (const lineup of [...lineups].sort((a, b) => (a.providerCoachId ?? 0) - (b.providerCoachId ?? 0))) {
     const result = await resolveLineupCoach(db, match, lineup);
     resolved.set(lineup, result.id);
-    if (result.conflicts.length) logger.warn("Conflicting Coach profile chronology", {
-      context: { event: "football.coach.profile_conflict", matchId, providerCoachId: lineup.providerCoachId, fields: result.conflicts },
-    });
   }
   return lineups.map((lineup) => ({ ...lineup, coachId: resolved.get(lineup) ?? null }));
 }

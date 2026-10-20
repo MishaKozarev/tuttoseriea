@@ -8,6 +8,8 @@ export const SERIE_A_EXPECTED_CURRENT_MATCHES = 380;
 export const SERIE_A_EXPECTED_CURRENT_STANDINGS_ROWS = 20;
 
 export const SERIE_A_FOUNDATION_JOB_TYPE = "football.sync-serie-a-foundation";
+export const SERIE_A_COACHES_JOB_TYPE = "football.sync-serie-a-coaches";
+export const SERIE_A_COACHES_IDEMPOTENCY_KEY = "api-football:league:135:season:2026:coaches";
 export const SERIE_A_FOUNDATION_IDEMPOTENCY_KEY =
   "api-football:league:135:season:2026:foundation";
 

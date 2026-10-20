@@ -29,7 +29,7 @@
     "db:football-localization:check": "node --conditions react-server --import tsx scripts/check-football-localization.ts",
     "db:football-admin-data:check": "node --conditions react-server --import tsx scripts/check-football-admin-data.ts",
     "db:football:check": "node --import tsx scripts/check-football-foundation.ts",
-    "db:football-coaches:check": "node --import tsx scripts/check-football-coaches.ts",
+    "db:football-coaches:check": "node --import tsx scripts/check-coach-profile-migration.ts && node --import tsx scripts/check-football-coaches.ts",
     "db:football-coaches:reconcile": "node --import tsx scripts/reconcile-lineup-coaches.ts",
     "db:match-dispatcher:check": "node --import tsx scripts/check-match-lifecycle-dispatcher-db.ts",
     "db:match-data-backfill:check": "node --import tsx scripts/check-match-data-backfill-db.ts",

@@ -190,7 +190,7 @@ async function main() {
               await route.fulfill({ status: 409, json: { error: { code: "LOCALIZATION_CONFLICT", message: "Fixture conflict", requestId: "localization-browser" } } }); return;
             }
             localized = { ...localized, nameRu: edit.nameRu, nameRuReviewStatus: edit.action === "review" ? "reviewed" : "unreviewed", localizationRevision: localized.localizationRevision + 1 };
-            localized.displayName = resolveFootballProperName({ providerName: localized.providerName, nameRu: localized.nameRu, reviewStatus: localized.nameRuReviewStatus });
+            localized.displayName = resolveFootballProperName({ providerName: localized.providerName ?? localized.displayName, nameRu: localized.nameRu, reviewStatus: localized.nameRuReviewStatus });
           }
           await route.fulfill({ json: new URL(route.request().url()).search
             ? { items: [localized], total: 1, page: 1, pageSize: 20, totalPages: 1 } : { entity: localized } });
@@ -212,7 +212,7 @@ async function main() {
         await expect(editor).toContainText("Публичное название: Тестовое имя");
         assert.equal(writes, 2);
         await name.fill("Мой черновик");
-        localized = { ...localized, nameRu: "Чужая правка", nameRuReviewStatus: "unreviewed", localizationRevision: 3, displayName: localized.providerName };
+        localized = { ...localized, nameRu: "Чужая правка", nameRuReviewStatus: "unreviewed", localizationRevision: 3, displayName: localized.providerName ?? localized.displayName };
         await save.click(); await expect(find).toBeEnabled();
         await expect(page.getByRole("main").getByRole("alert")).toContainText("LOCALIZATION_CONFLICT");
         await expect(name).toHaveValue("Мой черновик"); await expect(save).toBeDisabled();

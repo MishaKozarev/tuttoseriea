@@ -17,7 +17,7 @@ export function parseCoachOperatorArguments(args: readonly string[]) {
       matchIds.length <= 380 && new Set(matchIds).size === matchIds.length && [...values.keys()].every((k) => ["stage", "action", "scope"].includes(k)), "COACH_INVALID_SCOPE");
   } else requireCoachCondition(!matchIds.length && !values.has("scope"), "COACH_INVALID_ARGUMENTS");
   if (action === "apply") requireCoachCondition(/^[1-8]$/.test(values.get("batch") ?? "") &&
-    ["profiles", "links"].includes(values.get("pass") ?? "") && /^[a-f0-9]{64}$/.test(values.get("confirm") ?? ""), "COACH_EXPLICIT_CONFIRMATION_REQUIRED");
+    values.get("pass") === "identities" && /^[a-f0-9]{64}$/.test(values.get("confirm") ?? ""), "COACH_EXPLICIT_CONFIRMATION_REQUIRED");
   if (action === "verify") requireCoachCondition(!values.has("batch") && !values.has("pass") && !values.has("confirm"), "COACH_INVALID_ARGUMENTS");
   return { stage: stage as CoachOperatorStage, action, matchIds: matchIds.length ? matchIds : undefined,
     manifest: values.get("manifest"), batch: Number(values.get("batch")), pass: values.get("pass") as CoachPlanPass,

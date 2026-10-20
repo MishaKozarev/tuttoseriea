@@ -25,7 +25,7 @@ export async function checkCoachManifest(input: {
       const value = await verifyCoachManifest(input.scope(client), manifest, target); await client.query("commit"); return value;
     } finally { await client.query("rollback"); client.release(); }
   };
-  const apply = async (manifest: CoachReconciliationManifest, pass: "profiles" | "links", batch: number, progress?: (value: unknown) => void) => {
+  const apply = async (manifest: CoachReconciliationManifest, pass: "identities", batch: number, progress?: (value: unknown) => void) => {
     const client = await input.owner.connect();
     try { return await applyCoachManifestBatch(input.scope(client), manifest, target, pass, batch, manifest.hash, progress); }
     finally { client.release(); }
@@ -40,41 +40,38 @@ export async function checkCoachManifest(input: {
   assert.equal(manifest.forecast.missingProviderId, 49);
   assert.throws(() => validateCoachManifest({ ...manifest, hash: "0".repeat(64) }, target));
   assert.throws(() => validateCoachManifest(manifest, { ...target, stage: "staging" }));
-  await assert.rejects(apply(manifest, "profiles", 3), /COACH_INVALID_BATCH/);
-  // An early link pass cannot create profiles or misreport successful completion.
-  assert.equal((await apply(manifest, "links", 1)).createdCoaches, 0);
+  await assert.rejects(apply(manifest, "identities", 3), /COACH_INVALID_BATCH/);
+  assert.throws(() => validateCoachManifest({ ...manifest, version: 1 }, target), /COACH_INVALID_MANIFEST/);
   assert.equal((await verify(manifest)).complete, false);
   // A changed source stops mid-batch, reports already committed Matches, and supports retry.
   const second = manifest.matches[1]; const oldRaw = (await input.scope(input.owner).query("select provider_raw from football.match_lineups where id=$1", [second.lineups[0].id])).rows[0].provider_raw;
   await input.scope(input.owner).query("update football.match_lineups set provider_raw='{}' where id=$1", [second.lineups[0].id]);
   const progress: unknown[] = [];
-  await assert.rejects(apply(manifest, "profiles", 1, (event) => progress.push(event)), /COACH_SOURCE_DRIFT/);
+  await assert.rejects(apply(manifest, "identities", 1, (event) => progress.push(event)), /COACH_SOURCE_DRIFT/);
   assert.equal((progress.at(-1) as { completed: string[] }).completed.length, 1);
   await input.scope(input.owner).query("update football.match_lineups set provider_raw=$2 where id=$1", [second.lineups[0].id, oldRaw]);
-  assert.equal((await apply(manifest, "profiles", 1)).createdCoaches, 0);
-  assert.equal((await apply(manifest, "profiles", 2)).createdCoaches, 1);
-  assert.equal((await verify(manifest)).remainingLinks, 1);
-  assert.equal((await apply(manifest, "links", 1)).linkedLineups, 1);
-  await apply(manifest, "links", 2);
+  assert.equal((await apply(manifest, "identities", 1)).createdCoaches, 0);
+  assert.equal((await apply(manifest, "identities", 2)).createdCoaches, 0);
+  assert.equal((await verify(manifest)).remainingLinks, 0);
+  assert.equal((await apply(manifest, "identities", 1)).linkedLineups, 0);
+  await apply(manifest, "identities", 2);
   const complete = await verify(manifest); assert.equal(complete.complete, true); assert.equal(complete.linked, 2); assert.equal(complete.newCoachesSincePlan, 1);
-  for (const pass of ["profiles", "links"] as const) for (let batch = 1; batch <= 2; batch++) {
+  for (const pass of ["identities"] as const) for (let batch = 1; batch <= 2; batch++) {
     const result = await apply(manifest, pass, batch); assert.equal(result.createdCoaches, 0); assert.equal(result.linkedLineups, 0);
   }
   const replay = await plan(matches); assert.equal(replay.forecast.createCoaches, 0); assert.equal(replay.forecast.linkLineups, 0);
 
-  // Profile facts can change concurrently without changing snapshot fingerprints: an unplanned tie must roll back.
-  const changed = await input.match("2026-09-03T12:00:00Z"), concurrentEvidence = await input.match("2026-09-03T12:00:00Z");
-  await input.saveObservation(changed, snapshot(9000, "Incoming profile correction"));
-  const changedPlan = await plan([changed]); assert.equal(changedPlan.forecast.conflicts.length, 0);
-  await input.scope(input.owner).query("update football.coaches set provider_name='Concurrent accepted fact',name_source_match_id=$1 where provider_coach_id=9000", [concurrentEvidence]);
-  await assert.rejects(apply(changedPlan, "profiles", 1), /COACH_NEW_PROFILE_CONFLICT/);
-  assert.equal((await input.scope(input.owner).query("select provider_name from football.coaches where provider_coach_id=9000")).rows[0].provider_name, "Concurrent accepted fact");
-  assert.equal((await input.scope(input.owner).query("select coach_id from football.match_lineups where match_id=$1", [changed])).rows[0].coach_id, null);
-  const conflictingPlan = await plan([changed]); assert.equal(conflictingPlan.forecast.conflicts.length, 1);
-  await apply(conflictingPlan, "profiles", 1); assert.equal((await verify(conflictingPlan)).complete, true);
+  // Profiles may be updated independently: identity/link reconciliation never changes them.
+  const changed = await input.match("2026-09-03T12:00:00Z");
+  await input.saveObservation(changed, snapshot(9000, "Ignored Lineups name"));
+  const conflictingPlan = await plan([changed]);
+  await input.scope(input.owner).query("update football.coaches set provider_name='Retained legacy fact' where provider_coach_id=9000");
+  await apply(conflictingPlan, "identities", 1);
+  assert.equal((await input.scope(input.owner).query("select provider_name from football.coaches where provider_coach_id=9000")).rows[0].provider_name, "Retained legacy fact");
+  assert.equal((await verify(conflictingPlan)).complete, true);
   // Localized values are never cleared by apply, and verification surfaces concurrent manual drift.
   await input.scope(input.owner).query("update football.coaches set name_ru='Fixture reviewed',name_ru_review_status='reviewed',localization_revision=9 where provider_coach_id=9000");
-  await apply(conflictingPlan, "links", 1);
+  await apply(conflictingPlan, "identities", 1);
   assert.equal((await verify(conflictingPlan)).complete, false);
   assert.equal((await input.scope(input.owner).query("select localization_revision from football.coaches where provider_coach_id=9000")).rows[0].localization_revision, 9);
 
@@ -90,7 +87,7 @@ export async function checkCoachManifest(input: {
     return result;
   }) as CoachQueryable["query"] };
   let live: Promise<unknown> | undefined;
-  const writing = applyCoachManifestBatch(held, racePlan, target, "profiles", 1, racePlan.hash);
+  const writing = applyCoachManifestBatch(held, racePlan, target, "identities", 1, racePlan.hash);
   try {
     await acquired;
     live = input.sync(concurrent, [{ team: { id: 1, name: "Fixture Home" }, coach: { id: 9101, name: "Live replacement", photo: null }, formation: null, startXI: [], substitutes: [] }]);
@@ -104,7 +101,7 @@ export async function checkCoachManifest(input: {
       join football.coaches c on c.id=l.coach_id where l.match_id=$1`, [concurrent])).rows[0];
     assert.equal(replaced.provider_coach_id, 9101); assert.equal(replaced.resolved, 9101);
     await assert.rejects(verify(racePlan), /COACH_SOURCE_DRIFT/);
-    await assert.rejects(apply(racePlan, "links", 1), /COACH_SOURCE_DRIFT/);
+    await assert.rejects(apply(racePlan, "identities", 1), /COACH_SOURCE_DRIFT/);
   } finally { unlock(); await writing; await live; operator.release(); }
   console.log("coach_manifest_read_only_cross_batch_hash_drift_partial_restart_replay_live_sync_race=passed");
 }

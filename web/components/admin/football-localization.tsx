@@ -123,12 +123,12 @@ export function FootballLocalization({ filter = initialFilter, initialId }: { fi
       {page && <p className="text-sm">Найдено: {page.total}. Страница {page.page} из {Math.max(1, page.totalPages)}; до {page.pageSize} записей на странице.</p>}
       {page?.items.length === 0 && <p className="text-sm">По заданным условиям ничего не найдено.</p>}
       <ul className="grid gap-3 lg:grid-cols-2">{page?.items.map((entity) => <li key={entity.id} className="min-w-0 space-y-2 rounded-lg border p-4 text-sm">
-        <p className="break-words font-medium">{entity.providerName}</p>
+        <p className="break-words font-medium">{entity.providerName ?? entity.displayName}</p>
         <p>name_ru: <span>{entity.nameRu ?? "—"}</span></p>
         <p>name_ru_review_status: <code>{entity.nameRuReviewStatus ?? "null"}</code> · {localizationStatus(entity)}</p>
         <p className="break-words">Публичное название: {entity.displayName}</p>
         <Button type="button" variant="outline" className="h-auto max-w-full whitespace-normal text-left" disabled={busy}
-          onClick={() => { choose(entity); setNotice(null); }}>Редактировать {entity.providerName}</Button>
+          onClick={() => { choose(entity); setNotice(null); }}>Редактировать {entity.providerName ?? entity.displayName}</Button>
       </li>)}</ul>
       {page && <div className="flex flex-wrap gap-3">
         <Button type="button" variant="outline" disabled={busy || filterChanged || page.page <= 1} onClick={() => void search({ ...applied, page: page.page - 1 })}>Предыдущая страница</Button>
@@ -137,9 +137,9 @@ export function FootballLocalization({ filter = initialFilter, initialId }: { fi
       </div>}
     </section>
     {selected && <section aria-labelledby="localization-editor-heading" className="min-w-0 space-y-4 rounded-lg border p-4">
-      <h2 id="localization-editor-heading" className="text-lg font-semibold">Русское название: {selected.providerName}</h2>
+      <h2 id="localization-editor-heading" className="text-lg font-semibold">Русское название: {selected.providerName ?? selected.displayName}</h2>
       <dl className="space-y-1 text-sm">
-        <div><dt className="inline font-medium">Provider/original name: </dt><dd className="inline break-words">{selected.providerName}</dd></div>
+        <div><dt className="inline font-medium">Provider/original name: </dt><dd className="inline break-words">{selected.providerName ?? "Профиль Coaches API ещё не получен"}</dd></div>
         <div><dt className="inline font-medium">Provider: </dt><dd className="inline">{selected.provider}</dd></div>
         <div><dt className="inline font-medium">Entity ID: </dt><dd className="inline break-all"><code>{selected.id}</code></dd></div>
         {selected.slug !== null && <div><dt className="inline font-medium">Slug: </dt><dd className="inline break-all"><code>{selected.slug}</code></dd></div>}

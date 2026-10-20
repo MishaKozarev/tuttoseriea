@@ -10,7 +10,11 @@ import { syncMatchLineups } from "../src/football/match-lineups-sync";
 import type { ApiFootballClient, ApiFootballResult } from "../src/football/api-football/node";
 import { upsertClub, upsertSerieACompetition } from "../src/football/repository";
 import { quoteIdentifier } from "../src/jobs/config";
+import { upsertCoachProfile } from "../src/football/coach-profile-repository";
+import { parseCoachProfile } from "../src/football/coach-profile";
+import { coachProfileFixture } from "../tests/fixtures/coach-profile";
 import { checkCoachManifest } from "./check-coach-manifest";
+import { checkCoachProfiles } from "./check-coach-profiles";
 
 config({ path: ".env.local", quiet: true }); config({ path: ".env", quiet: true });
 const manual = process.argv.includes("--manual");
@@ -117,33 +121,33 @@ async function main() {
     }
 
     const old = await match("2026-10-01T12:00:00Z"), recent = await match("2026-10-10T12:00:00Z"), sameDate = await match("2026-10-10T12:00:00Z"), undated = await match(null);
-    const first = await persist(recent, snapshot(10, "New name", "https://fixture.invalid/new")); assert(first.coachId);
-    await owner.query(`update ${quoted}.coaches set name_ru='Русское имя',name_ru_review_status='reviewed',localization_revision=7 where id=$1`, [first.coachId]);
-    await persist(old, snapshot(10, "Old name", "https://fixture.invalid/old"));
-    assert.equal((await row(10)).provider_name, "New name"); assert.equal((await row(10)).name_ru, "Русское имя"); assert.equal((await row(10)).localization_revision, 7);
-    await persist(sameDate, snapshot(10, "Tied name", "https://fixture.invalid/tie")); assert.equal((await row(10)).provider_name, "New name");
-    await persist(undated, snapshot(10, "Undated", "https://fixture.invalid/undated")); assert.equal((await row(10)).provider_name, "New name");
-    await persist(recent, snapshot(10, "Corrected", null)); assert.equal((await row(10)).provider_name, "Corrected"); assert.equal((await row(10)).provider_photo_url, "https://fixture.invalid/new");
-    await persist(recent, snapshot(10, "  ", " ")); assert.equal((await row(10)).provider_name, "Corrected");
+    const first = await persist(recent, snapshot(10, "Lineups name", "https://fixture.invalid/lineups")); assert(first.coachId);
+    assert.equal((await row(10)).provider_name, null); assert.equal((await row(10)).provider_photo_url, null);
+    assert.equal((await row(10)).name_source_match_id, null);
+    // Synthetic legacy provenance is retained when the full API profile replaces legacy facts.
+    await owner.query(`update ${quoted}.coaches set provider_name='Legacy name',provider_photo_url='https://fixture.invalid/legacy',
+      name_source_match_id=$2,photo_source_match_id=$2,name_ru='Reviewed fixture',name_ru_review_status='reviewed',localization_revision=7 where id=$1`, [first.coachId,recent]);
+    await upsertCoachProfile(scope(restricted), parseCoachProfile(coachProfileFixture(10, "API Coach"), 10), new Date("2026-10-19T11:00:00Z"));
+    for (const source of [old, sameDate, undated, recent]) await persist(source, snapshot(10, "Never a profile", "https://fixture.invalid/overwrite"));
+    assert.equal((await row(10)).provider_name, "API Coach"); assert.equal((await row(10)).name_ru, "Reviewed fixture"); assert.equal((await row(10)).localization_revision, 7);
+    assert.equal((await row(10)).provider_photo_url, "https://fixture.invalid/coach.png");
+    assert.equal((await row(10)).name_source_match_id, recent);
     assert.equal((await persist(old, snapshot(null, "No identity"))).coachId, null);
-    assert.equal((await persist(old, snapshot(999, " "))).coachId, null);
+    const idOnly = await persist(old, snapshot(998, " ")); assert(idOnly.coachId); assert.equal((await row(998)).provider_name,null);
     assert.equal((await persist(old, snapshot(10, null))).coachId, first.coachId);
-    assert.equal((await getCoachById(scope(restricted), first.coachId))?.displayName, "Русское имя");
+    assert.equal((await getCoachById(scope(restricted), first.coachId))?.displayName, "Reviewed fixture");
     await owner.query(`update ${quoted}.coaches set name_ru_review_status='unreviewed' where id=$1`, [first.coachId]);
-    assert.equal((await getCoachById(scope(restricted), first.coachId))?.displayName, "Corrected");
+    assert.equal((await getCoachById(scope(restricted), first.coachId))?.displayName, "API Coach");
     assert.equal((await getCoachesByIds(scope(restricted), [first.coachId, first.coachId, randomUUID()])).length, 1);
-    const unchanged = await row(10); await persist(recent, snapshot(10, "Corrected", null)); assert.deepEqual(await row(10), unchanged);
-    evidence("profile: old/missing/tied input preserves facts; localization fallback", await getCoachById(scope(restricted), first.coachId));
-
-    const fill = await persist(recent, snapshot(11, "New without photo"));
+    const unchanged = await row(10); await persist(recent, snapshot(10, "Ignored again", null)); assert.deepEqual(await row(10), unchanged);
+    evidence("profile: only Coaches API; Russian localization preserved", await getCoachById(scope(restricted), first.coachId));
+    const fill = await persist(recent, snapshot(11, "No API profile"));
     await persist(old, snapshot(11, "Old with photo", "https://fixture.invalid/fill"));
-    assert.equal((await row(11)).name_source_match_id, recent); assert.equal((await row(11)).photo_source_match_id, old);
-    // Mutable source Match date is read anew, not frozen in the Coach profile.
+    assert.equal((await row(11)).name_source_match_id, null); assert.equal((await row(11)).photo_source_match_id, null);
     await owner.query(`update ${quoted}.matches set kickoff_at='2026-09-01',status='cancelled' where id=$1`, [recent]);
-    assert.equal((await row(10)).provider_name, "Corrected", "Source cancellation must not erase accepted profile facts");
-    await persist(old, snapshot(11, "Date correction permits update", null));
-    assert.equal((await row(11)).provider_name, "Date correction permits update");
-    assert(await getCoachById(scope(restricted), fill.coachId!));
+    assert.equal((await row(10)).provider_name, "API Coach");
+    await persist(old, snapshot(11, "Date correction cannot create a profile", null));
+    assert.equal((await row(11)).provider_name, null); assert(await getCoachById(scope(restricted), fill.coachId!));
     await owner.query(`update ${quoted}.matches set kickoff_at='2026-10-10',status='finished' where id=$1`, [recent]);
 
     // Genuine unique-key contention: second creation waits for the first transaction, then reuses its UUID.
@@ -156,10 +160,10 @@ async function main() {
       pending = resolveCoachesForLineups(scope(waiter), recent, [snapshot(12, "Concurrent new")]);
       await waitForLock(pid); await writer.query("commit");
       const two = await pending as (CoachSnapshot & { coachId: string })[]; await waiter.query("commit");
-      assert.equal(two[0].coachId, one.coachId); assert.equal((await row(12)).provider_name, "Concurrent new");
+      assert.equal(two[0].coachId, one.coachId); assert.equal((await row(12)).provider_name, null);
     } finally { await writer.query("rollback"); await waiter.query("rollback"); await pending; writer.release(); waiter.release(); }
 
-    // READ COMMITTED source dates are fetched after a Coach lock wait, not before it.
+    // Lineups identity resolution waits behind a profile write and cannot overwrite its facts.
     const blocker = await owner.connect(), worker = await restricted.connect(); let delayed: Promise<unknown> | undefined;
     try {
       await blocker.query("begin"); await blocker.query(`select id from ${quoted}.coaches where provider_coach_id=12 for update`);
@@ -167,8 +171,9 @@ async function main() {
       delayed = resolveCoachesForLineups(scope(worker), sameDate, [snapshot(12, "After changed source date")]);
       await waitForLock(pid);
       await blocker.query(`update ${quoted}.matches set kickoff_at='2026-09-01' where id=$1`, [recent]);
+      await upsertCoachProfile(scope(blocker), parseCoachProfile(coachProfileFixture(12, "Concurrent API profile"),12),new Date("2026-10-19T11:00:00Z"));
       await blocker.query("commit"); await delayed; await worker.query("commit");
-      assert.equal((await row(12)).provider_name, "After changed source date");
+      assert.equal((await row(12)).provider_name, "Concurrent API profile");
     } finally { await blocker.query("rollback"); await worker.query("rollback"); await delayed; blocker.release(); worker.release(); }
 
     // Real Lineups transaction, snapshot replacement, rollback and heartbeat boundary.
@@ -180,7 +185,7 @@ async function main() {
     assert.equal(stored.coach_id, prematch.id, "Live persistence must store the resolved internal Coach FK");
     assert.deepEqual(stored.provider_raw, lineup(20, "Prematch Coach"), "Coach resolution changed provider snapshot");
     await sync(live, [lineup(20, " ", "invalid")]);
-    assert.equal((await row(20)).provider_name, "Prematch Coach");
+    assert.equal((await row(20)).provider_name, null);
     const incomplete = (await owner.query(`select * from ${quoted}.match_lineups where match_id=$1`, [live])).rows[0];
     assert.equal(incomplete.coach_id, prematch.id); assert.equal(incomplete.provider_coach_name, " ");
     assert.equal(incomplete.provider_coach_photo_url, "invalid");
@@ -258,7 +263,7 @@ async function main() {
 
     await assert.rejects(restricted.query(`delete from ${quoted}.coaches where false`), { code: "42501" });
     await assert.rejects(restricted.query(`update ${quoted}.match_lineups set coach_id=null where false`), { code: "42501" });
-    for (const sql of ["provider_coach_id=0", "provider_name=' '", "localization_revision=-1", "name_ru='x',name_ru_review_status=null", "photo_source_match_id=null"]) {
+    for (const sql of ["provider_coach_id=0", "provider_name=' '", "localization_revision=-1", "name_ru='x',name_ru_review_status=null", "age=-1", "provider_raw='[]',profile_observed_at=now()"]) {
       await assert.rejects(owner.query(`update ${quoted}.coaches set ${sql} where provider_coach_id=10`), { code: "23514" });
     }
     await assert.rejects(owner.query(`update ${quoted}.coaches set name_source_match_id=$1 where provider_coach_id=10`, [randomUUID()]), { code: "23503" });
@@ -267,13 +272,14 @@ async function main() {
     assert.equal((await owner.query(`select coach_id from ${quoted}.match_lineups where match_id=$1`, [old])).rows[0].coach_id, null);
     assert.equal((await observation()).kind, "unresolved", "Deleted canonical identity must not fall back to older Coach");
     await checkCoachManifest({ owner, scope, match, saveObservation, sync });
+    await checkCoachProfiles({ owner, runtime: restricted, scope });
     assert.deepEqual(await canonicalFingerprint(), before, "Canonical Football data changed by fixture check");
   } finally {
     if (created) await owner.query(`drop schema ${quoted} cascade`);
     globalThis.fetch = savedFetch; await restricted.end(); await owner.end();
   }
   console.log("football_coaches_check=passed");
-  console.log("identity_chronology_localization_snapshots_finished_reads_constraints_grants_rollback_concurrency_repair=true");
+  console.log("identity_api_profile_localization_snapshots_finished_reads_constraints_grants_rollback_concurrency_repair=true");
   console.log("canonical_data_writes=0 provider_requests=0 real_jobs=0 fixture_cleanup=complete");
 }
 main().catch((error: unknown) => {

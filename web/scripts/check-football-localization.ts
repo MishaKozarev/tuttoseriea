@@ -11,6 +11,9 @@ import { upsertPlayer } from "../src/football/squads-repository";
 import { upsertPlayerProfile } from "../src/football/player-statistics-repository";
 import { quoteIdentifier } from "../src/jobs/config";
 import { resolveCoachesForLineups } from "../src/football/coaches-repository";
+import { upsertCoachProfile } from "../src/football/coach-profile-repository";
+import { parseCoachProfile } from "../src/football/coach-profile";
+import { coachProfileFixture } from "../tests/fixtures/coach-profile";
 import { checkCoachAdminReads } from "./check-football-coaches-admin";
 
 loadEnv({ path: ".env.local", quiet: true });
@@ -45,6 +48,7 @@ async function main() {
   const ids = new Map<LocalizationKind, string>();
   const tables = [...LOCALIZATION_KINDS, "seasons", "matches", "match_lineups"];
   let coachMatch: string;
+  let coachObservation = 0;
   let awayClub: string;
   const savedFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("Provider requests forbidden in localization fixtures"); };
@@ -74,6 +78,8 @@ async function main() {
       try {
         await client.query("begin");
         const result = await resolveCoachesForLineups(scope(client), coachMatch, [{ providerCoachId: 987001, providerCoachName: name, providerCoachPhotoUrl: "https://fixture.invalid/coach" }]);
+        await upsertCoachProfile(scope(client), parseCoachProfile({ ...coachProfileFixture(987001, name), photo: "https://fixture.invalid/coach" }, 987001),
+          new Date(Date.parse("2026-10-20T12:00:00Z") + coachObservation++));
         await client.query("commit"); return result[0].coachId!;
       } catch (error) { await client.query("rollback"); throw error; } finally { client.release(); }
     }

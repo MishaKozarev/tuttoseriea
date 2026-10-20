@@ -2,6 +2,7 @@ import "server-only";
 import type { Pool, PoolClient } from "pg";
 
 import { resolveFootballProperName } from "./localization";
+import { coachIdentityLabel } from "./coaches";
 import {
   FootballLocalizationError, LOCALIZATION_PAGE_SIZE, localizationId, localizationKind, parseLocalizationEdit,
   type FootballLocalizationEdit, type FootballLocalizationEntity, type FootballLocalizationPage, type FootballLocalizationQuery,
@@ -9,17 +10,20 @@ import {
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 type Row = {
-  id: string; slug: string | null; provider: string; provider_name: string;
+  id: string; slug: string | null; provider: string; provider_name: string | null; provider_coach_id?: number;
   name_ru: string | null; name_ru_review_status: FootballLocalizationEntity["nameRuReviewStatus"];
   localization_revision: number;
 };
 const columns = (kind: FootballLocalizationEntity["kind"]) =>
-  `id, ${kind === "coaches" ? "null::text as slug" : "slug"}, provider, provider_name, name_ru, name_ru_review_status, localization_revision`;
+  `id, ${kind === "coaches" ? "null::text as slug" : "slug"}, provider,
+    ${kind === "coaches" ? "case when profile_observed_at is not null then provider_name else null end as provider_name, provider_coach_id" : "provider_name"},
+    name_ru, name_ru_review_status, localization_revision`;
 function entity(kind: FootballLocalizationEntity["kind"], row: Row): FootballLocalizationEntity {
-  const base = { id: row.id, provider: row.provider, providerName: row.provider_name,
+  const base = { id: row.id, provider: row.provider,
     nameRu: row.name_ru, nameRuReviewStatus: row.name_ru_review_status, localizationRevision: row.localization_revision,
-    displayName: resolveFootballProperName({ providerName: row.provider_name, nameRu: row.name_ru, reviewStatus: row.name_ru_review_status }) };
-  return kind === "coaches" ? { ...base, kind, slug: null } : { ...base, kind, slug: row.slug! };
+    displayName: resolveFootballProperName({ providerName: row.provider_name ?? coachIdentityLabel(row.provider_coach_id!), nameRu: row.name_ru, reviewStatus: row.name_ru_review_status }) };
+  return kind === "coaches" ? { ...base, kind, slug: null, providerName: row.provider_name }
+    : { ...base, kind, slug: row.slug!, providerName: row.provider_name! };
 }
 
 export class FootballLocalizationRepository {
@@ -32,7 +36,7 @@ export class FootballLocalizationRepository {
     const result = await this.db.query<{ total: number; items: Row[] }>(`
       with filtered as materialized (
         select ${columns(table)} from football.${table}
-        where ($1::text is null or provider_name ilike $1 escape '!' or name_ru ilike $1 escape '!')
+        where ($1::text is null or ${table === "coaches" ? "(profile_observed_at is not null and provider_name ilike $1 escape '!') or provider_coach_id::text ilike $1 escape '!'" : "provider_name ilike $1 escape '!'"} or name_ru ilike $1 escape '!')
           and ($2 = 'all' or ($2 = 'missing' and name_ru is null) or name_ru_review_status = $2)
       ), page as (
         select * from filtered order by lower(provider_name), id limit $3 offset $4

@@ -7,10 +7,11 @@ export const LOCALIZATION_PAGE_SIZE = 20;
 export const LOCALIZATION_NAME_LIMIT = 200;
 
 export type FootballLocalizationEntity = {
-  id: string; provider: string; providerName: string;
+  id: string; provider: string;
   nameRu: string | null; nameRuReviewStatus: FootballNameReviewStatus | null;
   localizationRevision: number; displayName: string;
-} & ({ kind: "coaches"; slug: null } | { kind: Exclude<LocalizationKind, "coaches">; slug: string });
+} & ({ kind: "coaches"; slug: null; providerName: string | null } |
+  { kind: Exclude<LocalizationKind, "coaches">; slug: string; providerName: string });
 export type FootballLocalizationQuery = {
   kind: LocalizationKind; query: string; status: LocalizationFilterStatus; page: number;
 };

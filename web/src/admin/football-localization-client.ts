@@ -23,7 +23,8 @@ export class LocalizationApiError extends Error {
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 function parseEntity(value: unknown): FootballLocalizationEntity {
   if (!object(value) || !Object.hasOwn(LOCALIZATION_KIND_LABELS, String(value.kind)) ||
-      ![value.id, value.provider, value.providerName, value.displayName].every((v) => typeof v === "string") ||
+      ![value.id, value.provider, value.displayName].every((v) => typeof v === "string") ||
+      !(typeof value.providerName === "string" || value.kind === "coaches" && value.providerName === null) ||
       (value.kind === "coaches" ? value.slug !== null : typeof value.slug !== "string") ||
       !(value.nameRu === null || typeof value.nameRu === "string") ||
       ![null, "reviewed", "unreviewed"].includes(value.nameRuReviewStatus as string | null) ||

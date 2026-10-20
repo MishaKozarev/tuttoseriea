@@ -6,6 +6,7 @@ import { getCoachesByIds, getLastKnownTeamCoach } from "../football/coaches-repo
 import { resolveFootballProperName } from "../football/localization";
 import type { CoachSource, LastKnownTeamCoach } from "../football/coaches";
 import type { FootballCoachesQuery } from "./football-coaches";
+import { getStoredCoachProfile } from "../football/coach-profile-repository";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 export type CoachClubObservation = {
@@ -53,11 +54,11 @@ export async function readFootballCoaches(db: Queryable, filter: FootballCoaches
   const cards = await getCoachesByIds(db, [...page.items.map((item) => item.id), ...(filter.id ? [filter.id] : [])]);
   const photo = (id: string) => cards.find((card) => card.id === id)?.providerPhotoUrl ?? null;
   const entity = filter.id ? await localization.get("coaches", filter.id) : null;
-  const facts = entity ? (await db.query<{ provider_coach_id: number; name_source_match_id: string; photo_source_match_id: string | null }>(
-    "select provider_coach_id,name_source_match_id,photo_source_match_id from football.coaches where id=$1", [entity.id])).rows[0] : null;
+  const facts = entity ? (await db.query<{ provider_coach_id: number }>(
+    "select provider_coach_id from football.coaches where id=$1", [entity.id])).rows[0] : null;
   return { checkedAt, page: { ...page, items: page.items.map((item) => ({ ...item, providerPhotoUrl: photo(item.id) })) },
     detail: entity && facts ? { entity, providerPhotoUrl: photo(entity.id), providerCoachId: facts.provider_coach_id,
-      nameSourceMatchId: facts.name_source_match_id, photoSourceMatchId: facts.photo_source_match_id,
+      profile: await getStoredCoachProfile(db, entity.id),
       observations: await readAdminCoachObservations(db, entity.id, checkedAt) } : null };
 }
 export type FootballCoachesModel = Awaited<ReturnType<typeof readFootballCoaches>>;

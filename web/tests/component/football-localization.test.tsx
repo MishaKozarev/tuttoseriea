@@ -16,7 +16,7 @@ const save = () => screen.getByRole("button", { name: "Сохранить как
 const review = () => screen.getByRole("button", { name: "Подтвердить как reviewed" });
 const reload = () => screen.getByRole("button", { name: "Загрузить актуальную версию" });
 const editor = () => screen.getByRole("region", { name: `Русское название: ${record.providerName}` });
-function publicName() { record.displayName = resolveFootballProperName({ providerName: record.providerName, nameRu: record.nameRu, reviewStatus: record.nameRuReviewStatus }); }
+function publicName() { record.displayName = resolveFootballProperName({ providerName: record.providerName ?? record.displayName, nameRu: record.nameRu, reviewStatus: record.nameRuReviewStatus }); }
 function change(value: string) { fireEvent.change(input(), { target: { value } }); }
 async function open() {
   render(<FootballLocalization />); await ready();
@@ -41,6 +41,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Football Localization UI", () => {
+  it("allows an ID-only Coach through the existing save/review editor without inventing an original name", async () => {
+    record = { ...localizationFixture("coaches"), kind: "coaches", slug: null, providerName: null, displayName: "Coach #2914" };
+    render(<FootballLocalization filter={{ kind: "coaches", query: "", status: "all", page: 1 }} initialId={record.id} />);
+    await ready(); expect(screen.getByText("Профиль Coaches API ещё не получен")).toBeTruthy();
+    change("Русское имя"); fireEvent.click(save()); await ready();
+    expect(record.nameRuReviewStatus).toBe("unreviewed");
+    fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(review()); await ready();
+    expect(record.nameRuReviewStatus).toBe("reviewed"); expect(record.providerName).toBeNull();
+  });
   it("fails closed for a fabricated Coach slug returned by the server", async () => {
     network.mockResolvedValue(Response.json({ items: [{ ...localizationFixture("coaches"), slug: "fake-slug" }], total: 1, page: 1, pageSize: 20, totalPages: 1 }));
     render(<FootballLocalization filter={{ kind: "coaches", query: "", status: "all", page: 1 }} />); await ready();

@@ -34,6 +34,7 @@ import { listJobTypes, productionJobRegistry } from "@/src/jobs/registry";
 describe("Football foundation", () => {
   it("registers bounded Serie A sync jobs in the production registry", () => {
     expect(listJobTypes(productionJobRegistry)).toEqual([
+      "football.sync-serie-a-coaches",
       SERIE_A_FOUNDATION_JOB_TYPE,
       SERIE_A_MATCH_EVENTS_JOB_TYPE,
       SERIE_A_MATCH_LINEUPS_JOB_TYPE,

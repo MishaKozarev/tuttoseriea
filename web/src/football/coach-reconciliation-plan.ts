@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { CoachRow, CoachSnapshot, CoachProfileFacts } from "./coaches";
-import { projectCoachProfile, usableCoachName, usableCoachPhoto } from "./coaches";
+import type { CoachRow, CoachSnapshot } from "./coaches";
 import { getCoachesByIds, getLastKnownTeamCoach, lockCoachMatch, type CoachQueryable } from "./coaches-repository";
 import { reconcileLockedLineupCoaches } from "./lineup-coaches-reconciliation";
 import { API_FOOTBALL_PROVIDER, SERIE_A_CURRENT_SEASON, SERIE_A_PROVIDER_LEAGUE_ID } from "./foundation";
@@ -9,7 +8,7 @@ export const COACH_PLAN_MAX_MATCHES = 380;
 export const COACH_PLAN_BATCH_SIZE = 50;
 export type CoachOperatorStage = "local" | "staging";
 export type CoachOperatorTarget = { stage: CoachOperatorStage; database: string };
-export type CoachPlanPass = "profiles" | "links";
+export type CoachPlanPass = "identities";
 export class CoachReconciliationError extends Error {
   constructor(readonly code: string) { super(code); this.name = "CoachReconciliationError"; }
 }
@@ -27,16 +26,15 @@ export function coachPlanHash(value: unknown): string { return createHash("sha25
 
 type SourceLineup = CoachSnapshot & { id: string; clubId: string; coachId: string | null };
 type SourceMatch = { id: string; fingerprint: string; kickoffAt: Date | null; clubIds: string[]; lineups: SourceLineup[] };
-type SourceCoach = CoachRow & { name_source_at: Date | null; photo_source_at: Date | null };
-type Conflict = { matchId: string; providerCoachId: number; fields: ("name" | "photo")[] };
+type SourceCoach = CoachRow;
 type ManifestMatch = { id: string; fingerprint: string; lineups: { id: string; providerCoachId: number | null; coachId: string | null }[] };
 export type CoachReconciliationManifest = {
-  version: 1; planId: string; createdAt: string; target: CoachOperatorTarget;
+  version: 2; planId: string; createdAt: string; target: CoachOperatorTarget;
   scope: { provider: string; league: number; season: number };
   batchSize: 50; batchCount: number; matches: ManifestMatch[];
   baselineCoaches: { id: string; providerCoachId: number; nameRu: string | null; reviewStatus: string | null; revision: number }[];
-  forecast: { createCoaches: number; updateProfiles: number; linkLineups: number; alreadyLinked: number;
-    missingProviderId: number; missingProfileName: number; conflicts: Conflict[]; contradictions: string[] };
+  forecast: { createCoaches: number; linkLineups: number; alreadyLinked: number;
+    missingProviderId: number; contradictions: string[] };
   hash: string;
 };
 
@@ -70,56 +68,27 @@ async function readSources(db: CoachQueryable, ids?: readonly string[]): Promise
 }
 async function readCoaches(db: CoachQueryable, sources: readonly SourceMatch[]): Promise<SourceCoach[]> {
   const lineups = sources.flatMap((m) => m.lineups);
-  return (await db.query<SourceCoach>(`select c.*,n.kickoff_at as name_source_at,p.kickoff_at as photo_source_at
-    from football.coaches c join football.matches n on n.id=c.name_source_match_id
-    left join football.matches p on p.id=c.photo_source_match_id
+  return (await db.query<SourceCoach>(`select c.* from football.coaches c
     where (c.provider=$1 and c.provider_coach_id=any($2::int[])) or c.id=any($3::text[]) order by c.provider_coach_id`,
   [API_FOOTBALL_PROVIDER, lineups.map((l) => l.providerCoachId).filter((id) => id !== null),
     lineups.map((l) => l.coachId).filter((id) => id !== null)])).rows;
 }
-function facts(coach: CoachProfileFacts): CoachProfileFacts {
-  return { provider_name: coach.provider_name, provider_photo_url: coach.provider_photo_url,
-    name_source_match_id: coach.name_source_match_id, photo_source_match_id: coach.photo_source_match_id };
-}
 export async function createCoachReconciliationPlan(db: CoachQueryable, target: CoachOperatorTarget, ids?: readonly string[]): Promise<CoachReconciliationManifest> {
   if (ids) requireCoachCondition(ids.length > 0 && ids.length <= COACH_PLAN_MAX_MATCHES && new Set(ids).size === ids.length && ids.every((id) => coachUuid.test(id)), "COACH_INVALID_SCOPE");
   const sources = await readSources(db, ids), existing = await readCoaches(db, sources);
-  const dates = new Map<string, Date | null>();
-  for (const coach of existing) {
-    dates.set(coach.name_source_match_id, coach.name_source_at);
-    if (coach.photo_source_match_id) dates.set(coach.photo_source_match_id, coach.photo_source_at);
-  }
-  for (const source of sources) dates.set(source.id, source.kickoffAt);
-  const initial = new Map(existing.filter((c) => c.provider === API_FOOTBALL_PROVIDER).map((c) => [c.provider_coach_id, facts(c)]));
-  const profiles = new Map(initial);
-  const forecast: CoachReconciliationManifest["forecast"] = { createCoaches: 0, updateProfiles: 0, linkLineups: 0,
-    alreadyLinked: 0, missingProviderId: 0, missingProfileName: 0, conflicts: [], contradictions: [] };
-  for (const match of sources) for (const lineup of match.lineups) {
+  const identities = new Set(existing.filter((c) => c.provider === API_FOOTBALL_PROVIDER).map((c) => c.provider_coach_id));
+  const forecast: CoachReconciliationManifest["forecast"] = { createCoaches: 0, linkLineups: 0,
+    alreadyLinked: 0, missingProviderId: 0, contradictions: [] };
+  for (const lineup of sources.flatMap((m) => m.lineups)) {
     const id = lineup.providerCoachId;
     if (lineup.coachId && !existing.some((c) => c.id === lineup.coachId && c.provider === API_FOOTBALL_PROVIDER && c.provider_coach_id === id)) forecast.contradictions.push(lineup.id);
-    if (id === null) continue;
-    let profile = profiles.get(id);
-    const name = usableCoachName(lineup.providerCoachName), photo = usableCoachPhoto(lineup.providerCoachPhotoUrl);
-    if (!profile && name) {
-      profile = { provider_name: name, provider_photo_url: photo, name_source_match_id: match.id, photo_source_match_id: photo ? match.id : null };
-      forecast.createCoaches++;
-    }
-    if (!profile) continue;
-    const next = projectCoachProfile(profile, lineup, match.id, match.kickoffAt,
-      dates.get(profile.name_source_match_id) ?? null, dates.get(profile.photo_source_match_id!) ?? null);
-    profiles.set(id, next.facts);
-    if (next.conflicts.length) forecast.conflicts.push({ matchId: match.id, providerCoachId: id, fields: next.conflicts });
-  }
-  for (const [id, profile] of profiles) if (initial.has(id) && coachPlanHash(initial.get(id)) !== coachPlanHash(profile)) forecast.updateProfiles++;
-  // Final link forecast includes ID-only rows resolved by named observations in later batches.
-  for (const lineup of sources.flatMap((m) => m.lineups)) {
+    if (id !== null && !identities.has(id)) { identities.add(id); forecast.createCoaches++; }
     if (lineup.coachId) forecast.alreadyLinked++;
-    else if (lineup.providerCoachId === null) forecast.missingProviderId++;
-    else if (!profiles.has(lineup.providerCoachId)) forecast.missingProfileName++;
+    else if (id === null) forecast.missingProviderId++;
     else forecast.linkLineups++;
   }
   const body: Omit<CoachReconciliationManifest, "hash"> = {
-    version: 1, planId: randomUUID(), createdAt: new Date().toISOString(), target,
+    version: 2, planId: randomUUID(), createdAt: new Date().toISOString(), target,
     scope: { provider: API_FOOTBALL_PROVIDER, league: SERIE_A_PROVIDER_LEAGUE_ID, season: SERIE_A_CURRENT_SEASON },
     batchSize: COACH_PLAN_BATCH_SIZE, batchCount: Math.ceil(sources.length / COACH_PLAN_BATCH_SIZE),
     matches: sources.map((m) => ({ id: m.id, fingerprint: m.fingerprint,
@@ -133,22 +102,20 @@ export async function createCoachReconciliationPlan(db: CoachQueryable, target: 
 export function validateCoachManifest(input: unknown, target: CoachOperatorTarget): CoachReconciliationManifest {
   requireCoachCondition(input && typeof input === "object" && !Array.isArray(input), "COACH_INVALID_MANIFEST");
   const value = input as CoachReconciliationManifest;
-  requireCoachCondition(value.version === 1 && value.target?.stage === target.stage && value.target.database === target.database &&
+  requireCoachCondition(value.version === 2 && value.target?.stage === target.stage && value.target.database === target.database &&
     value.scope?.provider === API_FOOTBALL_PROVIDER && value.scope.league === SERIE_A_PROVIDER_LEAGUE_ID && value.scope.season === SERIE_A_CURRENT_SEASON &&
     value.batchSize === COACH_PLAN_BATCH_SIZE && Array.isArray(value.matches) && value.matches.length <= COACH_PLAN_MAX_MATCHES &&
     value.batchCount === Math.ceil(value.matches.length / COACH_PLAN_BATCH_SIZE) && coachUuid.test(value.planId) && Number.isFinite(Date.parse(value.createdAt)) &&
-    Array.isArray(value.baselineCoaches) && value.baselineCoaches.length <= 760 && value.forecast && Array.isArray(value.forecast.conflicts) &&
-    Array.isArray(value.forecast.contradictions) && /^[a-f0-9]{64}$/.test(value.hash), "COACH_INVALID_MANIFEST");
+    Array.isArray(value.baselineCoaches) && value.baselineCoaches.length <= 760 && value.forecast && Array.isArray(value.forecast.contradictions) && /^[a-f0-9]{64}$/.test(value.hash), "COACH_INVALID_MANIFEST");
   const { hash, ...body } = value;
   requireCoachCondition(hash === coachPlanHash(body), "COACH_MANIFEST_HASH_MISMATCH");
   requireCoachCondition(Object.keys(value).every((key) => ["version", "planId", "createdAt", "target", "scope", "batchSize", "batchCount", "matches", "baselineCoaches", "forecast", "hash"].includes(key)) &&
     new Date(value.createdAt).toISOString() === value.createdAt && value.baselineCoaches.every((c) => coachUuid.test(c.id) &&
       Number.isInteger(c.providerCoachId) && c.providerCoachId > 0 && (c.nameRu === null || typeof c.nameRu === "string") &&
       (c.reviewStatus === null || ["unreviewed", "reviewed"].includes(c.reviewStatus)) && Number.isInteger(c.revision) && c.revision >= 0) &&
-    ["createCoaches", "updateProfiles", "linkLineups", "alreadyLinked", "missingProviderId", "missingProfileName"].every((key) => {
+    ["createCoaches", "linkLineups", "alreadyLinked", "missingProviderId"].every((key) => {
       const count = value.forecast[key as keyof typeof value.forecast]; return typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 760;
-    }) && value.forecast.conflicts.length <= 760 && value.forecast.conflicts.every((c) => coachUuid.test(c.matchId) && Number.isInteger(c.providerCoachId) &&
-      c.providerCoachId > 0 && Array.isArray(c.fields) && c.fields.length > 0 && c.fields.length <= 2 && c.fields.every((f) => f === "name" || f === "photo")) &&
+    }) && Object.keys(value.forecast).every((key) => ["createCoaches", "linkLineups", "alreadyLinked", "missingProviderId", "contradictions"].includes(key)) &&
     value.forecast.contradictions.length <= 760 && value.forecast.contradictions.every((id) => coachUuid.test(id)), "COACH_INVALID_MANIFEST");
   requireCoachCondition(new Set(value.matches.map((m) => m.id)).size === value.matches.length && value.matches.every((m) =>
     coachUuid.test(m.id) && /^[a-f0-9]{64}$/.test(m.fingerprint) && Array.isArray(m.lineups) && m.lineups.length <= 2 &&
@@ -171,7 +138,7 @@ export async function applyCoachManifestBatch(db: CoachQueryable, manifest: Coac
   pass: CoachPlanPass, batch: number, confirmedHash: string, progress: (value: unknown) => void = () => {}) {
   validateCoachManifest(manifest, target);
   requireCoachCondition(confirmedHash === manifest.hash, "COACH_EXPLICIT_CONFIRMATION_REQUIRED");
-  requireCoachCondition((pass === "profiles" || pass === "links") && Number.isInteger(batch) && batch >= 1 && batch <= manifest.batchCount, "COACH_INVALID_BATCH");
+  requireCoachCondition((pass === "identities") && Number.isInteger(batch) && batch >= 1 && batch <= manifest.batchCount, "COACH_INVALID_BATCH");
   requireCoachCondition(manifest.forecast.contradictions.length === 0, "COACH_CONTRADICTORY_REFERENCE");
   const selected = manifest.matches.slice((batch - 1) * COACH_PLAN_BATCH_SIZE, batch * COACH_PLAN_BATCH_SIZE);
   const completed: string[] = []; let createdCoaches = 0, linkedLineups = 0;
@@ -181,12 +148,11 @@ export async function applyCoachManifestBatch(db: CoachQueryable, manifest: Coac
       await db.query("set local lock_timeout='5s'"); await db.query("set local time zone 'UTC'");
       await lockCoachMatch(db, match.id);
       const current = await readSources(db, [match.id]); assertSources(current, manifest);
-      const results = await reconcileLockedLineupCoaches(db, match.id, pass === "links");
+      const results = await reconcileLockedLineupCoaches(db, match.id);
       for (const result of results) {
         const before = manifest.baselineCoaches.find((c) => c.providerCoachId === result.providerCoachId);
         requireCoachCondition(!before || before.id === result.coachId, "COACH_IDENTITY_DRIFT");
-        requireCoachCondition(result.conflicts.every((field) => manifest.forecast.conflicts.some((c) => c.matchId === match.id &&
-          c.providerCoachId === result.providerCoachId && c.fields.includes(field as "name" | "photo"))), "COACH_NEW_PROFILE_CONFLICT");
+
       }
       await db.query("commit"); completed.push(match.id);
       createdCoaches += results.filter((r) => r.created).length; linkedLineups += results.filter((r) => r.linked).length;
@@ -206,17 +172,17 @@ export async function verifyCoachManifest(db: CoachQueryable, manifest: CoachRec
   assertSources(sources, manifest);
   const coaches = await readCoaches(db, sources);
   const byProvider = new Map(coaches.filter((c) => c.provider === API_FOOTBALL_PROVIDER).map((c) => [c.provider_coach_id, c]));
-  let linked = 0, newlyLinked = 0, remainingLinks = 0, missingProviderId = 0, missingProfileName = 0, contradictions = 0;
+  let linked = 0, newlyLinked = 0, remainingLinks = 0, missingProviderId = 0, missingIdentities = 0, contradictions = 0;
   for (const match of sources) for (const lineup of match.lineups) {
     const coach = lineup.providerCoachId === null ? undefined : byProvider.get(lineup.providerCoachId);
     if (lineup.coachId) {
       if (coach?.id !== lineup.coachId) contradictions++;
       else { linked++; if (!manifest.matches.find((m) => m.id === match.id)!.lineups.find((l) => l.id === lineup.id)!.coachId) newlyLinked++; }
     } else if (lineup.providerCoachId === null) missingProviderId++;
-    else if (!coach) missingProfileName++;
+    else if (!coach) missingIdentities++;
     else remainingLinks++;
   }
-  const missingCreatableProfiles = new Set(sources.flatMap((m) => m.lineups).filter((l) => l.providerCoachId !== null && usableCoachName(l.providerCoachName) && !byProvider.has(l.providerCoachId)).map((l) => l.providerCoachId)).size;
+  const missingCreatableIdentities = new Set(sources.flatMap((m) => m.lineups).filter((l) => l.providerCoachId !== null && !byProvider.has(l.providerCoachId)).map((l) => l.providerCoachId)).size;
   const localizationChanged = manifest.baselineCoaches.filter((before) => {
     const after = byProvider.get(before.providerCoachId);
     return !after || after.id !== before.id || after.name_ru !== before.nameRu || after.name_ru_review_status !== before.reviewStatus || after.localization_revision !== before.revision;
@@ -225,9 +191,10 @@ export async function verifyCoachManifest(db: CoachQueryable, manifest: CoachRec
   const teamProjections = [];
   for (const clubId of [...new Set(sources.flatMap((s) => s.clubIds))].sort()) teamProjections.push({ clubId,
     observation: await getLastKnownTeamCoach(db, clubId, new Date(manifest.createdAt)) });
-  return { planHash: manifest.hash, complete: remainingLinks === 0 && missingCreatableProfiles === 0 && contradictions === 0 && localizationChanged.length === 0,
+  return { planHash: manifest.hash, complete: remainingLinks === 0 && missingCreatableIdentities === 0 && contradictions === 0 && localizationChanged.length === 0,
     sourcesUnchanged: true, matches: sources.length, snapshots: sources.reduce((n, m) => n + m.lineups.length, 0),
     newCoachesSincePlan: ids.filter((id) => !manifest.baselineCoaches.some((c) => c.id === id)).length,
-    linked, newlyLinked, remainingLinks, missingProviderId, missingProfileName, contradictions, missingCreatableProfiles,
+    linked, newlyLinked, remainingLinks, missingProviderId, missingIdentities, contradictions, missingCreatableIdentities,
+    missingApiProfiles: coaches.filter((c) => c.profile_observed_at === null).length,
     localizationChangedSincePlan: localizationChanged, coaches: await getCoachesByIds(db, ids), teamProjections };
 }
