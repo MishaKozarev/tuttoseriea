@@ -51,7 +51,7 @@ validate_job_type() {
   case "$environment" in
     staging)
       case "$job_type" in
-        football.sync-serie-a-foundation | football.sync-serie-a-matches | football.sync-serie-a-standings | football.sync-serie-a-squads | football.sync-serie-a-player-statistics | football.sync-serie-a-match-events | football.sync-serie-a-match-lineups | football.sync-serie-a-match-statistics)
+        football.sync-serie-a-foundation | football.sync-serie-a-matches | football.sync-serie-a-standings | football.sync-serie-a-squads | football.sync-serie-a-player-statistics | football.sync-serie-a-match-events | football.sync-serie-a-match-lineups | football.sync-serie-a-match-statistics | football.sync-serie-a-coaches)
           return 0
           ;;
         *)
