@@ -2,7 +2,7 @@ import {
   LOCALIZATION_PAGE_SIZE, type FootballLocalizationEntity, type FootballLocalizationPage, type FootballLocalizationQuery,
 } from "../football/localization-management";
 
-export const LOCALIZATION_KIND_LABELS = { competitions: "Соревнования", clubs: "Клубы", players: "Игроки" } as const;
+export const LOCALIZATION_KIND_LABELS = { competitions: "Соревнования", clubs: "Клубы", players: "Игроки", coaches: "Тренеры" } as const;
 export function localizationStatus(entity: FootballLocalizationEntity): string {
   return entity.nameRu === null ? "Отсутствует" : entity.nameRuReviewStatus === "reviewed" ? "Подтверждено" : "Не подтверждено";
 }
@@ -23,7 +23,8 @@ export class LocalizationApiError extends Error {
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 function parseEntity(value: unknown): FootballLocalizationEntity {
   if (!object(value) || !Object.hasOwn(LOCALIZATION_KIND_LABELS, String(value.kind)) ||
-      ![value.id, value.slug, value.provider, value.providerName, value.displayName].every((v) => typeof v === "string") ||
+      ![value.id, value.provider, value.providerName, value.displayName].every((v) => typeof v === "string") ||
+      (value.kind === "coaches" ? value.slug !== null : typeof value.slug !== "string") ||
       !(value.nameRu === null || typeof value.nameRu === "string") ||
       ![null, "reviewed", "unreviewed"].includes(value.nameRuReviewStatus as string | null) ||
       !Number.isInteger(value.localizationRevision) || Number(value.localizationRevision) < 0) throw new LocalizationApiError("INVALID_RESPONSE");

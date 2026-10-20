@@ -13,9 +13,9 @@ import {
 const initialFilter: FootballLocalizationQuery = { kind: "clubs", query: "", status: "all", page: 1 };
 const failure = (error: unknown) => error instanceof LocalizationApiError ? error : new LocalizationApiError("NETWORK_ERROR");
 
-export function FootballLocalization() {
-  const [form, setForm] = useState(initialFilter);
-  const [applied, setApplied] = useState(initialFilter);
+export function FootballLocalization({ filter = initialFilter, initialId }: { filter?: FootballLocalizationQuery; initialId?: string }) {
+  const [form, setForm] = useState(filter);
+  const [applied, setApplied] = useState(filter);
   const [page, setPage] = useState<FootballLocalizationPage | null>(null);
   const [selected, setSelected] = useState<FootballLocalizationEntity | null>(null);
   const [name, setName] = useState("");
@@ -29,11 +29,17 @@ export function FootballLocalization() {
 
   useEffect(() => {
     let alive = true;
-    loadLocalizationPage(initialFilter).then((data) => { if (alive) setPage(data); })
+    loadLocalizationPage(filter).then(async (data) => {
+      if (alive) setPage(data);
+      if (initialId) {
+        const entity = await loadLocalizationEntity({ kind: filter.kind, id: initialId });
+        if (alive) { setSelected(entity); setName(entity.nameRu ?? ""); }
+      }
+    })
       .catch((error: unknown) => { if (alive) setListError(failure(error)); })
       .finally(() => { if (alive) { operation.current = false; setBusy(false); } });
     return () => { alive = false; };
-  }, []);
+  }, [filter, initialId]);
 
   function choose(entity: FootballLocalizationEntity) {
     setSelected(entity); setName(entity.nameRu ?? ""); setConfirmed(false); setBlocked(false); setEditError(null);
@@ -136,7 +142,7 @@ export function FootballLocalization() {
         <div><dt className="inline font-medium">Provider/original name: </dt><dd className="inline break-words">{selected.providerName}</dd></div>
         <div><dt className="inline font-medium">Provider: </dt><dd className="inline">{selected.provider}</dd></div>
         <div><dt className="inline font-medium">Entity ID: </dt><dd className="inline break-all"><code>{selected.id}</code></dd></div>
-        <div><dt className="inline font-medium">Slug: </dt><dd className="inline break-all"><code>{selected.slug}</code></dd></div>
+        {selected.slug !== null && <div><dt className="inline font-medium">Slug: </dt><dd className="inline break-all"><code>{selected.slug}</code></dd></div>}
         <div><dt className="inline font-medium">Сохранённый статус: </dt><dd className="inline">{localizationStatus(selected)} ({selected.nameRuReviewStatus ?? "null"})</dd></div>
         <div><dt className="inline font-medium">Публичное название: </dt><dd className="inline">{selected.displayName}</dd></div>
       </dl>

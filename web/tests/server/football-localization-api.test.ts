@@ -30,6 +30,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Football localization server boundary", () => {
+  it("supports Coach reads/writes through the existing guarded endpoint and rejects provider mutations", async () => {
+    const coach = localizationFixture("coaches");
+    const ctx = { params: Promise.resolve({ kind: "coaches", id: coach.id }) };
+    mocks.get.mockResolvedValue(coach); mocks.edit.mockResolvedValue({ ...coach, nameRu: "Тренер", nameRuReviewStatus: "unreviewed", localizationRevision: 1 });
+    expect((await GET(new Request(url), ctx)).status).toBe(200);
+    expect((await PATCH(request({ ...edit, providerPhotoUrl: "https://bad.invalid" }), ctx)).status).toBe(400);
+    expect((await PATCH(request({ ...edit, providerCoachId: 99 }), ctx)).status).toBe(400);
+    expect((await PATCH(request(edit), ctx)).status).toBe(200);
+    expect(mocks.edit).toHaveBeenLastCalledWith("coaches", coach.id, edit);
+    mocks.session.mockResolvedValue({ authenticated: true, mfaRequired: true, identityAccess: { roles: ["super_admin"] } });
+    expect((await PATCH(request(edit), ctx)).status).toBe(401);
+    for (const roles of [["writer"], ["admin"]]) {
+      mocks.session.mockResolvedValue({ authenticated: true, mfaRequired: false, identityAccess: { roles } });
+      expect((await GET(new Request(url), ctx)).status).toBe(403);
+      expect((await PATCH(request(edit), ctx)).status).toBe(403);
+    }
+  });
   it.each([null, [], ["writer"], ["admin"], ["writer", "admin"]])("authorizes every read and write before repository access: %s", async (roles) => {
     mocks.session.mockResolvedValue(roles === null ? { authenticated: false, identityAccess: null }
       : { authenticated: true, mfaRequired: false, identityAccess: { accountId: "actor", roles } });

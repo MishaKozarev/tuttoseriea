@@ -20,7 +20,8 @@ export default async function FootballSynchronizationPage() {
             <Link href="/admin/football">Обзор футбольных данных</Link>
             <Link href="/admin/football/localization">Локализация</Link>
             <Link href="/admin/football/data">Football данные</Link>
-          </nav>
+    <Link href="/admin/football/coaches" className="text-sm font-medium underline underline-offset-4">Тренеры</Link>
+      </nav>
           <FootballSynchronization key={decision.identityAccess.accountId} actorAccountId={decision.identityAccess.accountId} />
         </Container>
       </section>

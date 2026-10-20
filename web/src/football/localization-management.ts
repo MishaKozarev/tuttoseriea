@@ -1,16 +1,16 @@
 import type { FootballNameReviewStatus } from "./localization";
 
-export const LOCALIZATION_KINDS = ["competitions", "clubs", "players"] as const;
+export const LOCALIZATION_KINDS = ["competitions", "clubs", "players", "coaches"] as const;
 export type LocalizationKind = typeof LOCALIZATION_KINDS[number];
 export type LocalizationFilterStatus = "all" | "missing" | FootballNameReviewStatus;
 export const LOCALIZATION_PAGE_SIZE = 20;
 export const LOCALIZATION_NAME_LIMIT = 200;
 
 export type FootballLocalizationEntity = {
-  kind: LocalizationKind; id: string; slug: string; provider: string; providerName: string;
+  id: string; provider: string; providerName: string;
   nameRu: string | null; nameRuReviewStatus: FootballNameReviewStatus | null;
   localizationRevision: number; displayName: string;
-};
+} & ({ kind: "coaches"; slug: null } | { kind: Exclude<LocalizationKind, "coaches">; slug: string });
 export type FootballLocalizationQuery = {
   kind: LocalizationKind; query: string; status: LocalizationFilterStatus; page: number;
 };
@@ -48,6 +48,15 @@ export function parseLocalizationQuery(params: URLSearchParams): FootballLocaliz
   if (query.length > 100 || /[\p{Cc}]/u.test(query) || !["all", "missing", "unreviewed", "reviewed"].includes(status) ||
       !/^[1-9][0-9]{0,5}$/.test(page)) invalid();
   return { kind, query, status: status as LocalizationFilterStatus, page: Number(page) };
+}
+export function parseLocalizationPageParams(params: Record<string, string | string[] | undefined>) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    if (!["kind", "query", "status", "page", "id"].includes(key) || typeof value !== "string") invalid();
+    if (key !== "id") search.set(key, value);
+  }
+  return { filter: parseLocalizationQuery(search), initialId: params.id ? localizationId(params.id) : undefined };
 }
 export function parseLocalizationEdit(value: unknown): FootballLocalizationEdit {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalid();

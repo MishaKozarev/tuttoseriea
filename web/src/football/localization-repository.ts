@@ -9,15 +9,17 @@ import {
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 type Row = {
-  id: string; slug: string; provider: string; provider_name: string;
+  id: string; slug: string | null; provider: string; provider_name: string;
   name_ru: string | null; name_ru_review_status: FootballLocalizationEntity["nameRuReviewStatus"];
   localization_revision: number;
 };
-const columns = "id, slug, provider, provider_name, name_ru, name_ru_review_status, localization_revision";
+const columns = (kind: FootballLocalizationEntity["kind"]) =>
+  `id, ${kind === "coaches" ? "null::text as slug" : "slug"}, provider, provider_name, name_ru, name_ru_review_status, localization_revision`;
 function entity(kind: FootballLocalizationEntity["kind"], row: Row): FootballLocalizationEntity {
-  return { kind, id: row.id, slug: row.slug, provider: row.provider, providerName: row.provider_name,
+  const base = { id: row.id, provider: row.provider, providerName: row.provider_name,
     nameRu: row.name_ru, nameRuReviewStatus: row.name_ru_review_status, localizationRevision: row.localization_revision,
     displayName: resolveFootballProperName({ providerName: row.provider_name, nameRu: row.name_ru, reviewStatus: row.name_ru_review_status }) };
+  return kind === "coaches" ? { ...base, kind, slug: null } : { ...base, kind, slug: row.slug! };
 }
 
 export class FootballLocalizationRepository {
@@ -29,7 +31,7 @@ export class FootballLocalizationRepository {
     // One statement gives count and page the same snapshot, including empty/out-of-range pages.
     const result = await this.db.query<{ total: number; items: Row[] }>(`
       with filtered as materialized (
-        select ${columns} from football.${table}
+        select ${columns(table)} from football.${table}
         where ($1::text is null or provider_name ilike $1 escape '!' or name_ru ilike $1 escape '!')
           and ($2 = 'all' or ($2 = 'missing' and name_ru is null) or name_ru_review_status = $2)
       ), page as (
@@ -45,7 +47,7 @@ export class FootballLocalizationRepository {
 
   async get(kind: FootballLocalizationEntity["kind"], id: string): Promise<FootballLocalizationEntity | null> {
     const table = localizationKind(kind);
-    const result = await this.db.query<Row>(`select ${columns} from football.${table} where id = $1`, [localizationId(id)]);
+    const result = await this.db.query<Row>(`select ${columns(table)} from football.${table} where id = $1`, [localizationId(id)]);
     return result.rows[0] ? entity(table, result.rows[0]) : null;
   }
 
@@ -57,7 +59,7 @@ export class FootballLocalizationRepository {
       set name_ru = $2, name_ru_review_status = $3, localization_revision = localization_revision + 1
       where id = $1 and localization_revision = $4
         ${edit.action === "review" ? "and name_ru = $2 and name_ru_review_status = 'unreviewed'" : ""}
-      returning ${columns}
+      returning ${columns(table)}
     `, [localizationId(id), edit.nameRu, edit.action === "review" ? "reviewed" : "unreviewed", edit.expectedRevision]);
     if (result.rows[0]) return entity(table, result.rows[0]);
     // Classification only: the conditional UPDATE above is the concurrency protection.

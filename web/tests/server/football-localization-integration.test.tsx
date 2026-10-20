@@ -49,6 +49,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("Localization UI through the actual Admin HTTP boundary", () => {
+  it("opens a Coach deep link without a slug and uses the same save/review HTTP workflow", async () => {
+    record = localizationFixture("coaches");
+    render(<FootballLocalization filter={{ kind: "coaches", query: "", status: "all", page: 1 }} initialId={record.id} />);
+    await ready();
+    expect(screen.queryByText("Slug:")).toBeNull();
+    expect(mocks.get).toHaveBeenCalledWith("coaches", record.id);
+    fireEvent.change(name(), { target: { value: "Тестовый тренер" } }); fireEvent.click(save()); await ready();
+    expect(mocks.edit).toHaveBeenLastCalledWith("coaches", record.id, { action: "save", nameRu: "Тестовый тренер", expectedRevision: 0 });
+    expect(record.displayName).toBe(record.providerName);
+    fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(screen.getByRole("button", { name: "Подтвердить как reviewed" })); await ready();
+    expect(record.displayName).toBe("Тестовый тренер"); expect(record.slug).toBeNull();
+  });
   it("saves a draft and reviews that exact persisted revision with explicit confirmation", async () => {
     await open(); fireEvent.change(name(), { target: { value: "  Русское имя  " } });
     fireEvent.click(save()); await ready();

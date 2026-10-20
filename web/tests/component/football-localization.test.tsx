@@ -41,6 +41,11 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Football Localization UI", () => {
+  it("fails closed for a fabricated Coach slug returned by the server", async () => {
+    network.mockResolvedValue(Response.json({ items: [{ ...localizationFixture("coaches"), slug: "fake-slug" }], total: 1, page: 1, pageSize: 20, totalPages: 1 }));
+    render(<FootballLocalization filter={{ kind: "coaches", query: "", status: "all", page: 1 }} />); await ready();
+    expect(screen.getByRole("alert").textContent).toContain("INVALID_RESPONSE"); expect(patches()).toHaveLength(0);
+  });
   it("loads existing names without mutations and distinguishes missing localization", async () => {
     render(<FootballLocalization />); await ready();
     expect(screen.getByText(/name_ru_review_status:/).textContent).toContain("Отсутствует");

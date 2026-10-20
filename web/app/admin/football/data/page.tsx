@@ -28,7 +28,8 @@ export default async function FootballDataPage({ searchParams }: { searchParams:
     <h1 className="text-2xl font-semibold">Football данные</h1>
     <nav aria-label="Разделы Football Admin" className="flex flex-wrap gap-4 text-sm font-medium underline underline-offset-4">
       <Link href="/admin/football">Обзор</Link><Link href="/admin/football/synchronization">Синхронизация</Link><Link href="/admin/football/localization">Локализация</Link>
-    </nav>
+    <Link href="/admin/football/coaches" className="text-sm font-medium underline underline-offset-4">Тренеры</Link>
+      </nav>
     {result ? <FootballData data={result.data} filter={result.filter} actorAccountId={decision.identityAccess.accountId} /> : <p role="alert">{problem}</p>}
   </Container></section></AdminShell>;
 }
