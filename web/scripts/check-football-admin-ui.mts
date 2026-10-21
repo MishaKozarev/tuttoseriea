@@ -14,6 +14,7 @@ import { parseAdminJobCommand } from "../src/jobs/admin-contract";
 import { localizationFixture } from "../tests/fixtures/football-localization";
 import { parseLocalizationEdit, type FootballLocalizationEntity } from "../src/football/localization-management";
 import { resolveFootballProperName } from "../src/football/localization";
+import { parseCategoryWrite } from "../src/categories/management";
 
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ path: ".env", quiet: true });
@@ -33,6 +34,11 @@ async function main() {
   const password = `Synthetic browser staff ${randomUUID()}`;
   const passwordHash = await hashPassword(password);
   const pagePath = "/admin/football/synchronization";
+  const catalogs = [
+    { page: "/admin/football/tags", api: "/api/admin/football/tags", title: "Football Tags" },
+    { page: "/admin/articles/categories", api: "/api/admin/articles/categories", title: "Категории статей" },
+    { page: "/admin/news/categories", api: "/api/admin/news/categories", title: "Категории новостей" },
+  ];
   let server: ReturnType<typeof spawnNodeScript> | undefined;
   let browser: Browser | undefined;
   const count = async () => (await pool.query<{ count: number }>("select count(*)::int as count from jobs.admin_requests")).rows[0].count;
@@ -84,6 +90,10 @@ async function main() {
     await expect(anonymousPage).toHaveURL(/\/admin\/login\?/);
     assert.equal(new URL(anonymousPage.url()).searchParams.get("returnTo"), "/admin/football/coaches");
     assert.equal((await anonymous.request.patch("/api/admin/football/localization/coaches/fixture", { data: {}, headers: { origin } })).status(), 401);
+    for (const catalog of catalogs) {
+      await anonymousPage.goto(catalog.page); await expect(anonymousPage).toHaveURL(/\/admin\/login\?/);
+      assert.equal((await anonymous.request.get(catalog.api)).status(), 401);
+    }
     await anonymous.close();
     for (const identity of identities) {
       phase = `${identity.role} authorization`;
@@ -97,6 +107,7 @@ async function main() {
       if (identity.role === "super_admin") {
         await expect(page).toHaveURL(/\/admin\/login\/two-factor/);
         assert.equal((await context.request.get("/api/admin/football/jobs")).status(), 401, "Enrollment session bypassed MFA");
+        for (const catalog of catalogs) assert.equal((await context.request.get(catalog.api)).status(), 401);
         await page.goto(pagePath);
         await expect(page).toHaveURL(/\/admin\/login\/two-factor/);
         await expect(page.getByRole("radio")).toHaveCount(0);
@@ -128,6 +139,11 @@ async function main() {
         await expect(page.getByRole("heading", { name: "Доступ запрещён" })).toBeVisible();
         assert.equal((await context.request.get("/api/admin/football/localization?kind=coaches")).status(), 403);
         assert.equal((await context.request.patch("/api/admin/football/localization/coaches/fixture", { data: {}, headers: { origin } })).status(), 403);
+        for (const catalog of catalogs) {
+          await page.goto(catalog.page); await expect(page.getByRole("heading", { name: "Доступ запрещён" })).toBeVisible();
+          assert.equal((await context.request.get(catalog.api)).status(), 403);
+          if (!catalog.page.endsWith("/tags")) assert.equal((await context.request.post(catalog.api, { data: { name: "Forbidden fixture" }, headers: { origin } })).status(), 403);
+        }
       } else {
         assert.equal(response?.status(), 200);
         assert.equal((await context.request.get("/api/admin/football/jobs")).status(), 200);
@@ -221,6 +237,43 @@ async function main() {
         assert.equal(writes, 3, "GET reconciliation repeated a mutation");
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Localization UI overflows mobile viewport");
         assert.equal(externalRequests, 0);
+        phase = "Tags and Categories browser flow";
+        await page.goto(catalogs[0].page); await expect(page.getByRole("heading", { name: "Football Tags", exact: true })).toBeVisible();
+        assert.equal((await context.request.get(catalogs[0].api)).status(), 200);
+        await expect(page.getByRole("button", { name: /Создать тег|Удалить тег/ })).toHaveCount(0);
+        for (const catalog of catalogs.slice(1)) {
+          assert.equal((await context.request.get(catalog.api)).status(), 200);
+          let category: { id: string; name: string; revision: number; createdAt: string; updatedAt: string } | null = null;
+          let mutations = 0;
+          // Browser mutations are intercepted fixtures; no canonical category is created/edited/deleted.
+          await context.route(`**${catalog.api}**`, async route => {
+            const method = route.request().method();
+            if (method === "GET") { await route.fulfill({ json: { items: category ? [category] : [], total: category ? 1 : 0, page: 1, totalPages: category ? 1 : 0 } }); return; }
+            mutations++;
+            const action = method === "POST" ? "create" : method === "PATCH" ? "edit" : "delete";
+            const input = parseCategoryWrite(route.request().postDataJSON(), action);
+            if (action === "delete") { assert(category); assert.equal(input.expectedRevision, category.revision); category = null; await route.fulfill({ json: { deleted: true } }); }
+            else {
+              if (action === "edit") { assert(category); assert.equal(input.expectedRevision, category.revision); }
+              category = { id: "category-browser-fixture", name: input.name, revision: category ? category.revision + 1 : 0, createdAt: "2026-10-21T00:00:00Z", updatedAt: "2026-10-21T00:00:00Z" };
+              await route.fulfill({ status: action === "create" ? 201 : 200, json: { entity: category } });
+            }
+          });
+          await page.goto(catalog.page); await expect(page.getByRole("heading", { name: catalog.title, exact: true })).toBeVisible();
+          await page.getByRole("textbox", { name: "Название категории", exact: true }).fill("Browser category");
+          await page.getByRole("button", { name: "Сохранить категорию", exact: true }).click();
+          await expect(page.getByRole("status")).toContainText("Категория сохранена");
+          await page.getByRole("button", { name: "Редактировать Browser category", exact: true }).click();
+          await page.getByRole("textbox", { name: "Название категории", exact: true }).fill("Renamed category");
+          await page.getByRole("button", { name: "Сохранить категорию", exact: true }).click();
+          await expect(page.getByRole("button", { name: "Редактировать Renamed category", exact: true })).toBeVisible();
+          await page.getByRole("button", { name: "Редактировать Renamed category", exact: true }).click();
+          await expect(page.getByRole("button", { name: "Удалить категорию", exact: true })).toBeDisabled();
+          await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Удалить категорию", exact: true }).click();
+          await expect(page.getByRole("status")).toContainText("Категория удалена"); assert.equal(mutations, 3);
+          assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Category UI overflows mobile viewport");
+        }
+        assert.equal(externalRequests, 0);
         phase = "Coach localization browser flow";
         localized = { ...localizationFixture("coaches"), providerName: "Fixture Coach", displayName: "Fixture Coach" };
         await page.goto(`/admin/football/localization?kind=coaches&id=${localized.id}`);
@@ -286,6 +339,7 @@ async function main() {
   console.log("football_admin_ui_localization_save_review_conflict_reload_mobile=true");
   console.log("football_admin_ui_data_read_auth_tabs_search_filters_mobile=true");
   console.log("football_admin_ui_coaches_read_deep_link_shared_localization_mfa_auth_mobile=true");
+  console.log("admin_tags_categories_auth_mfa_read_crud_confirmation_refresh_mobile=true category_mutations=intercepted");
   console.log("real_admissions=0 provider_requests=0 fixture_cleanup=complete");
 }
 

@@ -1,3 +1,5 @@
 import { build } from "esbuild";
 await build({ entryPoints: ["scripts/reconcile-lineup-coaches.ts"], outfile: "dist/football-tools/reconcile-lineup-coaches.mjs",
   bundle: true, packages: "external", platform: "node", format: "esm", target: "node24" });
+await build({ entryPoints: ["scripts/reconcile-football-tags.ts"], outfile: "dist/football-tools/reconcile-football-tags.mjs",
+  bundle: true, packages: "external", platform: "node", format: "esm", target: "node24" });

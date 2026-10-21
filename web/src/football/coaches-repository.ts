@@ -1,3 +1,4 @@
+import { taggedFootballUpsert } from "./tagged-upsert";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { API_FOOTBALL_PROVIDER, SERIE_A_CURRENT_SEASON, SERIE_A_PROVIDER_LEAGUE_ID } from "./foundation";
@@ -34,11 +35,11 @@ export async function resolveLineupCoach(db: CoachQueryable, match: CoachMatch, 
   const proposedId = randomUUID();
   // Atomic identity upsert also serializes with profile/localization writes. Lineups never
   // supply profile facts, even on the first insert or when the API profile is missing.
-  const row = (await db.query<CoachRow>(`
+  const row = (await db.query<CoachRow>(taggedFootballUpsert("coaches", `
       /* coach:identity */
       insert into football.coaches as existing (id,provider,provider_coach_id)
       values($1,$2,$3)
-      on conflict(provider,provider_coach_id) do update set id=existing.id returning *`,
+      on conflict(provider,provider_coach_id) do update set id=existing.id returning *`),
     [proposedId, match.provider, providerId])).rows[0];
   return { id: row.id, created: row.id === proposedId };
 }

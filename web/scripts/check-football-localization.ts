@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFixtureFootballTags } from "./fixtures/football-tags";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { config as loadEnv } from "dotenv";
@@ -40,8 +41,8 @@ async function main() {
   // Only the fixture adapter rewrites SQL. Production repositories keep their canonical schema.
   const scope = (db: Queryable): Queryable => ({ query: ((sql: string, values?: unknown[]) => {
     assert.equal(typeof sql, "string");
-    const scopedSql = sql.replace(/\bfootball\./g, `${quoted}.`);
-    assert(!/\bfootball\./.test(scopedSql), "Fixture repository SQL must never reach canonical Football tables");
+    const scopedSql = sql.replace(/\b(?:football|taxonomy)\./g, `${quoted}.`);
+    assert(!/\b(?:football|taxonomy)\./.test(scopedSql), "Fixture repository SQL must never reach canonical Football/Tags tables");
     return db.query(scopedSql, values);
   }) as Queryable["query"] });
   const repository = new FootballLocalizationRepository(scope(runtime));
@@ -99,6 +100,7 @@ async function main() {
       const privileges = (await owner.query("select privilege_type from information_schema.role_table_grants where grantee=$1 and table_schema='football' and table_name=$2 order by privilege_type", [role, table])).rows.map(r => r.privilege_type);
       await owner.query(`grant ${privileges.join(",")} on ${quoted}.${table} to ${quoteIdentifier(role)}`);
     }
+    await createFixtureFootballTags(owner, quoted, quoteIdentifier(role));
     await owner.query(`alter table ${quoted}.coaches add foreign key(name_source_match_id) references ${quoted}.matches(id), add foreign key(photo_source_match_id) references ${quoted}.matches(id)`);
     await owner.query(`alter table ${quoted}.match_lineups add foreign key(coach_id) references ${quoted}.coaches(id) on delete set null`);
     for (const kind of LOCALIZATION_KINDS) {

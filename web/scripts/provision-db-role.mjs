@@ -754,6 +754,22 @@ async function main() {
     await syncIdentitySchemaPrivileges(client, migrationRole, appRole, identitySchemaName);
     await syncJobsSchemaPrivileges(client, migrationRole, appRole, jobsSchemaName);
     await syncFootballSchemaPrivileges(client, migrationRole, appRole, footballSchemaName);
+    for (const [schema, table, privileges] of [
+      ["taxonomy", "football_tags", ["SELECT", "INSERT"]],
+      ["article", "categories", tableDmlPrivileges],
+      ["news", "categories", tableDmlPrivileges],
+    ]) {
+      await assertSchemaExists(client, schema);
+      await assertTableExists(client, schema, table);
+      await syncBaseSchemaPrivileges(client, migrationRole, appRole, schema);
+      await client.query(`grant ${privileges.join(", ")} on table ${qualifiedName(schema, table)} to ${quoteIdentifier(appRole)}`);
+      await verifyExactTablePrivileges(client, appRole, schema, table, privileges);
+      const unexpected = await client.query(`select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        where n.nspname=$1 and c.relkind in ('r','p','v','m') and c.relname<>$2
+        and (has_table_privilege($3,c.oid,'SELECT') or has_table_privilege($3,c.oid,'INSERT')
+          or has_table_privilege($3,c.oid,'UPDATE') or has_table_privilege($3,c.oid,'DELETE'))`, [schema, table, appRole]);
+      if (unexpected.rows.length) throw new Error("Unexpected taxonomy/category grants");
+    }
     await verifyRoleAttributes(client, appRole);
 
     await client.query("commit");
@@ -773,6 +789,7 @@ async function main() {
     console.log("jobs_table_grants=exact");
     console.log("jobs_admin_requests_grants=select_insert");
     console.log("football_table_grants=exact");
+    console.log("taxonomy_tags_select_insert_categories_crud=exact");
     console.log("application_role_superuser=false");
     console.log("application_role_create_schema=false");
     console.log("application_role_default_privileges=false");

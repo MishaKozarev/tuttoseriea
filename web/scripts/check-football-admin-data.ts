@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFixtureFootballTags } from "./fixtures/football-tags";
 import { randomUUID } from "node:crypto";
 import { config as loadEnv } from "dotenv";
 import pg from "pg";
@@ -23,12 +24,12 @@ async function main() {
   const schema = `data_check_${randomUUID().replaceAll("-", "")}`;
   const quoted = quoteIdentifier(schema);
   const tables = ["competitions", "seasons", "clubs", "season_clubs", "matches", "standings", "players", "squad_memberships", "player_statistics",
-    "match_events", "match_lineups", "match_lineup_entries", "match_statistics", "match_statistic_items"];
+    "match_events", "match_lineups", "match_lineup_entries", "match_statistics", "match_statistic_items", "coaches"];
   const scope = (db: Queryable, readOnly = false): Queryable => ({ query: ((sql: string, values?: unknown[]) => {
     assert.equal(typeof sql, "string");
     if (readOnly) assert(/^\s*(select|with)\b/i.test(sql), "Admin read projections may issue SELECT only");
-    const scoped = sql.replace(/\bfootball\./g, `${quoted}.`);
-    assert(!/\bfootball\./.test(scoped)); return db.query(scoped, values);
+    const scoped = sql.replace(/\b(?:football|taxonomy)\./g, `${quoted}.`);
+    assert(!/\b(?:football|taxonomy)\./.test(scoped)); return db.query(scoped, values);
   }) as Queryable["query"] });
   let created = false; let reader: pg.PoolClient | undefined;
   const fetch = globalThis.fetch;
@@ -41,6 +42,7 @@ async function main() {
     assert.notEqual(role, migration.username);
     await owner.query(`grant usage on schema ${quoted} to ${quoteIdentifier(role)}`);
     await owner.query(`grant select on all tables in schema ${quoted} to ${quoteIdentifier(role)}`);
+    await createFixtureFootballTags(owner, quoted, quoteIdentifier(role));
     const db = scope(owner);
     const competition = await upsertSerieACompetition(db, { providerName: "Data Serie A", country: "Italy", type: "League", providerLogoUrl: null });
     const seasons = [randomUUID(), randomUUID()];
