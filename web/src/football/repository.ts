@@ -1,3 +1,4 @@
+import { taggedFootballUpsert } from "./tagged-upsert";
 import { randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient, QueryResult } from "pg";
@@ -81,9 +82,21 @@ export async function upsertSerieACompetition(
   queryable: Queryable,
   input: UpsertCompetitionInput,
 ): Promise<string> {
+  return upsertCompetition(queryable, { ...input, providerCompetitionId: SERIE_A_PROVIDER_LEAGUE_ID });
+}
+
+// Football-owned persistence only. Saving a Competition imports no Seasons or Matches.
+export async function upsertCompetition(
+  queryable: Queryable,
+  input: UpsertCompetitionInput & { providerCompetitionId: number },
+): Promise<string> {
+  if (!Number.isInteger(input.providerCompetitionId) || input.providerCompetitionId <= 0 ||
+      input.providerCompetitionId > 2_147_483_647 || !input.providerName.trim()) {
+    throw new Error("Invalid Competition identity/name");
+  }
   return firstId(
     await queryable.query<IdRow>(
-      `
+      taggedFootballUpsert("competitions", `
         insert into football.competitions (
           id,
           provider,
@@ -103,16 +116,17 @@ export async function upsertSerieACompetition(
           provider_logo_url = excluded.provider_logo_url,
           updated_at = now()
         returning id
-      `,
+      `),
       [
         randomUUID(),
         API_FOOTBALL_PROVIDER,
-        SERIE_A_PROVIDER_LEAGUE_ID,
+        input.providerCompetitionId,
         input.providerName,
         input.country,
         input.type,
         input.providerLogoUrl,
-        SERIE_A_SLUG,
+        input.providerCompetitionId === SERIE_A_PROVIDER_LEAGUE_ID ? SERIE_A_SLUG :
+          createFootballEntitySlug(input.providerName, input.providerCompetitionId, "competition"),
       ],
     ),
     "competition upsert",
@@ -168,7 +182,7 @@ export async function upsertClub(
 ): Promise<string> {
   return firstId(
     await queryable.query<IdRow>(
-      `
+      taggedFootballUpsert("clubs", `
         insert into football.clubs (
           id,
           provider,
@@ -192,7 +206,7 @@ export async function upsertClub(
           provider_logo_url = excluded.provider_logo_url,
           updated_at = now()
         returning id
-      `,
+      `),
       [
         randomUUID(),
         API_FOOTBALL_PROVIDER,

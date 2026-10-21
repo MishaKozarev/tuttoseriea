@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFixtureFootballTags } from "./fixtures/football-tags";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { config } from "dotenv";
@@ -33,8 +34,8 @@ async function main() {
   const tables = ["competitions", "seasons", "clubs", "season_clubs", "matches", "players", "coaches", "match_lineups", "match_lineup_entries"];
   const scope = (db: CoachQueryable): CoachQueryable => ({ query: ((sql: string, values?: unknown[]) => {
     assert.equal(typeof sql, "string");
-    const rewritten = sql.replace(/\bfootball\./g, `${quoted}.`);
-    assert(!/\bfootball\./.test(rewritten)); return db.query(rewritten, values);
+    const rewritten = sql.replace(/\b(?:football|taxonomy)\./g, `${quoted}.`);
+    assert(!/\b(?:football|taxonomy)\./.test(rewritten)); return db.query(rewritten, values);
   }) as CoachQueryable["query"] });
   const canonicalFingerprint = async () => Promise.all(tables.map(async (table) => (await owner.query(`select
     md5(coalesce(string_agg(to_jsonb(t)::text,',' order by to_jsonb(t)::text),' ')) as value from football.${table} t`)).rows[0].value));
@@ -111,6 +112,7 @@ async function main() {
       if (table === "match_lineups") assert.deepEqual(privileges, ["DELETE", "INSERT", "SELECT"]);
       await owner.query(`grant ${privileges.join(",")} on ${quoted}.${table} to ${quoteIdentifier(role)}`);
     }
+    await createFixtureFootballTags(owner, quoted, quoteIdentifier(role));
     const competition = await upsertSerieACompetition(scope(owner), { providerName: "Coaches fixture Serie A", country: "Italy", type: "League", providerLogoUrl: null });
     season = randomUUID();
     await owner.query(`insert into ${quoted}.seasons(id,competition_id,provider,provider_season_year,provider_current,display_label)
@@ -268,6 +270,9 @@ async function main() {
     }
     await assert.rejects(owner.query(`update ${quoted}.coaches set name_source_match_id=$1 where provider_coach_id=10`, [randomUUID()]), { code: "23503" });
     await assert.rejects(owner.query(`delete from ${quoted}.matches where id=$1`, [recent]), { code: "23001" });
+    await assert.rejects(owner.query(`delete from ${quoted}.coaches where provider_coach_id=10`), { code: "23001" });
+    // Fixture owner removes only its Tag to exercise the pre-existing Lineups SET NULL FK.
+    await owner.query(`delete from ${quoted}.football_tags where coach_id=$1`, [first.coachId]);
     await owner.query(`delete from ${quoted}.coaches where provider_coach_id=10`);
     assert.equal((await owner.query(`select coach_id from ${quoted}.match_lineups where match_id=$1`, [old])).rows[0].coach_id, null);
     assert.equal((await observation()).kind, "unresolved", "Deleted canonical identity must not fall back to older Coach");

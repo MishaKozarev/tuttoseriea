@@ -162,6 +162,13 @@
       "when": 1792521957505,
       "tag": "0022_coach_profile_source",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792582999916,
+      "tag": "0023_married_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

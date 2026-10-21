@@ -5,6 +5,7 @@ import { Container } from "@/components/layout/container";
 import { decideAdminAccess } from "@/src/identity/admin-access";
 import { getCurrentIdentityAccess } from "@/src/identity/session";
 import { StaffSessionControls } from "@/components/admin/staff-session-controls";
+import { CatalogNavigation } from "@/components/admin/catalog-navigation";
 
 export default async function AdminPage() {
   const current = await getCurrentIdentityAccess();
@@ -24,6 +25,7 @@ export default async function AdminPage() {
         <Container size="wide">
           <div className="space-y-3">
             <StaffSessionControls superAdmin={current.identityAccess?.roles.includes("super_admin")} />
+            {current.identityAccess?.roles.includes("super_admin") && <CatalogNavigation />}
             <p className="text-sm font-medium text-muted-foreground">
               Stage 3.4
             </p>

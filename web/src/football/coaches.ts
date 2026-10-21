@@ -25,7 +25,7 @@ export type LastKnownTeamCoach = { chronologyIncomplete: boolean } & (
   | { kind: "ambiguous"; candidates: CoachCandidate[] }
   | { kind: "unknown" }
 );
-export function coachCard(row: CoachRow): CoachCard {
+export function coachCard(row: Pick<CoachRow, "id" | "provider_coach_id" | "provider_name" | "provider_photo_url" | "name_ru" | "name_ru_review_status" | "profile_observed_at">): CoachCard {
   return { id: row.id, displayName: resolveFootballProperName({
     providerName: row.profile_observed_at && row.provider_name ? row.provider_name : coachIdentityLabel(row.provider_coach_id),
     nameRu: row.name_ru, reviewStatus: row.name_ru_review_status }),

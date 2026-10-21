@@ -19,6 +19,8 @@ describe("Identity RBAC foundation", () => {
     expect(getPermissionsForRoles(["super_admin"])).toEqual([
       PERMISSION_IDS.adminAccess,
       PERMISSION_IDS.footballAdmin,
+      PERMISSION_IDS.articleCategoriesManage,
+      PERMISSION_IDS.newsCategoriesManage,
     ]);
   });
 
@@ -31,7 +33,7 @@ describe("Identity RBAC foundation", () => {
     ).toBe(false);
     expect(
       getPermissionsForRoles(["writer", "admin", "super_admin"]),
-    ).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin]);
+    ).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage]);
   });
 
   it("deduplicates effective permissions across multiple roles", () => {

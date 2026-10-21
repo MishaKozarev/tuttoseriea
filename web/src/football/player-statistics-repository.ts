@@ -1,3 +1,4 @@
+import { taggedFootballUpsert } from "./tagged-upsert";
 import { randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient } from "pg";
@@ -139,7 +140,7 @@ export async function upsertPlayerProfile(
   return firstId(
     (
       await queryable.query<IdRow>(
-        `
+        taggedFootballUpsert("players", `
           insert into football.players (
             id,
             provider,
@@ -178,7 +179,7 @@ export async function upsertPlayerProfile(
             provider_photo_url = excluded.provider_photo_url,
             updated_at = now()
           returning id
-        `,
+        `),
         [
           randomUUID(),
           API_FOOTBALL_PROVIDER,

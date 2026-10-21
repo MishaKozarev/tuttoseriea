@@ -210,6 +210,15 @@ async function main(): Promise<void> {
       }
     }
 
+    for (const permission of [PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage]) {
+      if (!hasPermissionForRoles(superAdminAccess.roles, permission) || !await emailHasPermission(superAdmin.email, permission)) {
+        throw new Error("Super Admin category permission missing");
+      }
+      for (const access of [writerAccess, adminAccess, multiRoleAccess, ordinaryAccess]) {
+        if (!access || hasPermissionForRoles(access.roles, permission)) throw new Error("Category management granted outside Super Admin");
+      }
+    }
+
     await expectPostgresErrorCode(
       () =>
         client.query(
@@ -252,6 +261,7 @@ async function main(): Promise<void> {
   console.log("identity_account_roles_multi_role=true");
   console.log("identity_admin_access_mapping=true");
   console.log("identity_football_admin_super_admin_only=true");
+  console.log("identity_category_management_super_admin_only=true");
   console.log("identity_runtime_write_denied=true");
 }
 

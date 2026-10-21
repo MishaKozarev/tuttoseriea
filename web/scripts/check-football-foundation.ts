@@ -3699,6 +3699,11 @@ async function cleanupSquadsRollbackFixture(
         and c.provider_club_id < 900020
     `);
     await client.query(`
+      delete from taxonomy.football_tags t using football.players p
+      where t.player_id=p.id and p.provider='api-football'
+        and p.provider_player_id >= 1100000 and p.provider_player_id < 1400000
+    `);
+    await client.query(`
       delete from football.players
       where provider = 'api-football'
         and provider_player_id >= 1100000
@@ -3711,6 +3716,11 @@ async function cleanupSquadsRollbackFixture(
         and c.provider = 'api-football'
         and c.provider_club_id >= 900000
         and c.provider_club_id < 900020
+    `);
+    await client.query(`
+      delete from taxonomy.football_tags t using football.clubs c
+      where t.club_id=c.id and c.provider='api-football'
+        and c.provider_club_id >= 900000 and c.provider_club_id < 900020
     `);
     await client.query(`
       delete from football.clubs
@@ -3744,6 +3754,9 @@ async function cleanupSquadsRollbackFixture(
     }
 
     if (options.removeCompetition) {
+      await client.query(`delete from taxonomy.football_tags t using football.competitions comp
+        where t.competition_id=comp.id and comp.provider='api-football' and comp.provider_competition_id=135
+          and not exists(select 1 from football.seasons s where s.competition_id=comp.id)`);
       await client.query(`
         delete from football.competitions comp
         where comp.provider = 'api-football'
@@ -4319,6 +4332,11 @@ async function cleanupMatchEventsRollbackFixture(
         and m.provider = 'api-football'
         and m.provider_fixture_id >= 910000
         and m.provider_fixture_id < 920001
+    `);
+    await client.query(`
+      delete from taxonomy.football_tags t using football.coaches c,football.matches m
+      where t.coach_id=c.id and (c.name_source_match_id=m.id or c.photo_source_match_id=m.id)
+        and m.provider='api-football' and m.provider_fixture_id >= 910000 and m.provider_fixture_id < 920001
     `);
     await client.query(`
       delete from football.coaches c

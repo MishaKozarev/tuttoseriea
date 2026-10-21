@@ -1,3 +1,4 @@
+import { taggedFootballUpsert } from "./tagged-upsert";
 import { randomUUID } from "node:crypto";
 import type { CoachQueryable } from "./coaches-repository";
 import { API_FOOTBALL_PROVIDER, SERIE_A_CURRENT_SEASON, SERIE_A_PROVIDER_LEAGUE_ID } from "./foundation";
@@ -21,7 +22,7 @@ export async function getSerieACoachProfileIds(db: CoachQueryable): Promise<numb
 // UUID/created_at, snapshots and all application-owned localization are deliberately untouched.
 export async function upsertCoachProfile(db: CoachQueryable, profile: CoachProfile, observedAt: Date): Promise<boolean> {
   if (!Number.isFinite(observedAt.getTime())) throw new Error("Invalid Coach profile observation time");
-  const result = await db.query(`insert into football.coaches as existing
+  const result = await db.query(taggedFootballUpsert("coaches", `insert into football.coaches as existing
     (id,provider,provider_coach_id,provider_name,provider_photo_url,firstname,lastname,age,
      birth_date,birth_place,birth_country,nationality,height,weight,provider_raw,profile_observed_at)
     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
@@ -32,7 +33,7 @@ export async function upsertCoachProfile(db: CoachQueryable, profile: CoachProfi
       height=excluded.height,weight=excluded.weight,provider_raw=excluded.provider_raw,
       profile_observed_at=excluded.profile_observed_at,updated_at=now()
     where existing.profile_observed_at is null or existing.profile_observed_at < excluded.profile_observed_at
-    returning id`, [randomUUID(), API_FOOTBALL_PROVIDER, profile.providerCoachId, profile.providerName,
+    returning id`), [randomUUID(), API_FOOTBALL_PROVIDER, profile.providerCoachId, profile.providerName,
     profile.providerPhotoUrl, profile.firstname, profile.lastname, profile.age, profile.birthDate,
     profile.birthPlace, profile.birthCountry, profile.nationality, profile.height, profile.weight, profile.raw, observedAt]);
   return result.rows.length > 0;
