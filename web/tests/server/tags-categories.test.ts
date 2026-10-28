@@ -21,7 +21,7 @@ describe("Category validation and trusted permissions", () => {
       for (const roles of [[], ["writer"], ["admin"], ["writer", "admin"]] as const) expect(hasPermissionForRoles(roles, permission)).toBe(false);
       expect(hasPermissionForRoles(["writer", "super_admin"], permission)).toBe(true);
     }
-    expect(getPermissionsForRoles(["writer", "admin"])).toEqual(["admin.access"]);
+    expect(getPermissionsForRoles(["writer", "admin"])).toEqual(["admin.access", "writer.profile.manage"]);
   });
   it("bounds list input and rejects duplicate/unknown parameters", () => {
     expect(parseCategoryQuery(new URLSearchParams("query=%25&page=2"))).toEqual({ query: "%", page: 2 });

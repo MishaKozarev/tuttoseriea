@@ -1,0 +1,10 @@
+import { rejectMediaMethod, uploadOwnAvatar } from "@/src/media/api";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const POST = uploadOwnAvatar;
+export const GET = rejectMediaMethod;
+export const PUT = rejectMediaMethod;
+export const PATCH = rejectMediaMethod;
+export const DELETE = rejectMediaMethod;
+export const HEAD = rejectMediaMethod;
+export const OPTIONS = rejectMediaMethod;

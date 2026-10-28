@@ -74,6 +74,14 @@ preserve the captured project names, ports, services and project-scoped volume.
 Real env files remain outside Git. Normal application deployment reads the live
 Compose file; it does not generate or replace it.
 
+Articles part 1 adds exactly one isolated Web Media bind in each template:
+`/srv/tuttoseriea/<environment>/media` to `/var/lib/tuttoseriea/media`, with
+`create_host_path: false`. Provisioning the source directory, environment marker,
+actual image UID/GID permissions and runtime Media settings remains a separate
+Infrastructure Lead operation. No Media mount is added to AI/Postgres; normal
+deploy does not provision it. See local `docs/operations/media-storage.md` for the
+HTTP/cache/backup handoff. The Production template is preparation, not live change.
+
 ## Storage operations status
 
 MASTER-confirmed live state for this closeout, not independently re-inspected

@@ -13,6 +13,12 @@ services:
       - "127.0.0.1:8898:3000"
     env_file:
       - ./runtime.env
+    volumes:
+      - type: bind
+        source: /srv/tuttoseriea/staging/media
+        target: /var/lib/tuttoseriea/media
+        bind:
+          create_host_path: false
     depends_on:
       ai-service:
         condition: service_healthy

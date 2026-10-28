@@ -10,17 +10,20 @@ import {
   PERMISSION_IDS,
   getPermissionsForRoles,
   hasPermissionForRoles,
+  hasIdentityPermission,
 } from "@/src/identity/rbac";
 
 describe("Identity RBAC foundation", () => {
   it("maps every approved staff role to admin.access", () => {
-    expect(getPermissionsForRoles(["writer"])).toEqual([PERMISSION_IDS.adminAccess]);
+    expect(getPermissionsForRoles(["writer"])).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage]);
     expect(getPermissionsForRoles(["admin"])).toEqual([PERMISSION_IDS.adminAccess]);
     expect(getPermissionsForRoles(["super_admin"])).toEqual([
       PERMISSION_IDS.adminAccess,
       PERMISSION_IDS.footballAdmin,
       PERMISSION_IDS.articleCategoriesManage,
       PERMISSION_IDS.newsCategoriesManage,
+      PERMISSION_IDS.writerAccountsManage,
+      PERMISSION_IDS.writerPublicationManage,
     ]);
   });
 
@@ -33,13 +36,23 @@ describe("Identity RBAC foundation", () => {
     ).toBe(false);
     expect(
       getPermissionsForRoles(["writer", "admin", "super_admin"]),
-    ).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage]);
+    ).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage]);
   });
 
   it("deduplicates effective permissions across multiple roles", () => {
     expect(getPermissionsForRoles(["writer", "admin"])).toEqual([
       PERMISSION_IDS.adminAccess,
+      PERMISSION_IDS.writerProfileManage,
     ]);
+  });
+
+  it("resolves individual own-publication grants without granting through Writer role", () => {
+    expect(hasPermissionForRoles(["writer"], PERMISSION_IDS.articlePublishOwn)).toBe(false);
+    expect(hasIdentityPermission({ roles: ["writer"] }, PERMISSION_IDS.articlePublishOwn)).toBe(false);
+    expect(hasIdentityPermission({ roles: ["writer"], permissions: [PERMISSION_IDS.articlePublishOwn] }, PERMISSION_IDS.articlePublishOwn)).toBe(true);
+    expect(hasIdentityPermission({ roles: ["writer"], permissions: [PERMISSION_IDS.articlePublishOwn], status: "disabled" }, PERMISSION_IDS.articlePublishOwn)).toBe(false);
+    expect(hasIdentityPermission({ roles: [], permissions: [PERMISSION_IDS.articlePublishOwn] }, PERMISSION_IDS.articlePublishOwn)).toBe(false);
+    expect(hasIdentityPermission({ roles: ["writer"], permissions: [PERMISSION_IDS.writerAccountsManage] }, PERMISSION_IDS.writerAccountsManage)).toBe(false);
   });
 
   it("keeps ordinary accounts without roles out of admin.access", () => {

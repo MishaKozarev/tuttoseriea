@@ -53,7 +53,7 @@ assert.equal(config.services.postgres.image, "pgvector/pgvector:0.8.6-pg18");
 for (const [name, service] of Object.entries(config.services)) {
   assert.equal(service.restart, "unless-stopped");
   const allowed = {
-    web: ["image", "restart", "logging", "ports", "env_file", "depends_on", "networks"],
+    web: ["image", "restart", "logging", "ports", "env_file", "volumes", "depends_on", "networks"],
     "ai-service": ["image", "restart", "logging", "env_file", "networks"],
     postgres: ["image", "restart", "logging", "env_file", "volumes", "healthcheck", "networks"],
   }[name];
@@ -82,6 +82,30 @@ assert.equal(port[0].target, 3000);
 assert.equal(String(port[0].published), environment === "staging" ? "8898" : "8899");
 assert.equal(config.services.web.depends_on["ai-service"].condition, "service_healthy");
 assert.deepEqual(Object.keys(config.services.web.depends_on), ["ai-service"]);
+function assertMediaMount(service, environment) {
+  assert.equal(service.volumes?.length, 1, "Web needs exactly one isolated Media mount");
+  const mount = service.volumes[0];
+  assert.equal(mount.type, "bind");
+  assert.equal(mount.source, "/srv/tuttoseriea/" + environment + "/media");
+  assert.equal(mount.target, "/var/lib/tuttoseriea/media");
+  assert.equal(mount.read_only ?? false, false);
+  assert.deepEqual(mount.bind, { create_host_path: false });
+  assert.ok(Object.keys(mount).every(key => ["type", "source", "target", "read_only", "bind"].includes(key)));
+}
+assertMediaMount(config.services.web, environment);
+assert.equal(config.services["ai-service"].volumes, undefined);
+const validMount = config.services.web.volumes[0];
+for (const invalid of [
+  [], [validMount, validMount],
+  [{ ...validMount, type: "volume" }],
+  [{ ...validMount, source: "/srv/tuttoseriea/" + (environment === "staging" ? "production" : "staging") + "/media" }],
+  [{ ...validMount, target: "/app/public" }],
+  [{ ...validMount, bind: { create_host_path: true } }],
+  [{ ...validMount, bind: {} }],
+  [{ ...validMount, read_only: true }],
+]) {
+  assert.throws(() => assertMediaMount({ volumes: invalid }, environment), { name: "AssertionError" });
+}
 const volume = config.services.postgres.volumes;
 assert.equal(volume.length, 1);
 assert.equal(volume[0].type, "volume");

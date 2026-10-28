@@ -38,6 +38,9 @@ const authTablePrivileges = [
   { tableName: "security_audit", privileges: ["INSERT"] },
 ];
 const identityTablePrivileges = [
+  { tableName: "writer_profiles", privileges: ["SELECT"] },
+  { tableName: "account_permission_assignments", privileges: ["SELECT"] },
+  { tableName: "writer_operation_receipts", privileges: [] },
   {
     tableName: "accounts",
     privileges: ["SELECT"],
@@ -552,7 +555,7 @@ async function syncIdentitySchemaPrivileges(client, migrationRole, appRole, sche
   );
 
   for (const { tableName, privileges } of identityTablePrivileges) {
-    await client.query(
+    if (privileges.length) await client.query(
       `grant ${privileges.join(", ")} on table ${qualifiedName(schema, tableName)} to ${quoteIdentifier(appRole)}`,
     );
   }
@@ -566,6 +569,22 @@ async function syncIdentitySchemaPrivileges(client, migrationRole, appRole, sche
   }
 
   await verifyNoUnexpectedIdentityTablePrivileges(client, appRole, schema);
+
+  // Only this explicit capability may elevate table privileges. No generic SQL,
+  // role administration, owner credentials or default routine grants enter Web.
+  const signature = `${qualifiedName(schema, "writer_command")}(text,text,text,jsonb,text,text)`;
+  await client.query(`revoke execute on all functions in schema ${quoteIdentifier(schema)} from ${quoteIdentifier(appRole)}`);
+  await client.query(`revoke all on function ${signature} from public`);
+  await client.query(`grant execute on function ${signature} to ${quoteIdentifier(appRole)}`);
+  const routines = await client.query(`select p.proname,p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) as owner,
+    pg_get_function_identity_arguments(p.oid) as arguments,
+    exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE') as public_execute
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname=$1 and has_function_privilege($2,p.oid,'EXECUTE')`, [schema, appRole]);
+  const capability = routines.rows[0];
+  if (routines.rows.length !== 1 || capability.proname !== "writer_command" || !capability.prosecdef || capability.public_execute || capability.owner === appRole ||
+      !capability.proconfig?.includes("search_path=pg_catalog, pg_temp") || capability.arguments !== "p_session_token text, p_action text, p_target_account_id text, p_payload jsonb, p_operation_id text, p_fingerprint text") {
+    throw new Error("Unexpected Identity function privileges or unsafe definition");
+  }
 }
 
 async function syncJobsSchemaPrivileges(client, migrationRole, appRole, schema) {
@@ -758,6 +777,7 @@ async function main() {
       ["taxonomy", "football_tags", ["SELECT", "INSERT"]],
       ["article", "categories", tableDmlPrivileges],
       ["news", "categories", tableDmlPrivileges],
+      ["media", "assets", ["SELECT", "INSERT"]],
     ]) {
       await assertSchemaExists(client, schema);
       await assertTableExists(client, schema, table);

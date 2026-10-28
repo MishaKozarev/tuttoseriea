@@ -28,40 +28,47 @@ export function spawnNodeScript(scriptPath, args, options = {}) {
 }
 
 function waitForExit(child, timeoutMs) {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve();
+  if (childAlreadyExited(child)) {
+    return Promise.resolve(true);
   }
 
   return new Promise((resolveWait) => {
-    const timeout = setTimeout(resolveWait, timeoutMs);
-
-    child.once("exit", () => {
+    const settle = (exited) => {
       clearTimeout(timeout);
-      resolveWait();
-    });
+      child.off("exit", onExit);
+      resolveWait(exited);
+    };
+    const onExit = () => settle(true);
+    const timeout = setTimeout(() => settle(false), timeoutMs);
+    child.once("exit", onExit);
+    // An exit between the initial check and listener registration must not
+    // turn a completed child into an unnecessary timeout.
+    if (childAlreadyExited(child)) settle(true);
   });
 }
 
 export async function stopProcessTree(child) {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return;
+  if (!childAlreadyExited(child)) {
+    if (process.platform === "win32" && child.pid) {
+      // Restricted Windows shells may deny taskkill. An attempted command is
+      // not evidence that our child actually stopped.
+      spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+        stdio: "ignore",
+        timeout: 5_000,
+      });
+    } else {
+      child.kill("SIGTERM");
+    }
+    if (!await waitForExit(child, 5_000)) {
+      // Kill only the exact ChildProcess started by this run, never an
+      // independently discovered PID or a server found on the target port.
+      child.kill("SIGKILL");
+      if (!await waitForExit(child, 5_000)) throw new Error("Owned smoke process did not exit during cleanup");
+    }
   }
-
-  if (process.platform === "win32" && child.pid) {
-    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-      stdio: "ignore",
-    });
-    await waitForExit(child, 5_000);
-    return;
-  }
-
-  child.kill("SIGTERM");
-  await waitForExit(child, 5_000);
-
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await waitForExit(child, 5_000);
-  }
+  // An inherited output pipe can otherwise keep the parent harness alive
+  // after the owned child exits. Consumers no longer read it after cleanup.
+  child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy();
 }
 
 function webProcessExitError(child, code, signal) {

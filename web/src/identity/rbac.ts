@@ -7,14 +7,18 @@ export const PERMISSION_IDS = {
   footballAdmin: "football.admin",
   articleCategoriesManage: "article.categories.manage",
   newsCategoriesManage: "news.categories.manage",
+  writerAccountsManage: "writer.accounts.manage",
+  writerPublicationManage: "writer.publication.manage",
+  writerProfileManage: "writer.profile.manage",
+  articlePublishOwn: "article.publish.own",
 } as const;
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
 
 const rolePermissions: Record<StaffRoleId, readonly PermissionId[]> = {
   admin: [PERMISSION_IDS.adminAccess],
-  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage],
-  writer: [PERMISSION_IDS.adminAccess],
+  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage],
+  writer: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage],
 };
 
 const staffRoleSet = new Set<string>(STAFF_ROLE_IDS);
@@ -40,4 +44,10 @@ export function hasPermissionForRoles(
   permissionId: PermissionId,
 ): boolean {
   return getPermissionsForRoles(roleIds).includes(permissionId);
+}
+
+export function hasIdentityPermission(identity: { roles: readonly StaffRoleId[]; permissions?: readonly PermissionId[]; status?: string }, permission: PermissionId): boolean {
+  if (identity.status === "disabled") return false;
+  if (hasPermissionForRoles(identity.roles, permission)) return true;
+  return permission === PERMISSION_IDS.articlePublishOwn && identity.roles.includes("writer") && !!identity.permissions?.includes(permission);
 }

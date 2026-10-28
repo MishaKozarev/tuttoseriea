@@ -13,7 +13,7 @@ import {
   isStaffRoleId,
   type PermissionId,
   type StaffRoleId,
-  hasPermissionForRoles,
+  hasIdentityPermission,
 } from "@/src/identity/rbac";
 
 export type IdentityAccess = {
@@ -21,6 +21,8 @@ export type IdentityAccess = {
   authUserId: string;
   email: string | null;
   roles: StaffRoleId[];
+  status?: string;
+  permissions?: PermissionId[];
 };
 
 type IdentityAccessRow = {
@@ -28,6 +30,7 @@ type IdentityAccessRow = {
   authUserId: string;
   email: string | null;
   roleId: string | null;
+  status: string;
 };
 
 function identityAccessFromRows(rows: IdentityAccessRow[]): IdentityAccess | null {
@@ -41,6 +44,7 @@ function identityAccessFromRows(rows: IdentityAccessRow[]): IdentityAccess | nul
     accountId: firstRow.accountId,
     authUserId: firstRow.authUserId,
     email: firstRow.email,
+    status: firstRow.status,
     roles: [
       ...new Set(
         rows
@@ -60,13 +64,19 @@ export async function getIdentityAccessByAuthUserId(
       authUserId: identityAccounts.authUserId,
       email: users.email,
       roleId: identityAccountRoles.roleId,
+      status: identityAccounts.status,
     })
     .from(identityAccounts)
     .innerJoin(users, eq(users.id, identityAccounts.authUserId))
     .leftJoin(identityAccountRoles, eq(identityAccountRoles.accountId, identityAccounts.id))
     .where(eq(identityAccounts.authUserId, authUserId));
 
-  return identityAccessFromRows(rows);
+  const identity = identityAccessFromRows(rows);
+  if (identity) {
+    const result = await getDb().execute(sql`select permission_id from identity.account_permission_assignments where account_id=${identity.accountId} and granted=true`);
+    identity.permissions = identity.roles.includes("writer") && result.rows.some(row => row.permission_id === "article.publish.own") ? ["article.publish.own"] : [];
+  }
+  return identity;
 }
 
 export async function getIdentityAccessByEmail(
@@ -84,13 +94,15 @@ export async function getIdentityAccessByEmail(
       authUserId: identityAccounts.authUserId,
       email: users.email,
       roleId: identityAccountRoles.roleId,
+      status: identityAccounts.status,
     })
     .from(users)
     .innerJoin(identityAccounts, eq(identityAccounts.authUserId, users.id))
     .leftJoin(identityAccountRoles, eq(identityAccountRoles.accountId, identityAccounts.id))
     .where(sql`lower(${users.email}) = ${normalizedEmail}`);
 
-  return identityAccessFromRows(rows);
+  const identity = identityAccessFromRows(rows);
+  return identity ? getIdentityAccessByAuthUserId(identity.authUserId) : null;
 }
 
 export async function emailHasPermission(
@@ -100,6 +112,6 @@ export async function emailHasPermission(
   const identityAccess = await getIdentityAccessByEmail(email);
 
   return identityAccess
-    ? hasPermissionForRoles(identityAccess.roles, permissionId)
+    ? hasIdentityPermission(identityAccess, permissionId)
     : false;
 }

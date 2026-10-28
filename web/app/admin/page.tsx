@@ -1,4 +1,5 @@
 import { forbidden, redirect } from "next/navigation";
+import Link from "next/link";
 
 import { AdminShell } from "@/components/layout/admin-shell";
 import { Container } from "@/components/layout/container";
@@ -26,15 +27,15 @@ export default async function AdminPage() {
           <div className="space-y-3">
             <StaffSessionControls superAdmin={current.identityAccess?.roles.includes("super_admin")} />
             {current.identityAccess?.roles.includes("super_admin") && <CatalogNavigation />}
+            {current.identityAccess?.roles.includes("writer") && <Link href="/admin/profile" className="block underline">Кабинет автора</Link>}
             <p className="text-sm font-medium text-muted-foreground">
-              Stage 3.4
+              Личный кабинет
             </p>
             <h1 className="text-2xl font-semibold text-foreground">
-              Admin foundation
+              Администрирование
             </h1>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              Минимальная защищённая оболочка для будущих редакционных и
-              административных разделов.
+              Доступные разделы зависят от назначенных вам прав.
             </p>
           </div>
         </Container>
