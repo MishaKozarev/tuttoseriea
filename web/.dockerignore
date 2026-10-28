@@ -9,6 +9,9 @@ node_modules/
 out/
 build/
 coverage/
+test-results/
+playwright-report/
+.media-fixtures/
 *.tsbuildinfo
 
 # Environment and secrets

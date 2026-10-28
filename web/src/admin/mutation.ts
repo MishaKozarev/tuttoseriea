@@ -3,13 +3,17 @@ import { ApplicationError } from "../api/errors";
 function reject(code: string, status: number, message: string): never {
   throw new ApplicationError({ code, status, message });
 }
-// Shared CSRF/body boundary. Callers must independently authorize every operation first.
-export async function readAdminMutationJson(request: Request): Promise<unknown> {
+// Callers must independently authorize every operation before this CSRF check.
+export function assertAdminMutationOrigin(request: Request): void {
   const trusted = process.env.AUTH_URL;
   if (!trusted && process.env.NODE_ENV === "production") reject("INTERNAL_SERVER_ERROR", 500, "Admin origin is not configured");
   if (request.headers.get("origin") !== new URL(trusted ?? request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") {
     reject("FORBIDDEN", 403, "Same-origin Admin request required");
   }
+}
+// Shared bounded JSON body boundary. Binary uploads use their own streamed limit.
+export async function readAdminMutationJson(request: Request): Promise<unknown> {
+  assertAdminMutationOrigin(request);
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get("content-type") ?? "")) reject("BAD_REQUEST", 415, "JSON request required");
   const reader = request.body?.getReader();
   if (!reader) reject("BAD_REQUEST", 400, "JSON body required");

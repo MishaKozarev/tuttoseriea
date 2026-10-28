@@ -203,6 +203,13 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:jobs:check
 
+      - name: Check Writer capabilities and profile concurrency
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:writers:check
+
       - name: Check Football Admin job and dispatcher coordination
         working-directory: web
         env:
@@ -326,6 +333,13 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:football-admin-ui:check
 
+      - name: Check Writer and profile browser flows
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:articles-authors-ui:check
+
       - name: Prepare web image metadata
         shell: bash
         run: |
@@ -340,6 +354,13 @@ jobs:
             --file web/Dockerfile \
             --tag "${WEB_IMAGE}:${WEB_IMAGE_TAG}" \
             web
+
+      - name: Check Media persistence in the production Web image
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: MEDIA_TEST_IMAGE="${WEB_IMAGE}:${WEB_IMAGE_TAG}" pnpm run test:media-container
 
       - name: Check web container job runner runtime
         run: docker run --rm --entrypoint node "${WEB_IMAGE}:${WEB_IMAGE_TAG}" /app/job-runner/cli.js --check-runtime

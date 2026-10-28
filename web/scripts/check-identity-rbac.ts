@@ -10,6 +10,7 @@ import {
   PERMISSION_IDS,
   STAFF_ROLE_IDS,
   hasPermissionForRoles,
+  hasIdentityPermission,
   type StaffRoleId,
 } from "@/src/identity/rbac";
 
@@ -210,7 +211,7 @@ async function main(): Promise<void> {
       }
     }
 
-    for (const permission of [PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage]) {
+    for (const permission of [PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage]) {
       if (!hasPermissionForRoles(superAdminAccess.roles, permission) || !await emailHasPermission(superAdmin.email, permission)) {
         throw new Error("Super Admin category permission missing");
       }
@@ -218,6 +219,14 @@ async function main(): Promise<void> {
         if (!access || hasPermissionForRoles(access.roles, permission)) throw new Error("Category management granted outside Super Admin");
       }
     }
+
+    if (!writerAccess || hasIdentityPermission(writerAccess, PERMISSION_IDS.articlePublishOwn)) throw new Error("Writer unexpectedly has own publication by default");
+    await client.query(`insert into identity.account_permission_assignments(account_id,permission_id,granted,changed_by_account_id) values($1,'article.publish.own',true,$2)`, [writer.accountId, superAdmin.accountId]);
+    const grantedWriter = await getIdentityAccessByAuthUserId(writer.authUserId);
+    if (!grantedWriter || !hasIdentityPermission(grantedWriter, PERMISSION_IDS.articlePublishOwn)) throw new Error("Account publication grant did not resolve");
+    await client.query(`update identity.account_permission_assignments set granted=false,revision=revision+1 where account_id=$1`, [writer.accountId]);
+    const revokedWriter = await getIdentityAccessByAuthUserId(writer.authUserId);
+    if (!revokedWriter || hasIdentityPermission(revokedWriter, PERMISSION_IDS.articlePublishOwn)) throw new Error("Revoked publication grant is still effective");
 
     await expectPostgresErrorCode(
       () =>
@@ -248,6 +257,7 @@ async function main(): Promise<void> {
     await assertRuntimeCannotWriteIdentity(ordinary.accountId, ordinary.authUserId);
   } finally {
     if (authUserIds.length > 0) {
+      await client.query("delete from identity.account_permission_assignments where changed_by_account_id in (select id from identity.accounts where auth_user_id=any($1::text[]))", [authUserIds]);
       await client.query("delete from auth.users where id = any($1::text[])", [authUserIds]);
     }
 

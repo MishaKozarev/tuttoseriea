@@ -5,6 +5,7 @@ import { getDbPool } from "@/src/db";
 import { currentSerieAClubSlugExists } from "@/src/football/club-page-repository";
 import { currentSerieAMatchSlugExists } from "@/src/football/match-page-repository";
 import { currentSerieAPlayerSlugExists } from "@/src/football/player-page-repository";
+import { isMediaOptimizerTarget } from "@/src/media/optimizer";
 
 const CLUB_PATH_PREFIX = "/clubs/";
 const MATCH_PATH_PREFIX = "/matches/";
@@ -12,6 +13,14 @@ const PLAYER_PATH_PREFIX = "/players/";
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const pathname = request.nextUrl.pathname;
+  if (pathname.startsWith("/_next/image")) {
+    // Run before the independent optimizer cache; other image sources keep
+    // their existing Next behavior, including its validation and caching.
+    if (isMediaOptimizerTarget(request.url, process.env.AUTH_URL)) return new NextResponse(null, { status: 404, headers: {
+      "Cache-Control": "private, no-store, max-age=0, must-revalidate", "Cloudflare-CDN-Cache-Control": "no-store",
+    } });
+    return NextResponse.next();
+  }
   const pool = getDbPool();
   let exists: boolean;
 
@@ -36,5 +45,5 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/clubs/:slug", "/players/:slug", "/matches/:slug"],
+  matcher: ["/clubs/:slug", "/players/:slug", "/matches/:slug", "/_next/image(.*)"],
 };

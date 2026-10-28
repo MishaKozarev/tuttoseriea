@@ -104,7 +104,7 @@ describe("Football detail Page proxy", () => {
 
   it("matches exactly one Club, Player or Match slug segment", () => {
     expect(config).toEqual({
-      matcher: ["/clubs/:slug", "/players/:slug", "/matches/:slug"],
+      matcher: ["/clubs/:slug", "/players/:slug", "/matches/:slug", "/_next/image(.*)"],
     });
     expect(
       unstable_doesMiddlewareMatch({

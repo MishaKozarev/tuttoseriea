@@ -247,7 +247,7 @@ describe("existing Admin route regression", () => {
 
       render(await AdminPage());
 
-      expect(screen.getByRole("heading", { name: "Admin foundation" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Администрирование" })).toBeTruthy();
       expect(mocks.redirect).not.toHaveBeenCalled();
       expect(mocks.forbidden).not.toHaveBeenCalled();
     },

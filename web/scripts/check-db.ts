@@ -233,9 +233,21 @@ async function assertIdentityReadOnlyAccess(db: ReturnType<typeof getDb>): Promi
   await assertNoSequencePrivileges(db, "identity");
   await assertNoDefaultPrivileges(db, "identity");
 
-  for (const tableName of ["accounts", "roles", "account_roles"]) {
+  for (const tableName of ["accounts", "roles", "account_roles", "writer_profiles", "account_permission_assignments"]) {
     await assertExactTablePrivileges(db, "identity", tableName, ["SELECT"]);
   }
+  await assertExactTablePrivileges(db, "identity", "writer_operation_receipts", []);
+  const capability = await db.execute(sql`select p.proname,p.prosecdef,p.proconfig,
+    pg_get_userbyid(p.proowner)=current_user as runtime_owner,
+    exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE') as public_execute
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='identity' and has_function_privilege(current_user,p.oid,'EXECUTE')`);
+  const routine = capability.rows[0];
+  if (capability.rows.length !== 1 || routine.proname !== "writer_command" || routine.prosecdef !== true || routine.runtime_owner !== false || routine.public_execute !== false ||
+    !Array.isArray(routine.proconfig) || !routine.proconfig.includes("search_path=pg_catalog, pg_temp")) throw new Error("Unsafe Identity capability grants");
+  await assertSchemaAccess(db, "media");
+  await assertNoSequencePrivileges(db, "media");
+  await assertNoDefaultPrivileges(db, "media");
+  await assertExactTablePrivileges(db, "media", "assets", ["SELECT", "INSERT"]);
 }
 
 async function assertNoUnexpectedJobsTablePrivileges(

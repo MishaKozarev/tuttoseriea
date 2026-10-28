@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { waitForNextReady } from "../../scripts/run-playwright-smoke.mjs";
+import { stopProcessTree, waitForNextReady } from "../../scripts/run-playwright-smoke.mjs";
 
 const hostname = "127.0.0.1";
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -84,6 +84,45 @@ afterEach(async () => {
 });
 
 describe("Playwright smoke runner lifecycle", () => {
+  it("confirms the owned server has exited and releases captured streams", async () => {
+    const child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{});require('node:http').createServer((req,res)=>res.end('fixture')).listen(0,'127.0.0.1',()=>console.log('Ready in fixture'))"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    try {
+      await waitForNextReady({ child, timeoutMs: 5_000 });
+      await stopProcessTree(child);
+      expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+      expect(child.stdout.destroyed).toBe(true); expect(child.stderr.destroyed).toBe(true);
+      // Already-exited cleanup is repeatable and must not signal another PID.
+      await stopProcessTree(child);
+    } finally { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
+  }, 20_000);
+
+  it("lets the parent exit naturally when Windows taskkill is unavailable", async () => {
+    const helper = pathToFileURL(resolve(webRoot, "scripts/run-playwright-smoke.mjs")).href;
+    const program = `
+      import { spawn } from 'node:child_process';
+      import { stopProcessTree, waitForNextReady } from ${JSON.stringify(helper)};
+      const child=spawn(process.execPath,['-e',"require('node:http').createServer((req,res)=>res.end('fixture')).listen(0,'127.0.0.1',()=>console.log('Ready in fixture'))"],{stdio:['ignore','pipe','pipe']});
+      try {
+        await waitForNextReady({child,timeoutMs:5000});
+        await stopProcessTree(child);
+        if(child.exitCode===null&&child.signalCode===null) throw Error('Owned server is still running');
+        console.log('fixture_cleanup_confirmed');
+      } finally { if(child.exitCode===null&&child.signalCode===null) child.kill('SIGKILL'); }
+    `;
+    const wrapper = spawn(process.execPath, ["--input-type=module", "-e", program], {
+      env: { ...process.env, PATH: "" }, stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = ""; wrapper.stdout.on("data", chunk => { output += String(chunk); }); wrapper.stderr.on("data", chunk => { output += String(chunk); });
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; wrapper.kill("SIGKILL"); }, 15_000);
+    try {
+      const code = await new Promise<number | null>(resolveExit => wrapper.once("exit", resolveExit));
+      expect(timedOut).toBe(false); expect(code).toBe(0); expect(output).toContain("fixture_cleanup_confirmed");
+    } finally { clearTimeout(timeout); await stopProcessTree(wrapper); }
+  }, 20_000);
+
   it(
     "fails the real smoke CLI when a stale server already occupies the target port",
     async () => {

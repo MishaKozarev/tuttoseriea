@@ -12,7 +12,7 @@ export default function Forbidden() {
               Доступ запрещён
             </h1>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              У текущего аккаунта нет permission `admin.access`.
+              У текущего аккаунта недостаточно прав для этого раздела.
             </p>
           </div>
         </Container>

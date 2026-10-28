@@ -2,6 +2,20 @@ import { expect, test } from "@playwright/test";
 
 const siteOrigin = process.env.WEB_SMOKE_SITE_ORIGIN ?? "http://localhost:3000";
 
+test("Media cannot enter the independent Next image cache", async ({ request }) => {
+  for (const target of ["/media/public/00000000-0000-0000-0000-000000000001.webp", "/media/private/00000000-0000-0000-0000-000000000001.webp", "/%6dedia/public/00000000-0000-0000-0000-000000000001.webp", "/foo/../media/public/00000000-0000-0000-0000-000000000001.webp"]) {
+    for (const headers of [{}, { "x-middleware-subrequest": "proxy:proxy:proxy:proxy:proxy", "x-nextjs-data": "1" }] as Record<string, string>[]) {
+      const response = await request.get(`/_next/image?${new URLSearchParams({ url: target, w: "64", q: "75" })}`, { headers });
+      expect(response.status()).toBe(404); expect(response.headers()["cache-control"]).toContain("no-store");
+      expect(response.headers()["cloudflare-cdn-cache-control"]).toBe("no-store");
+    }
+  }
+  // The pre-existing optimizer still evaluates unrelated sources. SVG remains
+  // rejected by Next's default image policy, rather than our Media 404 guard.
+  const other = await request.get("/_next/image?url=%2Ffile.svg&w=64&q=75");
+  expect(other.status()).toBe(400);
+});
+
 test("web public shell smoke", async ({ page, request }) => {
   await page.goto("/");
 
