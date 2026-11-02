@@ -4,10 +4,12 @@ import sharp from "sharp";
 import { mediaError } from "./errors";
 
 export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+export const ARTICLE_IMAGE_MAX_BYTES = AVATAR_MAX_BYTES;
 export const AVATAR_MAX_PIXELS = 16_000_000;
 export type NormalizedAvatar = { bytes: Buffer; mimeType: "image/webp"; byteSize: number; width: number; height: number; sha256: string };
+export type MediaKind = "avatar" | "article_image";
 
-function invalid(): never { throw mediaError("MEDIA_INVALID_IMAGE", 400, "Use a static JPEG, PNG or WebP image within the avatar limits"); }
+function invalid(): never { throw mediaError("MEDIA_INVALID_IMAGE", 400, "Use a static JPEG, PNG or WebP image within the image limits"); }
 
 function imageFormat(bytes: Buffer): "jpeg" | "png" | "webp" {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
@@ -40,8 +42,8 @@ function rejectAnimation(bytes: Buffer, format: string): void {
 }
 
 let runningDecodes = 0;
-export async function normalizeAvatar(bytes: Buffer, declaredMime: string): Promise<NormalizedAvatar> {
-  if (bytes.length > AVATAR_MAX_BYTES) throw mediaError("MEDIA_TOO_LARGE", 413, "Avatar exceeds 5 MiB");
+async function normalizeStaticImage(bytes: Buffer, declaredMime: string, maxSide: number): Promise<NormalizedAvatar> {
+  if (bytes.length > AVATAR_MAX_BYTES) throw mediaError("MEDIA_TOO_LARGE", 413, "Image exceeds 5 MiB");
   const format = imageFormat(bytes);
   if (declaredMime !== `image/${format}`) invalid();
   rejectAnimation(bytes, format);
@@ -54,7 +56,7 @@ export async function normalizeAvatar(bytes: Buffer, declaredMime: string): Prom
     if (metadata.format !== format || !metadata.width || !metadata.height ||
       metadata.width > 4096 || metadata.height > 4096 || metadata.width * metadata.height > AVATAR_MAX_PIXELS ||
       (metadata.pages ?? 1) > 1) invalid();
-    const { data, info } = await sharp(bytes, options).autoOrient().resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
+    const { data, info } = await sharp(bytes, options).autoOrient().resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true })
       .webp({ quality: 85, effort: 4 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
     if (data.length > AVATAR_MAX_BYTES || !info.width || !info.height) invalid();
     return { bytes: data, mimeType: "image/webp", byteSize: data.length, width: info.width, height: info.height,
@@ -63,4 +65,12 @@ export async function normalizeAvatar(bytes: Buffer, declaredMime: string): Prom
     if (error instanceof Error && "code" in error && typeof error.code === "string" && error.code.startsWith("MEDIA_")) throw error;
     return invalid();
   } finally { runningDecodes--; }
+}
+
+export function normalizeAvatar(bytes: Buffer, declaredMime: string): Promise<NormalizedAvatar> {
+  return normalizeStaticImage(bytes, declaredMime, 512);
+}
+
+export function normalizeArticleImage(bytes: Buffer, declaredMime: string): Promise<NormalizedAvatar> {
+  return normalizeStaticImage(bytes, declaredMime, 2048);
 }

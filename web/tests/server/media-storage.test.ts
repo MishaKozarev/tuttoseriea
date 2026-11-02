@@ -5,7 +5,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 vi.mock("server-only", () => ({}));
 import { getMediaStorageConfig, hasExactMount, validateMediaRoot } from "@/src/media/config";
-import { readAvatarFile, saveAvatarFile } from "@/src/media/storage";
+import { readAvatarFile, readMediaFile, saveArticleImageFile, saveAvatarFile } from "@/src/media/storage";
 
 const id = "bd996433-5bfa-41a7-883f-f55f4d9e9803";
 const bytes = Buffer.from("normalized-image-fixture");
@@ -49,6 +49,15 @@ describe("Persistent immutable Media storage", () => {
     await expect(readAvatarFile(root, { ...asset, sha256: "0".repeat(64) })).rejects.toMatchObject({ code: "MEDIA_STORAGE_UNAVAILABLE" });
     await expect(readAvatarFile(root, { ...asset, storageKey: "../outside.webp" })).rejects.toMatchObject({ code: "MEDIA_STORAGE_UNAVAILABLE" });
     expect(await readdir(root)).toContain(`${id}.webp`);
+  });
+  it("uses the same immutable store for Article images without changing avatar purpose", async () => {
+    const root = await fixtureRoot();
+    const articleImage = await saveArticleImageFile(root, { ...image, width: 2048, height: 1024 }, "uploader", id);
+    expect(articleImage).toMatchObject({ kind: "article_image", storageKey: `${id}.webp`, uploaderAccountId: "uploader", width: 2048 });
+    expect(await readMediaFile(root, articleImage)).toEqual(bytes);
+    await expect(saveAvatarFile(root, image, "uploader", id)).rejects.toMatchObject({ code: "MEDIA_STORAGE_UNAVAILABLE" });
+    expect(await readMediaFile(root, articleImage)).toEqual(bytes);
+    expect((await saveAvatarFile(root, image, "uploader")).kind).toBe("avatar");
   });
   it.skipIf(process.platform === "win32")("rejects symlinks instead of reading outside storage", async () => {
     const root = await fixtureRoot();

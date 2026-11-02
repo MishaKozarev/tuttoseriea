@@ -11,14 +11,16 @@ export const PERMISSION_IDS = {
   writerPublicationManage: "writer.publication.manage",
   writerProfileManage: "writer.profile.manage",
   articlePublishOwn: "article.publish.own",
+  articleDraftsOwn: "article.drafts.own",
+  articleDraftsManage: "article.drafts.manage",
 } as const;
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
 
 const rolePermissions: Record<StaffRoleId, readonly PermissionId[]> = {
   admin: [PERMISSION_IDS.adminAccess],
-  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage],
-  writer: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage],
+  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage, PERMISSION_IDS.articleDraftsOwn, PERMISSION_IDS.articleDraftsManage],
+  writer: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage, PERMISSION_IDS.articleDraftsOwn],
 };
 
 const staffRoleSet = new Set<string>(STAFF_ROLE_IDS);

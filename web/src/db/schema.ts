@@ -4,3 +4,4 @@ export * from "./schema/identity";
 export * from "./schema/media";
 export * from "./schema/jobs";
 export * from "./schema/taxonomy";
+export * from "./schema/articles";

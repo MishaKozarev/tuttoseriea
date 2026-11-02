@@ -13,6 +13,15 @@ const appDirectory = path.resolve(
 const provisionLockKeys = [910230201, 230000004];
 const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const tableDmlPrivileges = ["SELECT", "INSERT", "UPDATE", "DELETE"];
+const articleTablePrivileges = [
+  ["categories", tableDmlPrivileges],
+  ["articles", ["SELECT", "INSERT"]],
+  ["drafts", ["SELECT", "INSERT", "UPDATE"]],
+  ["draft_categories", ["SELECT", "INSERT", "DELETE"]],
+  ["draft_tags", ["SELECT", "INSERT", "DELETE"]],
+  ["draft_images", ["SELECT", "INSERT"]],
+  ["operation_receipts", ["SELECT", "INSERT"]],
+];
 const authTablePrivileges = [
   {
     tableName: "users",
@@ -773,22 +782,24 @@ async function main() {
     await syncIdentitySchemaPrivileges(client, migrationRole, appRole, identitySchemaName);
     await syncJobsSchemaPrivileges(client, migrationRole, appRole, jobsSchemaName);
     await syncFootballSchemaPrivileges(client, migrationRole, appRole, footballSchemaName);
-    for (const [schema, table, privileges] of [
-      ["taxonomy", "football_tags", ["SELECT", "INSERT"]],
-      ["article", "categories", tableDmlPrivileges],
-      ["news", "categories", tableDmlPrivileges],
-      ["media", "assets", ["SELECT", "INSERT"]],
+    for (const [schema, tables] of [
+      ["taxonomy", [["football_tags", ["SELECT", "INSERT"]]]],
+      ["article", articleTablePrivileges],
+      ["news", [["categories", tableDmlPrivileges]]],
+      ["media", [["assets", ["SELECT", "INSERT"]]]],
     ]) {
       await assertSchemaExists(client, schema);
-      await assertTableExists(client, schema, table);
       await syncBaseSchemaPrivileges(client, migrationRole, appRole, schema);
-      await client.query(`grant ${privileges.join(", ")} on table ${qualifiedName(schema, table)} to ${quoteIdentifier(appRole)}`);
-      await verifyExactTablePrivileges(client, appRole, schema, table, privileges);
+      for (const [table, privileges] of tables) {
+        await assertTableExists(client, schema, table);
+        await client.query(`grant ${privileges.join(", ")} on table ${qualifiedName(schema, table)} to ${quoteIdentifier(appRole)}`);
+        await verifyExactTablePrivileges(client, appRole, schema, table, privileges);
+      }
       const unexpected = await client.query(`select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace
-        where n.nspname=$1 and c.relkind in ('r','p','v','m') and c.relname<>$2
+        where n.nspname=$1 and c.relkind in ('r','p','v','m','f') and not (c.relname=any($2::text[]))
         and (has_table_privilege($3,c.oid,'SELECT') or has_table_privilege($3,c.oid,'INSERT')
-          or has_table_privilege($3,c.oid,'UPDATE') or has_table_privilege($3,c.oid,'DELETE'))`, [schema, table, appRole]);
-      if (unexpected.rows.length) throw new Error("Unexpected taxonomy/category grants");
+          or has_table_privilege($3,c.oid,'UPDATE') or has_table_privilege($3,c.oid,'DELETE'))`, [schema, tables.map(([table]) => table), appRole]);
+      if (unexpected.rows.length) throw new Error("Unexpected taxonomy/article/category/media grants");
     }
     await verifyRoleAttributes(client, appRole);
 

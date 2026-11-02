@@ -5,10 +5,11 @@ import { lstat, open } from "node:fs/promises";
 import path from "node:path";
 import { getMediaStorageConfig, validateMediaRoot } from "./config";
 import { mediaError } from "./errors";
-import type { NormalizedAvatar } from "./image";
+import type { MediaKind, NormalizedAvatar } from "./image";
 
 export const MEDIA_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export type StoredMediaAsset = Omit<NormalizedAvatar, "bytes"> & { id: string; storageKey: string; uploaderAccountId: string };
+export type StoredPurposeMediaAsset = StoredMediaAsset & { kind: MediaKind };
 
 function assetPath(root: string, key: string): string {
   if (!MEDIA_ID_PATTERN.test(key.slice(0, -5)) || key !== `${key.slice(0, -5)}.webp`) {
@@ -19,7 +20,7 @@ function assetPath(root: string, key: string): string {
 
 export async function mediaRoot(): Promise<string> { return validateMediaRoot(getMediaStorageConfig()); }
 
-export async function saveAvatarFile(root: string, image: NormalizedAvatar, uploaderAccountId: string, id = randomUUID()): Promise<StoredMediaAsset> {
+async function saveMediaFile(root: string, image: NormalizedAvatar, uploaderAccountId: string, kind: MediaKind, id: string): Promise<StoredPurposeMediaAsset> {
   const storageKey = `${id}.webp`;
   let handle;
   try {
@@ -31,7 +32,7 @@ export async function saveAvatarFile(root: string, image: NormalizedAvatar, uplo
       const directory = await open(root, "r");
       try { await directory.sync(); } finally { await directory.close(); }
     }
-    return { id, storageKey, uploaderAccountId, mimeType: image.mimeType, byteSize: image.byteSize,
+    return { id, storageKey, uploaderAccountId, kind, mimeType: image.mimeType, byteSize: image.byteSize,
       width: image.width, height: image.height, sha256: image.sha256 };
   } catch {
     // Never reuse, overwrite or delete this key, including a partial or otherwise unlinked file.
@@ -39,7 +40,15 @@ export async function saveAvatarFile(root: string, image: NormalizedAvatar, uplo
   } finally { await handle?.close().catch(() => undefined); }
 }
 
-export async function readAvatarFile(root: string, asset: StoredMediaAsset): Promise<Buffer> {
+export function saveAvatarFile(root: string, image: NormalizedAvatar, uploaderAccountId: string, id = randomUUID()): Promise<StoredPurposeMediaAsset> {
+  return saveMediaFile(root, image, uploaderAccountId, "avatar", id);
+}
+
+export function saveArticleImageFile(root: string, image: NormalizedAvatar, uploaderAccountId: string, id = randomUUID()): Promise<StoredPurposeMediaAsset> {
+  return saveMediaFile(root, image, uploaderAccountId, "article_image", id);
+}
+
+export async function readMediaFile(root: string, asset: StoredMediaAsset): Promise<Buffer> {
   let handle;
   try {
     if (asset.storageKey !== `${asset.id}.webp`) throw new Error("Invalid Media identity");
@@ -56,3 +65,6 @@ export async function readAvatarFile(root: string, asset: StoredMediaAsset): Pro
     throw mediaError("MEDIA_STORAGE_UNAVAILABLE", 503, "Media file is unavailable");
   } finally { await handle?.close().catch(() => undefined); }
 }
+
+// Keep the accepted avatar API while both purposes use the same immutable files.
+export const readAvatarFile = readMediaFile;

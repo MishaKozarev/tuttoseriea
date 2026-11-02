@@ -38,6 +38,7 @@
     "db:identity:check": "node --conditions react-server --import tsx scripts/check-identity-rbac.ts",
     "db:writers:check": "node --import tsx scripts/check-writer-capabilities.ts",
     "db:articles-authors-ui:check": "node --import tsx scripts/check-articles-authors-ui.mts",
+    "db:article-drafts-ui:check": "node --import tsx scripts/check-article-drafts-ui.mts",
     "test:media-container": "node --import tsx scripts/check-media-container.mts",
     "identity:provision-staff": "node --import tsx scripts/staff-auth.ts",
     "auth:build": "node scripts/build-auth-tools.mjs",
@@ -60,6 +61,10 @@
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@better-auth/drizzle-adapter": "1.7.10",
+    "@tiptap/core": "3.32.2",
+    "@tiptap/pm": "3.32.2",
+    "@tiptap/react": "3.32.2",
+    "@tiptap/starter-kit": "3.32.2",
     "better-auth": "1.7.10",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
