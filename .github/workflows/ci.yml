@@ -340,6 +340,13 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
         run: pnpm run db:articles-authors-ui:check
 
+      - name: Check Article drafts, editor, ownership and PostgreSQL conflicts
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:article-drafts-ui:check
+
       - name: Prepare web image metadata
         shell: bash
         run: |

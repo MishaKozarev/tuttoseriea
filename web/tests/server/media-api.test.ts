@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ actor: vi.fn(), attach: vi.fn(), root: vi.fn(), save: vi.fn(), read: vi.fn(), find: vi.fn(), normalize: vi.fn(), query: vi.fn() }));
+const mocks = vi.hoisted(() => ({ actor: vi.fn(), articleActor: vi.fn(), articleFind: vi.fn(), attach: vi.fn(), root: vi.fn(), save: vi.fn(), read: vi.fn(), find: vi.fn(), normalize: vi.fn(), query: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/src/identity/writer-service", () => ({ requireOwnWriterAccess: mocks.actor, attachOwnAvatar: mocks.attach }));
+vi.mock("@/src/articles/access", () => ({ requireArticleActor: mocks.articleActor }));
 vi.mock("@/src/media/storage", async importOriginal => ({ ...await importOriginal<typeof import("@/src/media/storage")>(), mediaRoot: mocks.root, saveAvatarFile: mocks.save, readAvatarFile: mocks.read }));
 vi.mock("@/src/media/image", async importOriginal => ({ ...await importOriginal<typeof import("@/src/media/image")>(), normalizeAvatar: mocks.normalize }));
-vi.mock("@/src/media/repository", () => ({ findLinkedAvatar: mocks.find }));
+vi.mock("@/src/media/repository", () => ({ findLinkedAvatar: mocks.find, findArticleDraftImage: mocks.articleFind }));
 vi.mock("@/src/db", () => ({ getDbPool: () => ({ query: mocks.query }) }));
 vi.mock("@/src/auth/config", () => ({ getAuthConfig: () => ({ secret: "synthetic-media-test-secret-not-used-for-requests" }) }));
 import { ApplicationError } from "@/src/api/errors";
@@ -27,6 +28,8 @@ beforeEach(() => {
   mocks.root.mockResolvedValue("validated-root"); mocks.normalize.mockResolvedValue({ bytes: Buffer.from([1,2,3]) }); mocks.save.mockResolvedValue(asset);
   mocks.attach.mockResolvedValue({ accountId: "writer", avatarMediaId: id, revision: 2 });
   mocks.find.mockResolvedValue(asset); mocks.read.mockResolvedValue(Buffer.from([1,2,3]));
+  mocks.articleActor.mockResolvedValue({ accountId: "writer", authUserId: "auth", sessionToken: "trusted", manageAll: false });
+  mocks.articleFind.mockResolvedValue(null);
 });
 
 describe("Avatar upload boundary", () => {
@@ -78,6 +81,30 @@ describe("Avatar delivery authorization and cache", () => {
     const response = await privateGet(new Request(`${origin}/media/private/${id}.webp`), context);
     expect(response.status).toBe(200); expect(mocks.actor).toHaveBeenCalled(); expect(mocks.find).toHaveBeenCalledWith(id, "writer");
     expect(response.headers.get("cache-control")).toBe(PRIVATE_MEDIA_CACHE); expect(response.headers.get("cloudflare-cdn-cache-control")).toBe("no-store");
+  });
+  it("uses current Article ACL for draft images but never consults draft links for public delivery", async () => {
+    mocks.find.mockResolvedValue(null); mocks.articleFind.mockResolvedValue(asset);
+    const privateResponse = await privateGet(new Request(`${origin}/media/private/${id}.webp`), context);
+    expect(privateResponse.status).toBe(200); expect(privateResponse.headers.get("cache-control")).toBe(PRIVATE_MEDIA_CACHE);
+    expect(mocks.articleFind).toHaveBeenCalledWith(id, expect.objectContaining({ accountId: "writer", manageAll: false }));
+    mocks.articleFind.mockClear(); mocks.articleActor.mockClear(); mocks.read.mockClear();
+    const publicResponse = await publicGet(new Request(`${origin}/media/public/${id}.webp`), context);
+    expect(publicResponse.status).toBe(404); expect(publicResponse.headers.get("cloudflare-cdn-cache-control")).toBe("no-store");
+    expect(mocks.articleFind).not.toHaveBeenCalled(); expect(mocks.articleActor).not.toHaveBeenCalled(); expect(mocks.read).not.toHaveBeenCalled();
+  });
+  it("permits a full-MFA Article manager preview without granting access to a Writer avatar", async () => {
+    mocks.actor.mockRejectedValue(new ApplicationError({ code: "FORBIDDEN", status: 403, message: "Writer required" }));
+    mocks.articleActor.mockResolvedValue({ accountId: "sa", authUserId: "auth-sa", sessionToken: "trusted", manageAll: true });
+    mocks.articleFind.mockResolvedValueOnce(asset);
+    const response = await privateGet(new Request(`${origin}/media/private/${id}.webp`), context);
+    expect(response.status).toBe(200); expect(response.headers.get("cloudflare-cdn-cache-control")).toBe("no-store");
+    mocks.articleFind.mockResolvedValue(null);
+    expect((await privateGet(new Request(`${origin}/media/private/${id}.webp`), context)).status).toBe(403);
+  });
+  it("never resolves a private draft image without a full session", async () => {
+    mocks.actor.mockRejectedValue(new ApplicationError({ code: "UNAUTHORIZED", status: 401, message: "Login required" }));
+    expect((await privateGet(new Request(`${origin}/media/private/${id}.webp`), context)).status).toBe(401);
+    expect(mocks.articleActor).not.toHaveBeenCalled(); expect(mocks.articleFind).not.toHaveBeenCalled(); expect(mocks.read).not.toHaveBeenCalled();
   });
   it("HEAD enforces the same link and storage checks without a body", async () => {
     const response = await publicHead(new Request(`${origin}/media/public/${id}.webp`, { method: "HEAD" }), context);

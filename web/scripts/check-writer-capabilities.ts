@@ -34,6 +34,16 @@ async function main() {
       const sql = rewrite(await readFile(new URL(`../drizzle/${file}`, import.meta.url), "utf8"));
       for (const statement of sql.split("--> statement-breakpoint")) if (statement.trim()) await owner.query(statement);
     }
+    // Exercise the real Part 2 kind boundary on these three generated schemas.
+    // Article DDL is deliberately excluded: this fixture does not own canonical
+    // Article/Taxonomy tables and must never apply migrations to those tables.
+    const part2 = (await readFile(new URL("../drizzle/0027_cute_smiling_tiger.sql", import.meta.url), "utf8")).split("--> statement-breakpoint");
+    const mediaAlters = part2.filter(statement => statement.trimStart().startsWith('ALTER TABLE "media"."assets" '));
+    const avatarCapability = part2.filter(statement => statement.includes("CREATE OR REPLACE FUNCTION identity.writer_command("));
+    const avatarRevoke = part2.filter(statement => statement.trimStart().startsWith("REVOKE ALL ON FUNCTION identity.writer_command("));
+    assert.equal(mediaAlters.length, 4, "Review changed Media boundary migration statements");
+    assert.equal(avatarCapability.length, 1); assert.equal(avatarRevoke.length, 1);
+    for (const statement of [...mediaAlters, ...avatarCapability, ...avatarRevoke]) await owner.query(rewrite(statement));
     await owner.query(`grant usage on schema ${identity},${auth},${media} to ${q(runtimeRole)};
       grant select on all tables in schema ${identity} to ${q(runtimeRole)};
       revoke all on ${identity}.writer_operation_receipts from ${q(runtimeRole)};
@@ -136,6 +146,10 @@ async function main() {
     const assetId = randomUUID();
     await runtime.query(`insert into ${media}.assets(id,storage_key,mime_type,byte_size,width,height,sha256,uploader_account_id) values($1,$2,'image/webp',20,10,10,$3,$4)`, [assetId, `${assetId}.webp`, "a".repeat(64), writer.accountId]);
     await expectError(() => command(foreign.token, "avatar", foreign.accountId, { mediaId: assetId, expectedRevision: 0 }), "WRITER_FORBIDDEN");
+    const privateArticleImage = randomUUID();
+    await runtime.query(`insert into ${media}.assets(id,storage_key,mime_type,byte_size,width,height,sha256,uploader_account_id,kind)
+      values($1,$2,'image/webp',20,10,10,$3,$4,'article_image')`, [privateArticleImage, `${privateArticleImage}.webp`, "d".repeat(64), writer.accountId]);
+    await expectError(() => command(writer.token, "avatar", writer.accountId, { mediaId: privateArticleImage, expectedRevision: 2 }), "WRITER_FORBIDDEN");
     const raceAssets = [randomUUID(), randomUUID()];
     async function replaceAvatar(id: string) {
       const client = await runtime.connect();

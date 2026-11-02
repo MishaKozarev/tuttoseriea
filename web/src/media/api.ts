@@ -1,13 +1,14 @@
 import "server-only";
-import { createApiErrorResponse, resolveRequestId, REQUEST_ID_HEADER } from "../api/errors";
+import { ApplicationError, createApiErrorResponse, resolveRequestId, REQUEST_ID_HEADER } from "../api/errors";
 import { AuthSecurityError, AuthSecurityStore } from "../auth/security-store";
 import { getAuthConfig } from "../auth/config";
 import { getDbPool } from "../db";
 import { assertAdminMutationOrigin } from "../admin/mutation";
 import { attachOwnAvatar, requireOwnWriterAccess } from "../identity/writer-service";
+import { requireArticleActor } from "../articles/access";
 import { AVATAR_MAX_BYTES, normalizeAvatar } from "./image";
 import { mediaError, preventMediaCaching, PUBLIC_MEDIA_CACHE } from "./errors";
-import { findLinkedAvatar } from "./repository";
+import { findArticleDraftImage, findLinkedAvatar } from "./repository";
 import { MEDIA_ID_PATTERN, mediaRoot, readAvatarFile, saveAvatarFile } from "./storage";
 
 function assertAvatarMutation(request: Request): { expectedRevision: number; operationId: string; mime: string } {
@@ -24,9 +25,9 @@ function assertAvatarMutation(request: Request): { expectedRevision: number; ope
   return { expectedRevision: Number(revision), operationId, mime };
 }
 
-async function readUpload(request: Request): Promise<Buffer> {
+export async function readMediaUpload(request: Request): Promise<Buffer> {
   const length = request.headers.get("content-length");
-  if (length && (!/^[0-9]+$/.test(length) || Number(length) > AVATAR_MAX_BYTES)) throw mediaError("MEDIA_TOO_LARGE", 413, "Avatar exceeds 5 MiB");
+  if (length && (!/^[0-9]+$/.test(length) || Number(length) > AVATAR_MAX_BYTES)) throw mediaError("MEDIA_TOO_LARGE", 413, "Image exceeds 5 MiB");
   const reader = request.body?.getReader();
   if (!reader) throw mediaError("MEDIA_INVALID_IMAGE", 400, "An image is required");
   let size = 0;
@@ -36,7 +37,7 @@ async function readUpload(request: Request): Promise<Buffer> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > AVATAR_MAX_BYTES) { await reader.cancel(); throw mediaError("MEDIA_TOO_LARGE", 413, "Avatar exceeds 5 MiB"); }
+      if (size > AVATAR_MAX_BYTES) { await reader.cancel(); throw mediaError("MEDIA_TOO_LARGE", 413, "Image exceeds 5 MiB"); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
@@ -51,7 +52,7 @@ export async function uploadOwnAvatar(request: Request): Promise<Response> {
     const input = assertAvatarMutation(request);
     await new AuthSecurityStore(getDbPool(), getAuthConfig().secret).rateLimit("media/avatar", actor.accountId, 10, 60);
     const root = await mediaRoot();
-    const image = await normalizeAvatar(await readUpload(request), input.mime);
+    const image = await normalizeAvatar(await readMediaUpload(request), input.mime);
     const asset = await saveAvatarFile(root, image, actor.accountId);
     const profile = await attachOwnAvatar({ actor, asset, expectedRevision: input.expectedRevision, operationId: input.operationId });
     response = Response.json({ profile }, { status: 200 });
@@ -62,6 +63,23 @@ export async function uploadOwnAvatar(request: Request): Promise<Response> {
   return preventMediaCaching(response);
 }
 
+async function findPrivateImage(id: string) {
+  let avatarForbidden: ApplicationError | undefined;
+  try {
+    const actor = await requireOwnWriterAccess();
+    const avatar = await findLinkedAvatar(id, actor.accountId);
+    if (avatar) return avatar;
+  } catch (error) {
+    // Full-MFA Super Admins may preview Article images without being Writers.
+    // Preserve the avatar permission boundary for every other private request.
+    if (!(error instanceof ApplicationError) || error.status !== 403) throw error;
+    avatarForbidden = error;
+  }
+  const image = await findArticleDraftImage(id, await requireArticleActor());
+  if (!image && avatarForbidden) throw avatarForbidden;
+  return image;
+}
+
 export async function serveAvatar(request: Request, filename: string, visibility: "public" | "private"): Promise<Response> {
   const requestId = resolveRequestId(request);
   try {
@@ -70,8 +88,7 @@ export async function serveAvatar(request: Request, filename: string, visibility
     const url = new URL(request.url);
     if (!MEDIA_ID_PATTERN.test(id) || filename !== `${id}.webp` || url.pathname !== canonical || url.search ||
       !["GET", "HEAD"].includes(request.method) || request.headers.has("range")) throw mediaError("NOT_FOUND", 404, "Image not found");
-    const actor = visibility === "private" ? await requireOwnWriterAccess() : undefined;
-    const asset = await findLinkedAvatar(id, actor?.accountId);
+    const asset = visibility === "private" ? await findPrivateImage(id) : await findLinkedAvatar(id, undefined);
     if (!asset) throw mediaError("NOT_FOUND", 404, "Image not found");
     const bytes = await readAvatarFile(await mediaRoot(), asset);
     const headers = new Headers({ "Content-Type": "image/webp", "Content-Length": String(bytes.length),

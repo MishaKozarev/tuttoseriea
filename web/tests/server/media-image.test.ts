@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 vi.mock("server-only", () => ({}));
-import { AVATAR_MAX_BYTES, normalizeAvatar } from "@/src/media/image";
+import { AVATAR_MAX_BYTES, normalizeArticleImage, normalizeAvatar } from "@/src/media/image";
 
 describe("Untrusted avatar decoding", () => {
   it.each(["jpeg", "png", "webp"] as const)("fully reencodes %s, removes metadata and reports saved-byte metadata", async format => {
@@ -34,5 +34,34 @@ describe("Untrusted avatar decoding", () => {
     const webp = await sharp({ create: { width: 2, height: 2, channels: 3, background: "blue" } }).webp().toBuffer();
     const animated = Buffer.concat([webp.subarray(0, 12), Buffer.from("ANIM"), Buffer.alloc(10), webp.subarray(12)]);
     await expect(normalizeAvatar(animated, "image/webp")).rejects.toMatchObject({ code: "MEDIA_INVALID_IMAGE" });
+  });
+});
+
+describe("Draft Article image processing", () => {
+  it.each(["jpeg", "png", "webp"] as const)("keeps an editorial %s image within 2048px while avatars remain within 512px", async format => {
+    const input = await sharp({ create: { width: 3000, height: 1200, channels: 3, background: "red" } }).toFormat(format).withMetadata().toBuffer();
+    const image = await normalizeArticleImage(input, `image/${format}`);
+    const metadata = await sharp(image.bytes).metadata();
+    expect(image).toMatchObject({ mimeType: "image/webp", width: 2048, height: 819, byteSize: image.bytes.length });
+    expect(image.sha256).toBe(createHash("sha256").update(image.bytes).digest("hex"));
+    expect(metadata.exif).toBeUndefined(); expect(metadata.icc).toBeUndefined(); expect(metadata.xmp).toBeUndefined();
+    expect((await normalizeAvatar(input, `image/${format}`)).width).toBe(512);
+  });
+  it("does not upscale small draft images and retains the shared input safety limits", async () => {
+    const png = await sharp({ create: { width: 320, height: 160, channels: 3, background: "blue" } }).png().toBuffer();
+    expect(await normalizeArticleImage(png, "image/png")).toMatchObject({ width: 320, height: 160 });
+    await expect(normalizeArticleImage(png, "image/jpeg")).rejects.toMatchObject({ code: "MEDIA_INVALID_IMAGE" });
+    await expect(normalizeArticleImage(Buffer.alloc(AVATAR_MAX_BYTES + 1), "image/png")).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE", status: 413 });
+    const wide = await sharp({ create: { width: 4097, height: 1, channels: 3, background: "blue" } }).png().toBuffer();
+    await expect(normalizeArticleImage(wide, "image/png")).rejects.toMatchObject({ code: "MEDIA_INVALID_IMAGE" });
+    const apng = Buffer.concat([png.subarray(0, 33), Buffer.from([0,0,0,8]), Buffer.from("acTL"), Buffer.alloc(12), png.subarray(33)]);
+    await expect(normalizeArticleImage(apng, "image/png")).rejects.toMatchObject({ code: "MEDIA_INVALID_IMAGE" });
+    await expect(normalizeArticleImage(Buffer.from("<svg/>"), "image/svg+xml")).rejects.toMatchObject({ code: "MEDIA_INVALID_IMAGE" });
+  });
+  it("shares the two-decode process limit with avatar uploads", async () => {
+    const png = await sharp({ create: { width: 3000, height: 1200, channels: 3, background: "blue" } }).png().toBuffer();
+    const results = await Promise.allSettled([normalizeAvatar(png, "image/png"), normalizeArticleImage(png, "image/png"), normalizeArticleImage(png, "image/png")]);
+    expect(results[0].status).toBe("fulfilled"); expect(results[1].status).toBe("fulfilled");
+    expect(results[2]).toMatchObject({ status: "rejected", reason: { code: "MEDIA_BUSY", status: 429 } });
   });
 });

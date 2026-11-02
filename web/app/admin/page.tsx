@@ -7,6 +7,7 @@ import { decideAdminAccess } from "@/src/identity/admin-access";
 import { getCurrentIdentityAccess } from "@/src/identity/session";
 import { StaffSessionControls } from "@/components/admin/staff-session-controls";
 import { CatalogNavigation } from "@/components/admin/catalog-navigation";
+import { hasIdentityPermission, PERMISSION_IDS } from "@/src/identity/rbac";
 
 export default async function AdminPage() {
   const current = await getCurrentIdentityAccess();
@@ -28,6 +29,7 @@ export default async function AdminPage() {
             <StaffSessionControls superAdmin={current.identityAccess?.roles.includes("super_admin")} />
             {current.identityAccess?.roles.includes("super_admin") && <CatalogNavigation />}
             {current.identityAccess?.roles.includes("writer") && <Link href="/admin/profile" className="block underline">Кабинет автора</Link>}
+            {current.identityAccess && hasIdentityPermission(current.identityAccess, PERMISSION_IDS.articleDraftsOwn) && <Link href="/admin/articles" className="block underline">Черновики статей</Link>}
             <p className="text-sm font-medium text-muted-foreground">
               Личный кабинет
             </p>
