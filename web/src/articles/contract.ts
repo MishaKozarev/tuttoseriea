@@ -1,5 +1,6 @@
 import type { FootballTag } from "../taxonomy/football-tags";
 import { ARTICLE_FORMAT_VERSION, articleError, articleFields, articleMediaId, articleRecord, parseArticleDocument, type ArticleDocument } from "./document";
+import type { ArticleSlugMode } from "./slug";
 export { ArticleError, articleError } from "./document";
 export const ARTICLE_MAX_BODY_BYTES = 1024 * 1024;
 export type ArticleImageDTO = { id: string; url: string; width: number; height: number; byteSize: number };
@@ -8,7 +9,7 @@ export type ArticleSummaryDTO = { id: string; authorAccountId: string; authorNam
 export type ArticleListDTO = { items: ArticleSummaryDTO[]; page: number; total: number; totalPages: number };
 export type ArticleDraftDTO = ArticleSummaryDTO & {
   formatVersion: typeof ARTICLE_FORMAT_VERSION; content: ArticleDocument;
-  seoTitle: string; metaDescription: string; slug: string; canPublish: boolean;
+  seoTitle: string; metaDescription: string; slug: string; slugMode: ArticleSlugMode; canPublish: boolean;
   categoryIds: string[]; tagIds: string[];
   categories: { id: string; name: string }[]; tags: FootballTag[]; images: ArticleImageDTO[];
 };
@@ -19,7 +20,7 @@ export type ArticlePublicationInput = {
 };
 export type ArticleSaveInput = {
   operationId: string; expectedRevision: number; formatVersion: typeof ARTICLE_FORMAT_VERSION;
-  content: ArticleDocument; h1: string; seoTitle: string; metaDescription: string; slug: string;
+  content: ArticleDocument; h1: string; seoTitle: string; metaDescription: string; slug?: string; slugMode?: ArticleSlugMode;
   categoryIds: string[]; tagIds: string[];
 };
 export const articleId = articleMediaId;
@@ -55,13 +56,14 @@ export function parseArticlePublication(value: unknown): ArticlePublicationInput
 }
 export function parseArticleSave(value: unknown): ArticleSaveInput {
   const input = articleRecord(value);
-  articleFields(input, ["operationId", "expectedRevision", "formatVersion", "content", "h1", "seoTitle", "metaDescription", "slug", "categoryIds", "tagIds"]);
+  articleFields(input, ["operationId", "expectedRevision", "formatVersion", "content", "h1", "seoTitle", "metaDescription", "slug", "slugMode", "categoryIds", "tagIds"]);
   if (input.formatVersion !== ARTICLE_FORMAT_VERSION) articleError("ARTICLE_FORMAT_UNSUPPORTED", 400, "Версия формата статьи не поддерживается.");
-  const slug = field(input.slug, 160);
+  const slug = input.slug === undefined ? undefined : field(input.slug, 160);
+  if (input.slugMode !== undefined && input.slugMode !== "auto" && input.slugMode !== "manual") articleError();
   if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) articleError("ARTICLE_SLUG_INVALID", 400, "Slug: латинские строчные буквы, цифры и дефисы между словами.");
   return { operationId: articleOperationId(input.operationId), expectedRevision: articleRevision(input.expectedRevision),
     formatVersion: ARTICLE_FORMAT_VERSION, content: parseArticleDocument(input.content),
-    h1: field(input.h1, 300), seoTitle: field(input.seoTitle, 300), metaDescription: field(input.metaDescription, 500), slug,
+    h1: field(input.h1, 300), seoTitle: field(input.seoTitle, 300), metaDescription: field(input.metaDescription, 500), slug, slugMode: input.slugMode,
     categoryIds: ids(input.categoryIds, 20), tagIds: ids(input.tagIds, 50) };
 }
 export function parseArticleListQuery(params: URLSearchParams): ArticleListQuery {

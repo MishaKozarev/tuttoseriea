@@ -9,14 +9,15 @@ import type { JSONContent } from "@tiptap/core";
 
 import { parseArticleSave, type ArticleDraftDTO, type ArticleImageDTO } from "@/src/articles/contract";
 import { ARTICLE_FORMAT_VERSION, ArticleError, safeArticleLink } from "@/src/articles/document";
+import { articleSlugBase } from "@/src/articles/slug";
 import { ArticleImageNode } from "./article-image-node";
 import { ArticleImages } from "./images";
 import { ArticleCategoryPicker, ArticleTagPicker } from "./taxonomy-picker";
 import { ArticleRequestError, articleErrorMessage, articleRequest, needsArticleRefresh } from "./client";
 
-type Fields = { h1: string; seoTitle: string; metaDescription: string; slug: string; content: JSONContent; categoryIds: string[]; tagIds: string[] };
+type Fields = { h1: string; seoTitle: string; metaDescription: string; slug: string; slugMode: ArticleDraftDTO["slugMode"]; content: JSONContent; categoryIds: string[]; tagIds: string[] };
 function fieldsFrom(draft: ArticleDraftDTO): Fields {
-  return { h1: draft.h1, seoTitle: draft.seoTitle, metaDescription: draft.metaDescription, slug: draft.slug,
+  return { h1: draft.h1, seoTitle: draft.seoTitle, metaDescription: draft.metaDescription, slug: draft.slug, slugMode: draft.slugMode,
     content: draft.content, categoryIds: draft.categoryIds, tagIds: draft.tagIds };
 }
 const inputClass = "mt-1 block w-full rounded border bg-background p-2";
@@ -41,6 +42,10 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
   const [link, setLink] = useState("");
   const inFlight = useRef(false);
   const dirty = JSON.stringify(fields) !== JSON.stringify(savedFields);
+  const slugBase = articleSlugBase(fields.h1, initial.id);
+  const automaticSlug = savedFields.slugMode === "auto" && savedFields.slug && slugBase === articleSlugBase(savedFields.h1, initial.id)
+    ? savedFields.slug : slugBase;
+  const shownSlug = publication?.slug ?? (fields.slugMode === "manual" ? fields.slug : automaticSlug);
   const editor = useEditor({
     immediatelyRender: false,
     shouldRerenderOnTransaction: true,
@@ -96,7 +101,8 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
     if (inFlight.current || blocked || !editor) return;
     inFlight.current = true; setBusy(true); setMessage("");
     try {
-      const input = parseArticleSave({ ...fields, content: editor.getJSON(), expectedRevision: revision,
+      const { slug, ...editable } = fields;
+      const input = parseArticleSave({ ...editable, ...(fields.slugMode === "manual" ? { slug } : {}), content: editor.getJSON(), expectedRevision: revision,
         operationId: crypto.randomUUID(), formatVersion: ARTICLE_FORMAT_VERSION });
       const { draft } = await articleRequest<{ draft: ArticleDraftDTO }>(`/api/admin/articles/${initial.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
@@ -174,7 +180,7 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
         <button type="button" disabled={busy} onClick={() => {
           setRevision(remote.revision); setImages(remote.images); setSavedFields(fieldsFrom(remote));
           setPublication(remote.publication); setCanPublish(remote.canPublish);
-          if (remote.publication) setFields(previous => ({ ...previous, slug: remote.publication!.slug }));
+          if (remote.publication) setFields(previous => ({ ...previous, slug: remote.publication!.slug, slugMode: remote.slugMode }));
           setBlocked(false); setRemote(null); setMessage("Ваши правки оставлены в форме. Сохранение заменит текущую версию вашим вариантом.");
         }} className={buttonClass}>Продолжить с моими правками</button>
         <button type="button" disabled={busy} onClick={() => {
@@ -184,10 +190,13 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
     </section>}
     <form aria-label="Редактор черновика" className="space-y-6" onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} className="grid gap-4 rounded border p-4 md:grid-cols-2">
-        <legend className="px-1 font-medium">Заголовок и SEO</legend>
-        <label className="block md:col-span-2">Заголовок H1<input maxLength={300} value={fields.h1} onChange={event => setFields(previous => ({ ...previous, h1: event.target.value }))} className={inputClass} /></label>
+        <legend className="px-1 font-medium">Название и SEO</legend>
+        <label className="block md:col-span-2">Название статьи<input maxLength={300} value={fields.h1} onChange={event => setFields(previous => ({ ...previous, h1: event.target.value }))} className={inputClass} /></label>
         <label className="block">SEO title<input maxLength={300} value={fields.seoTitle} onChange={event => setFields(previous => ({ ...previous, seoTitle: event.target.value }))} className={inputClass} /></label>
-        <div><label className="block">Slug<input maxLength={160} disabled={publication !== null} aria-describedby={publication ? "published-slug-note" : undefined} value={fields.slug} onChange={event => setFields(previous => ({ ...previous, slug: event.target.value }))} placeholder="nazvanie-stati" className={inputClass} /></label>{publication && <p id="published-slug-note" className="mt-1 text-sm text-muted-foreground">Slug закреплён после первой публикации.</p>}</div>
+        <div className="space-y-2"><label className="block">Slug<input maxLength={160} disabled={publication !== null} aria-describedby="article-slug-note" value={shownSlug} onChange={event => setFields(previous => ({ ...previous, slug: event.target.value, slugMode: "manual" }))} placeholder="Адрес появится из названия статьи" className={inputClass} /></label>
+          <p id="article-slug-note" className="text-sm text-muted-foreground">{publication ? "Slug закреплён после первой публикации." : fields.slugMode === "auto" ? "Адрес формируется автоматически из названия статьи. Окончательный адрес будет подтверждён сервером при сохранении." : "Адрес изменён вручную. Изменение названия его не перезапишет."}</p>
+          {!publication && <button type="button" disabled={busy || fields.slugMode === "auto"} onClick={() => setFields(previous => ({ ...previous, slugMode: "auto", slug: savedFields.slug }))} className={buttonClass}>Вернуть автоматический адрес</button>}
+        </div>
         <label className="block md:col-span-2">Meta description<textarea maxLength={500} rows={3} value={fields.metaDescription} onChange={event => setFields(previous => ({ ...previous, metaDescription: event.target.value }))} className={inputClass} /></label>
       </fieldset>
       <section className="space-y-3" aria-label="Редактирование текста">

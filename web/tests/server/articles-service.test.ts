@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), revalidate: vi.fn(), query: vi.fn(), release: vi.fn(),
-  lockDraft: vi.fn(), receipt: vi.fn(), insertReceipt: vi.fn(), readDraft: vi.fn(), list: vi.fn(), insertDraft: vi.fn(), publication: vi.fn() }));
+  lockDraft: vi.fn(), receipt: vi.fn(), insertReceipt: vi.fn(), readDraft: vi.fn(), list: vi.fn(), insertDraft: vi.fn(), publication: vi.fn(), assignSlug: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/src/db", () => ({ getDbPool: () => ({ connect: async () => ({ query: mocks.query, release: mocks.release }) }) }));
 vi.mock("@/src/articles/access", () => ({ requireArticleActor: mocks.actor, revalidateArticleActor: mocks.revalidate,
   articleNotFound: () => { throw Object.assign(new Error("Missing"), { code: "ARTICLE_NOT_FOUND", status: 404 }); } }));
 vi.mock("@/src/articles/repository", () => ({ lockArticleDraft: mocks.lockDraft, readArticleReceipt: mocks.receipt,
-  insertArticleReceipt: mocks.insertReceipt, readArticleDraft: mocks.readDraft, readArticleList: mocks.list, insertArticleDraft: mocks.insertDraft, readArticlePublication: mocks.publication }));
+  insertArticleReceipt: mocks.insertReceipt, readArticleDraft: mocks.readDraft, readArticleList: mocks.list, insertArticleDraft: mocks.insertDraft, readArticlePublication: mocks.publication, assignArticleDraftSlug: mocks.assignSlug }));
 
 import { createArticleDraft, listArticleDrafts, saveArticleDraft, withArticleDraftWrite } from "@/src/articles/service";
 const id = "5e03d92b-cf69-4288-8e43-6a02e9340497";

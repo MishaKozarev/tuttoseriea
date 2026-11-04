@@ -7,7 +7,7 @@ import { Container } from "@/components/layout/container";
 import { ArticleContent } from "@/components/articles/article-content";
 import { getDbPool } from "@/src/db";
 import { getPublicArticleBySlug } from "@/src/articles/public-repository";
-import { buildArticleMetadata } from "@/src/seo/site";
+import { buildArticleMetadata, serializeArticleJsonLd } from "@/src/seo/site";
 
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ slug: string }> };
@@ -26,6 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ArticlePage({ params }: Props) {
   const article = await requireArticle((await params).slug);
   return <section className="py-8 sm:py-12"><Container size="normal" className="space-y-7">
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeArticleJsonLd(article) }} />
     <Link href="/articles" className="text-sm underline underline-offset-4">Все статьи</Link>
     <article className="space-y-8">
       <header className="space-y-5">

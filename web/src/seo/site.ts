@@ -1,4 +1,5 @@
 import type { Metadata, MetadataRoute } from "next";
+import type { PublicArticleDetail, PublicArticleSitemapEntry } from "../articles/public-contract";
 
 const PUBLIC_SITE_ORIGIN_ENV = "AUTH_URL";
 const LOCAL_SITE_ORIGIN = "http://localhost:3000";
@@ -212,6 +213,38 @@ export function buildArticleMetadata(article: {
   };
 }
 
+type StructuredArticle = Pick<PublicArticleDetail, "slug" | "h1" | "metaDescription" | "firstPublishedAt" | "updatedAt" | "author" | "images">;
+
+export function buildArticleJsonLd(article: StructuredArticle, env: RuntimeEnv = process.env) {
+  const canonical = createSiteUrl(`/articles/${article.slug}`, env);
+  const description = article.metaDescription.trim();
+  const avatar = article.author.avatarUrl;
+  const publicAvatar = avatar && /^\/media\/public\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/.test(avatar);
+  return {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "@id": `${canonical}#article`,
+    url: canonical,
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+    headline: article.h1,
+    inLanguage: "ru-RU",
+    datePublished: article.firstPublishedAt,
+    dateModified: article.updatedAt,
+    author: {
+      "@type": "Person", name: article.author.nickname,
+      ...(publicAvatar ? { image: createSiteUrl(avatar as `/media/public/${string}`, env) } : {}),
+      ...(article.author.socialLinks.length ? { sameAs: article.author.socialLinks.map(link => link.url) } : {}),
+    },
+    ...(article.images.length ? { image: article.images.map(image => createSiteUrl(`/media/public/${image.id}.webp`, env)) } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
+// Native JSON-LD scripts must not let a stored string terminate the script tag.
+export function serializeArticleJsonLd(article: StructuredArticle, env: RuntimeEnv = process.env): string {
+  return JSON.stringify(buildArticleJsonLd(article, env)).replace(/</g, "\\u003c");
+}
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -239,7 +272,7 @@ export function buildSitemap(
   clubSlugs: readonly string[] = [],
   playerSlugs: readonly string[] = [],
   matchSlugs: readonly string[] = [],
-  articleSlugs: readonly string[] = [],
+  articleEntries: readonly PublicArticleSitemapEntry[] = [],
 ): MetadataRoute.Sitemap {
   return [
     {
@@ -268,7 +301,7 @@ export function buildSitemap(
     })),
     ...(isArticleIndexingEnabled(env) ? [
       { url: createSiteUrl("/articles", env) },
-      ...articleSlugs.map(slug => ({ url: createSiteUrl(`/articles/${slug}`, env) })),
+      ...articleEntries.map(article => ({ url: createSiteUrl(`/articles/${article.slug}`, env), lastModified: article.updatedAt })),
     ] : []),
   ];
 }

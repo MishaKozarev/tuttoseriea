@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { config as loadEnv } from "dotenv";
 import { Pool, type PoolClient } from "pg";
 
@@ -58,12 +59,40 @@ async function main() {
     await db.query("set local statement_timeout='10s'");
     await db.query("set local lock_timeout='3s'");
 
+    phase = "exact slug-mode migration preserves legacy addresses";
+    // Replay the actual migration only against this transaction's temporary
+    // pre-migration table. Never run a migration/backfill on canonical data.
+    await db.query("create temporary table article_slug_mode_legacy_fixture (like article.drafts including defaults) on commit drop");
+    await db.query("alter table pg_temp.article_slug_mode_legacy_fixture drop column slug_mode");
+    const legacy = [
+      { id: randomUUID(), slug: "", mode: "auto" },
+      { id: randomUUID(), slug: `legacy-manual-${articleId}`, mode: "manual" },
+      { id: randomUUID(), slug: `legacy-published-${articleId}`, mode: "manual" },
+    ];
+    for (const row of legacy) await db.query("insert into pg_temp.article_slug_mode_legacy_fixture(article_id,content,h1,slug) values($1,$2::jsonb,'Legacy fixture',$3)", [row.id, body, row.slug]);
+    const migration = await readFile(new URL("../drizzle/0029_late_thor_girl.sql", import.meta.url), "utf8");
+    const statements = migration.split("--> statement-breakpoint").map(statement => statement.trim()).filter(Boolean);
+    assert.equal(statements.length, 3, "Review slug-mode fixture before replaying a changed migration");
+    assert.match(statements[0], /^ALTER TABLE "article"\."drafts" ADD COLUMN "slug_mode" text DEFAULT 'auto' NOT NULL;$/);
+    assert.match(statements[1], /^ALTER TABLE "article"\."drafts" ADD CONSTRAINT "article_drafts_slug_mode_check" CHECK /);
+    assert.match(statements[2], /UPDATE "article"\."drafts" SET "slug_mode" = 'manual' WHERE "slug" <> '';$/);
+    for (const statement of statements) await db.query(statement.replaceAll('"article"."drafts"', '"pg_temp"."article_slug_mode_legacy_fixture"'));
+    const migrated = (await db.query<{ id: string; slug: string; mode: string }>("select article_id as id,slug,slug_mode as mode from pg_temp.article_slug_mode_legacy_fixture order by article_id")).rows;
+    assert.deepEqual(migrated, [...legacy].sort((left, right) => left.id.localeCompare(right.id)));
+    await db.query("insert into pg_temp.article_slug_mode_legacy_fixture(article_id,content) values($1,$2::jsonb)", [randomUUID(), body]);
+    assert.equal((await db.query("select count(*)::int as count from pg_temp.article_slug_mode_legacy_fixture where slug='' and slug_mode='auto'")).rows[0].count, 2);
+    await expectedError(db, () => db!.query("update pg_temp.article_slug_mode_legacy_fixture set slug_mode='invalid'"), "23514", "article_drafts_slug_mode_check");
+
     phase = "effective runtime grants";
     const role = (await db.query<{ rolsuper: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean; rolbypassrls: boolean }>(
       "select rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls from pg_roles where rolname=$1", [runtimeRole])).rows[0];
     assert(role, "Runtime role is absent");
     assert.deepEqual(role, { rolsuper: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false, rolbypassrls: false });
     await exactTableGrants(db, runtimeRole, "article.publications", ["SELECT", "INSERT", "UPDATE"]);
+    await exactTableGrants(db, runtimeRole, "article.drafts", ["SELECT", "INSERT", "UPDATE"]);
+    const modeColumn = (await db.query<{ nullable: string; defaultValue: string }>(`select is_nullable as nullable,column_default as "defaultValue"
+      from information_schema.columns where table_schema='article' and table_name='drafts' and column_name='slug_mode'`)).rows[0];
+    assert(modeColumn); assert.equal(modeColumn.nullable, "NO"); assert.equal(modeColumn.defaultValue, "'auto'::text");
     for (const table of ["publication_categories", "publication_tags", "publication_images"]) {
       await exactTableGrants(db, runtimeRole, `article.${table}`, ["SELECT", "INSERT", "DELETE"]);
     }
@@ -86,7 +115,7 @@ async function main() {
     await db.query("insert into identity.accounts(id,auth_user_id) values($1,$2)", [accountId, userId]);
     for (const id of [articleId, secondArticleId]) {
       await db.query("insert into article.articles(id,author_account_id) values($1,$2)", [id, accountId]);
-      await db.query("insert into article.drafts(article_id,content,h1,slug) values($1,$2::jsonb,'Synthetic draft',$3)", [id, body, id === articleId ? slug : `publication-check-${id}`]);
+      await db.query("insert into article.drafts(article_id,content,h1,slug,slug_mode) values($1,$2::jsonb,'Synthetic draft',$3,'manual')", [id, body, id === articleId ? slug : `publication-check-${id}`]);
     }
     await db.query("insert into article.categories(id,name) values($1,$2)", [categoryId, `Publication safeguard ${categoryId}`]);
     await db.query(`insert into article.publications(article_id,revision,source_revision,format_version,content,h1,seo_title,meta_description,slug)
@@ -100,6 +129,9 @@ async function main() {
 
     phase = "published draft slug trigger";
     await expectedError(db, () => db!.query("update article.drafts set slug=$2 where article_id=$1", [articleId, `changed-${articleId}`]), "23514", "article_published_slug_immutable");
+    phase = "draft mode check and unique address index";
+    await expectedError(db, () => db!.query("update article.drafts set slug_mode='invalid' where article_id=$1", [secondArticleId]), "23514", "article_drafts_slug_mode_check");
+    await expectedError(db, () => db!.query("update article.drafts set slug=$2 where article_id=$1", [secondArticleId, slug]), "23505", "article_drafts_slug_unique");
     phase = "publication slug trigger";
     await expectedError(db, () => db!.query("update article.publications set slug=$2 where article_id=$1", [articleId, `changed-${articleId}`]), "23514", "article_published_slug_immutable");
     phase = "first publication time trigger";
@@ -126,6 +158,7 @@ async function main() {
     assert.equal((await db.query("delete from article.publication_categories where publication_id=$1 and category_id=$2", [articleId, categoryId])).rowCount, 1);
     await db.query("insert into article.publication_categories(publication_id,category_id) values($1,$2)", [articleId, categoryId]);
     assert.equal((await db.query<{ slug: string }>("select slug from article.publications where article_id=$1", [articleId])).rows[0].slug, slug);
+    assert.deepEqual((await db.query("select slug,slug_mode as mode from article.drafts where article_id=$1", [articleId])).rows[0], { slug, mode: "manual" });
 
     phase = "rollback all fixtures";
     await db.query("rollback"); began = false;
@@ -150,7 +183,8 @@ async function main() {
     }
   }
   console.log(JSON.stringify({ check: "article-publications-db", result: "PASS", fixturesRolledBack: true,
-    immutablePublishedIdentity: true, runtimeGrants: true, publicationCategoryRestrict: true, triggerExecuteDenied: true }));
+    immutablePublishedIdentity: true, runtimeGrants: true, publicationCategoryRestrict: true, triggerExecuteDenied: true,
+    slugModeMigration: "exact-sql-temporary-legacy-fixtures", slugModeConstraint: true, uniqueDraftAddress: true }));
 }
 
 main().catch((error: unknown) => {

@@ -33,7 +33,7 @@ afterEach(() => { cleanup(); vi.unstubAllEnvs(); });
 
 describe("Public Article server pages", () => {
   it("renders H1, author, public body media and category labels without visible SEO title", async () => {
-    render(await ArticlePage(detailProps()));
+    const { container } = render(await ArticlePage(detailProps()));
     expect(screen.getByRole("heading", { name: article.h1, level: 1 })).toBeTruthy();
     expect(screen.queryByText(article.seoTitle)).toBeNull();
     expect(screen.getByText(article.author.nickname)).toBeTruthy();
@@ -41,6 +41,10 @@ describe("Public Article server pages", () => {
     expect(screen.getByRole("img", { name: "Иллюстрация" }).getAttribute("src")).toBe(`/media/public/${imageId}.webp`);
     expect(screen.getByText("Опубликованный текст")).toBeTruthy();
     expect(await detailMetadata(detailProps())).toMatchObject({ title: article.seoTitle, description: null });
+    const scripts = container.querySelectorAll('script[type="application/ld+json"]');
+    expect(scripts).toHaveLength(1);
+    expect(JSON.parse(scripts[0].textContent ?? "")).toMatchObject({ "@type": "Article", headline: article.h1,
+      url: "https://tuttoseriea.com/articles/published-slug", datePublished: article.firstPublishedAt, dateModified: article.updatedAt });
     expect(detailDynamic).toBe("force-dynamic");
   });
   it("returns not found for both page content and metadata when no publication exists", async () => {
@@ -52,6 +56,8 @@ describe("Public Article server pages", () => {
     render(await ArticlesPage({ searchParams: Promise.resolve({ page: "1" }) }));
     expect(screen.getByRole("heading", { name: "Статьи", level: 1 })).toBeTruthy();
     expect(screen.getByRole("link", { name: article.h1 })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Изображение статьи отсутствует" })).toBeTruthy();
+    expect(screen.getByText("Без изображения")).toBeTruthy();
     expect(screen.queryByText(article.seoTitle)).toBeNull();
     expect(screen.getByRole("link", { name: "Следующая страница" }).getAttribute("href")).toBe("/articles?page=2");
     expect((await listMetadata({ searchParams: Promise.resolve({ page: "1" }) })).alternates).toEqual({ canonical: "/articles" });
@@ -65,8 +71,25 @@ describe("Public Article server pages", () => {
     render(await ArticlesPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("Опубликованных статей пока нет.")).toBeTruthy();
   });
+  it("renders a real published cover instead of the neutral placeholder when available", async () => {
+    mocks.list.mockResolvedValue({ ...listing, items: [{ ...article, cover: { ...article.images[0], alt: "Обложка из первой иллюстрации" } }] });
+    render(await ArticlesPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByRole("img", { name: "Обложка из первой иллюстрации" }).getAttribute("src")).toBe(`/media/public/${imageId}.webp`);
+    expect(screen.queryByRole("img", { name: "Изображение статьи отсутствует" })).toBeNull();
+  });
   it("adds Articles to public navigation", () => {
     render(<PublicShell><p>Content</p></PublicShell>);
     expect(screen.getByRole("link", { name: "Статьи" }).getAttribute("href")).toBe("/articles");
+  });
+  it("renders JSON-LD injection text without creating executable nodes", async () => {
+    const attack = '</script><script id="injected-script">alert(1)</script><img id="injected-image" src=x onerror=alert(1)>';
+    mocks.detail.mockResolvedValue({ ...article, h1: attack, metaDescription: attack, author: { ...article.author, nickname: attack } });
+    const { container } = render(await ArticlePage(detailProps()));
+    const script = container.querySelector('script[type="application/ld+json"]');
+    expect(container.querySelectorAll("script")).toHaveLength(1);
+    expect(container.querySelector("#injected-script")).toBeNull(); expect(container.querySelector("#injected-image")).toBeNull();
+    expect(script?.textContent).not.toContain("<");
+    expect(JSON.parse(script?.textContent ?? "").headline).toBe(attack);
+    expect(screen.getByRole("heading", { name: attack, level: 1 })).toBeTruthy();
   });
 });

@@ -18,7 +18,7 @@ import ArticleEditorPage from "@/app/admin/articles/[articleId]/page";
 import ArticlePreviewPage from "@/app/admin/articles/[articleId]/preview/page";
 
 const id = "11111111-2222-4333-8444-555555555555";
-const draft: ArticleDraftDTO = { id, authorAccountId: id, authorName: "Автор", h1: "Частный черновик", seoTitle: "", metaDescription: "", slug: "",
+const draft: ArticleDraftDTO = { id, authorAccountId: id, authorName: "Автор", h1: "Частный черновик", seoTitle: "", metaDescription: "", slug: "", slugMode: "auto",
   revision: 0, createdAt: "2026-11-02T10:00:00Z", updatedAt: "2026-11-02T10:00:00Z", formatVersion: 1,
   content: EMPTY_ARTICLE_DOCUMENT, categoryIds: [], tagIds: [], categories: [], tags: [], images: [], publication: null, canPublish: false };
 const params = () => ({ params: Promise.resolve({ articleId: id }) });

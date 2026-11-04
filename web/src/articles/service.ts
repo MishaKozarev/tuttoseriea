@@ -12,7 +12,8 @@ import { articleError, articleId, articleOperationId, articleRevision, parseArti
   type ArticleDraftDTO, type ArticleListQuery } from "./contract";
 import { articleImageIds, EMPTY_ARTICLE_DOCUMENT, parseArticleDocument, type ArticleNode } from "./document";
 import { insertArticleDraft, insertArticleReceipt, lockArticleDraft, readArticleDraft, readArticleList,
-  readArticleReceipt, readArticlePublication, type ArticleReceipt } from "./repository";
+  readArticleReceipt, readArticlePublication, assignArticleDraftSlug, type ArticleReceipt } from "./repository";
+import { articleSlugBase, type ArticleSlugMode } from "./slug";
 
 type Operation = { operationId: string; fingerprint: string };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -134,7 +135,8 @@ export async function saveArticleDraft(id: string, value: unknown): Promise<Arti
   const fingerprint = digest({ ...input, operationId: undefined, categoryIds, tagIds });
   const saved = await executeDraftWrite(id, input.expectedRevision, async (client, current) => {
     const publication = await readArticlePublication(client, id);
-    if (publication && input.slug !== publication.slug) articleError("ARTICLE_SLUG_IMMUTABLE", 409, "После первой публикации slug изменить нельзя.");
+    if (publication && input.slug !== undefined && input.slug !== publication.slug) articleError("ARTICLE_SLUG_IMMUTABLE", 409, "После первой публикации slug изменить нельзя.");
+    const stored = (await readArticleDraft(client, id))!;
     const categories = new ArticleCategoryRepository(client);
     for (const categoryId of categoryIds) if (!await categories.get(categoryId)) articleError("VALIDATION_ERROR", 400, "Категория не найдена.");
     const tags = await getFootballTagsByIds(client, tagIds);
@@ -145,8 +147,21 @@ export async function saveArticleDraft(id: string, value: unknown): Promise<Arti
         where di.draft_id=$1 and di.media_id=any($2::text[]) and m.kind='article_image'`, [id, imageIds]);
       if (attached.rows.length !== imageIds.length) articleError("ARTICLE_IMAGE_NOT_ATTACHED", 400, "Изображение не принадлежит этому черновику.");
     }
-    await client.query(`update article.drafts set format_version=$2,content=$3::jsonb,h1=$4,seo_title=$5,meta_description=$6,slug=$7 where article_id=$1`,
-    [id, input.formatVersion, JSON.stringify(input.content), input.h1, input.seoTitle, input.metaDescription, input.slug]);
+    if (!publication) {
+      // Old clients can omit the new mode. Preserve the stored mode unless they
+      // actually submit a different nonempty manual address. Omitting slug is
+      // valid and never erases a saved manual correction.
+      const legacyManualChange = input.slug !== undefined && !!input.slug && input.slug !== stored.slug;
+      const requestedMode = input.slugMode ?? (legacyManualChange ? "manual" : stored.slugMode);
+      const manual = input.slug ?? stored.slug;
+      const mode: ArticleSlugMode = requestedMode === "manual" && !!manual ? "manual" : "auto";
+      const base = mode === "manual" ? manual : articleSlugBase(input.h1, id);
+      const keepAutoReservation = mode === "auto" && stored.slugMode === "auto" && !!stored.slug &&
+        base === articleSlugBase(stored.h1, id);
+      await assignArticleDraftSlug(client, id, keepAutoReservation ? stored.slug : base, mode);
+    }
+    await client.query(`update article.drafts set format_version=$2,content=$3::jsonb,h1=$4,seo_title=$5,meta_description=$6 where article_id=$1`,
+    [id, input.formatVersion, JSON.stringify(input.content), input.h1, input.seoTitle, input.metaDescription]);
     await client.query("delete from article.draft_categories where draft_id=$1", [id]);
     if (categoryIds.length) await client.query(`insert into article.draft_categories(draft_id,category_id) select $1,unnest($2::text[])`, [id, categoryIds]);
     await client.query("delete from article.draft_tags where draft_id=$1", [id]);
@@ -180,8 +195,8 @@ export async function publishArticleDraft(value: string, body: unknown): Promise
     function hasText(node: ArticleNode): boolean {
       return node.type === "text" && /[\p{L}\p{N}]/u.test(node.text ?? "") || !!node.content?.some(hasText);
     }
-    if (!draft.h1.trim() || !hasText(content) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug)) {
-      articleError("ARTICLE_NOT_READY", 400, "Для публикации заполните H1, текст статьи и корректный slug.");
+    if (!draft.h1.trim() || !hasText(content)) {
+      articleError("ARTICLE_NOT_READY", 400, "Для публикации заполните название и текст статьи.");
     }
     if (previous && previous.slug !== draft.slug) articleError("ARTICLE_SLUG_IMMUTABLE", 409, "После первой публикации slug изменить нельзя.");
     const imageIds = articleImageIds(content);
@@ -195,6 +210,11 @@ export async function publishArticleDraft(value: string, body: unknown): Promise
     const revision = (previous?.revision ?? 0) + 1;
     if (revision >= 2_147_483_647) conflict();
     if (!previous) {
+      // Legacy empty drafts are prepared lazily. This finalizes a derived
+      // address from the exact saved title without changing content or its
+      // revision, and the same transaction reserves the public URL.
+      const mode: ArticleSlugMode = draft.slugMode === "manual" && draft.slug ? "manual" : "auto";
+      draft.slug = await assignArticleDraftSlug(client, id, draft.slug || articleSlugBase(draft.h1, id), mode);
       await client.query(`insert into article.publications(article_id,revision,source_revision,format_version,content,h1,seo_title,meta_description,slug,
         first_published_at,updated_at) values($1,1,$2,$3,$4::jsonb,$5,$6,$7,$8,clock_timestamp(),clock_timestamp())`,
       [id, draft.revision, draft.formatVersion, JSON.stringify(content), draft.h1, draft.seoTitle, draft.metaDescription, draft.slug]);
