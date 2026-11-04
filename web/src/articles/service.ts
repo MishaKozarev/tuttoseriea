@@ -8,11 +8,11 @@ import { parseCategoryQuery } from "../categories/management";
 import { listFootballTags, getFootballTagsByIds } from "../taxonomy/football-tags-repository";
 import { parseTagQuery } from "../taxonomy/football-tags";
 import { articleNotFound, requireArticleActor, revalidateArticleActor, type ArticleActor } from "./access";
-import { articleError, articleId, articleOperationId, articleRevision, parseArticleCreate, parseArticleSave,
+import { articleError, articleId, articleOperationId, articleRevision, parseArticleCreate, parseArticleSave, parseArticlePublication,
   type ArticleDraftDTO, type ArticleListQuery } from "./contract";
-import { articleImageIds, EMPTY_ARTICLE_DOCUMENT } from "./document";
+import { articleImageIds, EMPTY_ARTICLE_DOCUMENT, parseArticleDocument, type ArticleNode } from "./document";
 import { insertArticleDraft, insertArticleReceipt, lockArticleDraft, readArticleDraft, readArticleList,
-  readArticleReceipt, type ArticleReceipt } from "./repository";
+  readArticleReceipt, readArticlePublication, type ArticleReceipt } from "./repository";
 
 type Operation = { operationId: string; fingerprint: string };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -22,6 +22,8 @@ function mapDatabaseError(error: unknown): never {
   const db = error as { code?: string; constraint?: string };
   if (db?.code === "40P01" || db?.code === "40001") conflict();
   if (db?.code === "23505" && db.constraint === "article_drafts_slug_unique") articleError("ARTICLE_SLUG_CONFLICT", 409, "Этот slug уже используется другой статьёй.");
+  if (db?.code === "23505" && db.constraint === "article_publications_slug_unique") articleError("ARTICLE_SLUG_CONFLICT", 409, "Этот публичный адрес уже занят.");
+  if (db?.code === "23514" && db.constraint === "article_published_slug_immutable") articleError("ARTICLE_SLUG_IMMUTABLE", 409, "После первой публикации slug изменить нельзя.");
   if (db?.code === "23503" || db?.code === "23514") articleError("VALIDATION_ERROR", 400, "Связанные данные статьи изменились. Обновите справочники.");
   throw error;
 }
@@ -65,7 +67,7 @@ export async function getArticleDraft(value: string): Promise<ArticleDraftDTO> {
   const actor = await requireArticleActor(), id = articleId(value);
   return transaction(actor, async (client, current) => {
     if (!await lockArticleDraft(client, id, current, "read")) articleNotFound();
-    return (await readArticleDraft(client, id))!;
+    return (await readArticleDraft(client, id, !!(current.publishOwn || current.publishAll)))!;
   });
 }
 
@@ -76,12 +78,12 @@ export async function createArticleDraft(value: unknown): Promise<ArticleDraftDT
     if (receipt) {
       matchReceipt(receipt, current, null, "create", fingerprint);
       if (!await lockArticleDraft(client, receipt.articleId, current, "read")) articleNotFound();
-      return (await readArticleDraft(client, receipt.articleId))!;
+      return (await readArticleDraft(client, receipt.articleId, !!(current.publishOwn || current.publishAll)))!;
     }
     const id = await insertArticleDraft(client, current.accountId, EMPTY_ARTICLE_DOCUMENT);
     await insertArticleReceipt(client, input.operationId, { actorAccountId: current.accountId, articleId: id, action: "create", fingerprint, result: { revision: 0 } });
     await audit(client, current, id, "create", 0, input.operationId);
-    return (await readArticleDraft(client, id))!;
+    return (await readArticleDraft(client, id, !!(current.publishOwn || current.publishAll)))!;
   }, input.operationId);
 }
 
@@ -130,7 +132,9 @@ export async function saveArticleDraft(id: string, value: unknown): Promise<Arti
   const input = parseArticleSave(value);
   const categoryIds = [...input.categoryIds].sort(), tagIds = [...input.tagIds].sort();
   const fingerprint = digest({ ...input, operationId: undefined, categoryIds, tagIds });
-  const saved = await executeDraftWrite(id, input.expectedRevision, async (client) => {
+  const saved = await executeDraftWrite(id, input.expectedRevision, async (client, current) => {
+    const publication = await readArticlePublication(client, id);
+    if (publication && input.slug !== publication.slug) articleError("ARTICLE_SLUG_IMMUTABLE", 409, "После первой публикации slug изменить нельзя.");
     const categories = new ArticleCategoryRepository(client);
     for (const categoryId of categoryIds) if (!await categories.get(categoryId)) articleError("VALIDATION_ERROR", 400, "Категория не найдена.");
     const tags = await getFootballTagsByIds(client, tagIds);
@@ -147,10 +151,73 @@ export async function saveArticleDraft(id: string, value: unknown): Promise<Arti
     if (categoryIds.length) await client.query(`insert into article.draft_categories(draft_id,category_id) select $1,unnest($2::text[])`, [id, categoryIds]);
     await client.query("delete from article.draft_tags where draft_id=$1", [id]);
     if (tagIds.length) await client.query(`insert into article.draft_tags(draft_id,tag_id) select $1,unnest($2::text[])`, [id, tagIds]);
-    return (await readArticleDraft(client, id))!;
+    return (await readArticleDraft(client, id, !!(current.publishOwn || current.publishAll)))!;
   }, { operationId: input.operationId, fingerprint }, "save");
   // A retry never reapplies a stale payload; return the current canonical draft.
   return saved.result ?? getArticleDraft(id);
+}
+
+/** Publish exactly the saved aggregate, never client-supplied content. */
+export async function publishArticleDraft(value: string, body: unknown): Promise<ArticleDraftDTO> {
+  const actor = await requireArticleActor(), id = articleId(value), input = parseArticlePublication(body);
+  const action = input.action === "publish" ? "publish" : "update_publication";
+  const fingerprint = digest({ ...input, operationId: undefined });
+  return transaction(actor, async (client, current) => {
+    // Same ordering as save/upload: operation -> user -> draft. Grant/revoke
+    // shares the user lock, and the draft lock serializes save with publication.
+    if (!await lockArticleDraft(client, id, current, "write")) articleNotFound();
+    if (!current.publishAll && !current.publishOwn) throw createForbiddenError();
+    const receipt = await readArticleReceipt(client, input.operationId);
+    if (receipt) {
+      matchReceipt(receipt, current, id, action, fingerprint);
+      return (await readArticleDraft(client, id, true))!;
+    }
+    const draft = (await readArticleDraft(client, id, true))!;
+    const previous = draft.publication;
+    if (draft.revision !== input.expectedRevision || (previous?.revision ?? 0) !== input.expectedPublicationRevision ||
+      (input.action === "publish") !== (previous === null)) conflict();
+    const content = parseArticleDocument(draft.content);
+    function hasText(node: ArticleNode): boolean {
+      return node.type === "text" && /[\p{L}\p{N}]/u.test(node.text ?? "") || !!node.content?.some(hasText);
+    }
+    if (!draft.h1.trim() || !hasText(content) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug)) {
+      articleError("ARTICLE_NOT_READY", 400, "Для публикации заполните H1, текст статьи и корректный slug.");
+    }
+    if (previous && previous.slug !== draft.slug) articleError("ARTICLE_SLUG_IMMUTABLE", 409, "После первой публикации slug изменить нельзя.");
+    const imageIds = articleImageIds(content);
+    const attachedIds = new Set(draft.images.map(image => image.id));
+    if (imageIds.some(imageId => !attachedIds.has(imageId))) articleError("ARTICLE_IMAGE_NOT_ATTACHED", 400, "Изображение не принадлежит этому черновику.");
+    // Recheck the assigned dictionaries; the publication's RESTRICT FKs then
+    // protect references independently of later draft edits or dictionary deletes.
+    const categories = new ArticleCategoryRepository(client);
+    for (const categoryId of [...draft.categoryIds].sort()) if (!await categories.get(categoryId)) articleError();
+    if ((await getFootballTagsByIds(client, draft.tagIds)).length !== draft.tagIds.length) articleError();
+    const revision = (previous?.revision ?? 0) + 1;
+    if (revision >= 2_147_483_647) conflict();
+    if (!previous) {
+      await client.query(`insert into article.publications(article_id,revision,source_revision,format_version,content,h1,seo_title,meta_description,slug,
+        first_published_at,updated_at) values($1,1,$2,$3,$4::jsonb,$5,$6,$7,$8,clock_timestamp(),clock_timestamp())`,
+      [id, draft.revision, draft.formatVersion, JSON.stringify(content), draft.h1, draft.seoTitle, draft.metaDescription, draft.slug]);
+    } else {
+      const changed = await client.query(`update article.publications set revision=$2,source_revision=$3,format_version=$4,
+        content=$5::jsonb,h1=$6,seo_title=$7,meta_description=$8,updated_at=clock_timestamp()
+        where article_id=$1 and revision=$9 returning revision`,
+      [id, revision, draft.revision, draft.formatVersion, JSON.stringify(content), draft.h1, draft.seoTitle, draft.metaDescription, previous.revision]);
+      if (!changed.rows.length) conflict();
+    }
+    await client.query("delete from article.publication_categories where publication_id=$1", [id]);
+    await client.query("delete from article.publication_tags where publication_id=$1", [id]);
+    await client.query("delete from article.publication_images where publication_id=$1", [id]);
+    if (draft.categoryIds.length) await client.query(`insert into article.publication_categories(publication_id,category_id) select $1,unnest($2::text[])`, [id, [...draft.categoryIds].sort()]);
+    if (draft.tagIds.length) await client.query(`insert into article.publication_tags(publication_id,tag_id) select $1,unnest($2::text[])`, [id, [...draft.tagIds].sort()]);
+    if (imageIds.length) await client.query(`insert into article.publication_images(publication_id,media_id) select $1,unnest($2::text[])`, [id, [...imageIds].sort()]);
+    await insertArticleReceipt(client, input.operationId, { actorAccountId: current.accountId, articleId: id, action,
+      fingerprint, result: { revision, result: { sourceRevision: draft.revision } } });
+    await client.query(`insert into auth.security_audit(id,operation_id,event_type,operator,target_account_id,details)
+      values($1,$2,'article_published',$3,$4,$5::jsonb)`, [randomUUID(), input.operationId, `account:${current.accountId}`, draft.authorAccountId,
+      JSON.stringify({ articleId: id, action, revision, sourceRevision: draft.revision })]);
+    return (await readArticleDraft(client, id, true))!;
+  }, input.operationId);
 }
 
 export async function lookupArticleCategories(params: URLSearchParams) {

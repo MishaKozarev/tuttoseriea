@@ -26,6 +26,7 @@ describe("Identity RBAC foundation", () => {
       PERMISSION_IDS.writerPublicationManage,
       PERMISSION_IDS.articleDraftsOwn,
       PERMISSION_IDS.articleDraftsManage,
+      PERMISSION_IDS.articlePublicationsManage,
     ]);
   });
 
@@ -38,7 +39,7 @@ describe("Identity RBAC foundation", () => {
     ).toBe(false);
     expect(
       getPermissionsForRoles(["writer", "admin", "super_admin"]),
-    ).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage, PERMISSION_IDS.articleDraftsOwn, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage, PERMISSION_IDS.articleDraftsManage]);
+    ).toEqual([PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage, PERMISSION_IDS.articleDraftsOwn, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage, PERMISSION_IDS.articleDraftsManage, PERMISSION_IDS.articlePublicationsManage]);
   });
 
   it("deduplicates effective permissions across multiple roles", () => {
@@ -62,6 +63,8 @@ describe("Identity RBAC foundation", () => {
   });
 
   it("resolves individual own-publication grants without granting through Writer role", () => {
+    expect(hasPermissionForRoles(["super_admin"], PERMISSION_IDS.articlePublicationsManage)).toBe(true);
+    expect(hasPermissionForRoles(["writer", "admin"], PERMISSION_IDS.articlePublicationsManage)).toBe(false);
     expect(hasPermissionForRoles(["writer"], PERMISSION_IDS.articlePublishOwn)).toBe(false);
     expect(hasIdentityPermission({ roles: ["writer"] }, PERMISSION_IDS.articlePublishOwn)).toBe(false);
     expect(hasIdentityPermission({ roles: ["writer"], permissions: [PERMISSION_IDS.articlePublishOwn] }, PERMISSION_IDS.articlePublishOwn)).toBe(true);

@@ -27,10 +27,13 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
   const [fields, setFields] = useState(() => fieldsFrom(initial));
   const [savedFields, setSavedFields] = useState(() => fieldsFrom(initial));
   const [revision, setRevision] = useState(initial.revision);
+  const [publication, setPublication] = useState(initial.publication);
+  const [canPublish, setCanPublish] = useState(initial.canPublish);
   const [images, setImages] = useState(initial.images);
   const [categories, setCategories] = useState(initial.categories);
   const [tags, setTags] = useState(initial.tags);
   const [busy, setBusy] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [remote, setRemote] = useState<ArticleDraftDTO | null>(null);
   const [message, setMessage] = useState("");
@@ -67,7 +70,26 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
     const next = fieldsFrom(draft);
     setFields(next); setSavedFields(next); setRevision(draft.revision); setImages(draft.images);
     setCategories(draft.categories); setTags(draft.tags); setBlocked(false); setRemote(null);
+    setPublication(draft.publication); setCanPublish(draft.canPublish);
     editor?.commands.setContent(draft.content, { emitUpdate: false });
+  }
+
+  async function publish() {
+    if (inFlight.current || blocked || dirty || remote || !canPublish || !editor || publication?.sourceRevision === revision) return;
+    inFlight.current = true; setBusy(true); setPublishing(true); setMessage("");
+    const updating = publication !== null;
+    try {
+      const { draft } = await articleRequest<{ draft: ArticleDraftDTO }>(`/api/admin/articles/${initial.id}/publication`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+          action: updating ? "update" : "publish", operationId: crypto.randomUUID(),
+          expectedRevision: revision, expectedPublicationRevision: publication?.revision ?? 0,
+        }),
+      });
+      accept(draft); setMessage(updating ? "Публикация обновлена." : "Статья опубликована.");
+    } catch (error) {
+      if (error instanceof ArticleRequestError && (error.status === 401 || error.status === 403)) setCanPublish(false);
+      setBlocked(needsArticleRefresh(error)); setMessage(articleErrorMessage(error));
+    } finally { inFlight.current = false; setBusy(false); setPublishing(false); }
   }
 
   async function save(preview = false) {
@@ -92,6 +114,7 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
     inFlight.current = true; setBusy(true); setMessage("");
     try {
       const { draft } = await articleRequest<{ draft: ArticleDraftDTO }>(`/api/admin/articles/${initial.id}`);
+      setCanPublish(draft.canPublish);
       setRemote(draft); setMessage("Текущая версия загружена. Ваши поля пока не изменены.");
     } catch (error) { setMessage(articleErrorMessage(error)); }
     finally { inFlight.current = false; setBusy(false); }
@@ -129,14 +152,29 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
       <p role="status" className="text-sm text-muted-foreground">Ревизия {revision} · {dirty ? "Есть несохранённые правки" : "Все правки сохранены"}</p>
     </div>
     {message && <p role="status" className="break-words rounded border p-3">{message}</p>}
+    <section aria-label="Публикация статьи" className="space-y-3 rounded border p-4">
+      {publication ? <>
+        <p className="font-medium">Опубликована · версия {publication.revision}</p>
+        <p className="text-sm text-muted-foreground">Опубликованная ревизия черновика: {publication.sourceRevision}. {publication.sourceRevision === revision ? "Сохранённая версия уже опубликована." : "Есть сохранённые изменения, которые ещё не опубликованы."}</p>
+        <Link href={`/articles/${encodeURIComponent(publication.slug)}`} target="_blank" rel="noopener noreferrer" className="inline-block break-all underline">Открыть опубликованную статью</Link>
+      </> : <p className="font-medium">Статья ещё не опубликована.</p>}
+      <p className="text-sm text-muted-foreground">{publication ? "Публичная версия изменится после отдельного обновления публикации." : "Публикация использует только сохранённую версию черновика."}</p>
+      {canPublish ? <>
+        <button type="button" disabled={busy || blocked || dirty || remote !== null || !editor || publication?.sourceRevision === revision} onClick={() => void publish()} className="rounded bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">{publishing ? "Публикация…" : publication ? "Обновить публикацию" : "Опубликовать статью"}</button>
+        {dirty && <p className="text-sm text-muted-foreground">Сначала сохраните правки черновика.</p>}
+      </> : <p className="text-sm text-muted-foreground">Для самостоятельной публикации требуется право, назначенное Super Admin.</p>}
+    </section>
     {blocked && <p role="alert" className="rounded border p-3">Перед следующей записью загрузите текущую версию. Текст, поля и выбранный файл остаются в форме.</p>}
     <button type="button" disabled={busy} onClick={() => void refresh()} className={buttonClass}>Загрузить текущую версию</button>
     {remote && <section aria-label="Загруженная текущая версия" className="space-y-3 rounded border bg-muted/40 p-4">
       <p>Текущая версия: «{remote.h1 || "Без заголовка"}», ревизия {remote.revision}. <Link href={`/admin/articles/${initial.id}/preview`} target="_blank" rel="noopener noreferrer" className="underline">Посмотреть сохранённый текст</Link></p>
+      {remote.publication && <p className="text-sm text-muted-foreground">Статья опубликована: версия {remote.publication.revision}. Slug «{remote.publication.slug}» закреплён и будет использован при продолжении редактирования.</p>}
       <p className="text-sm text-muted-foreground">Продолжение со своими правками позволит сохранить их поверх загруженной версии.</p>
       <div className="flex flex-wrap gap-3">
         <button type="button" disabled={busy} onClick={() => {
           setRevision(remote.revision); setImages(remote.images); setSavedFields(fieldsFrom(remote));
+          setPublication(remote.publication); setCanPublish(remote.canPublish);
+          if (remote.publication) setFields(previous => ({ ...previous, slug: remote.publication!.slug }));
           setBlocked(false); setRemote(null); setMessage("Ваши правки оставлены в форме. Сохранение заменит текущую версию вашим вариантом.");
         }} className={buttonClass}>Продолжить с моими правками</button>
         <button type="button" disabled={busy} onClick={() => {
@@ -149,7 +187,7 @@ export function ArticleEditor({ initial }: { initial: ArticleDraftDTO }) {
         <legend className="px-1 font-medium">Заголовок и SEO</legend>
         <label className="block md:col-span-2">Заголовок H1<input maxLength={300} value={fields.h1} onChange={event => setFields(previous => ({ ...previous, h1: event.target.value }))} className={inputClass} /></label>
         <label className="block">SEO title<input maxLength={300} value={fields.seoTitle} onChange={event => setFields(previous => ({ ...previous, seoTitle: event.target.value }))} className={inputClass} /></label>
-        <label className="block">Slug<input maxLength={160} value={fields.slug} onChange={event => setFields(previous => ({ ...previous, slug: event.target.value }))} placeholder="nazvanie-stati" className={inputClass} /></label>
+        <div><label className="block">Slug<input maxLength={160} disabled={publication !== null} aria-describedby={publication ? "published-slug-note" : undefined} value={fields.slug} onChange={event => setFields(previous => ({ ...previous, slug: event.target.value }))} placeholder="nazvanie-stati" className={inputClass} /></label>{publication && <p id="published-slug-note" className="mt-1 text-sm text-muted-foreground">Slug закреплён после первой публикации.</p>}</div>
         <label className="block md:col-span-2">Meta description<textarea maxLength={500} rows={3} value={fields.metaDescription} onChange={event => setFields(previous => ({ ...previous, metaDescription: event.target.value }))} className={inputClass} /></label>
       </fieldset>
       <section className="space-y-3" aria-label="Редактирование текста">

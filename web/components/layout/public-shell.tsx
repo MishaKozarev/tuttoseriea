@@ -31,6 +31,12 @@ export function PublicShell({ children }: { children: ReactNode }) {
               Главная
             </Link>
             <Link
+              href="/articles"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              Статьи
+            </Link>
+            <Link
               href="/clubs"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             >

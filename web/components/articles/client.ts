@@ -21,7 +21,7 @@ export async function articleRequest<T>(path: string, init?: RequestInit): Promi
 export function needsArticleRefresh(error: unknown): boolean {
   if (error instanceof ArticleRequestError && error.code === "ARTICLE_SLUG_CONFLICT") return false;
   return !(error instanceof ArticleRequestError) || error.code === "UNKNOWN_OUTCOME" ||
-    error.code.includes("CONFLICT") || (error.status ?? 0) >= 500 || error.code === "ARTICLE_NOT_FOUND";
+    error.code.includes("CONFLICT") || error.code === "ARTICLE_SLUG_IMMUTABLE" || (error.status ?? 0) >= 500 || error.code === "ARTICLE_NOT_FOUND";
 }
 
 export function articleErrorMessage(error: unknown): string {
@@ -35,6 +35,8 @@ export function articleErrorMessage(error: unknown): string {
     ARTICLE_TOO_LARGE: "Текст слишком большой или содержит слишком сложную структуру.",
     ARTICLE_SLUG_INVALID: "Slug: строчные латинские буквы, цифры и дефисы между словами.",
     ARTICLE_SLUG_CONFLICT: "Этот slug уже используется другой статьёй. Выберите другой slug.",
+    ARTICLE_SLUG_IMMUTABLE: "Slug закреплён после первой публикации. Загрузите текущую версию перед сохранением.",
+    ARTICLE_NOT_READY: "Для публикации заполните H1, текст статьи и корректный slug. Сохраните правки черновика перед публикацией.",
     ARTICLE_FORMAT_UNSUPPORTED: "Формат текста не поддерживается. Сохраните свои правки перед обновлением страницы.",
     ARTICLE_IMAGE_LIMIT: "К черновику уже прикреплено максимальное число изображений.",
     MEDIA_TOO_LARGE: "Изображение превышает допустимый размер 5 MiB.",
@@ -44,7 +46,7 @@ export function articleErrorMessage(error: unknown): string {
     UNKNOWN_OUTCOME: "Результат операции не подтверждён. Загрузите текущую версию перед следующим изменением.",
   };
   const description = error.code.includes("CONFLICT") && error.code !== "ARTICLE_SLUG_CONFLICT"
-    ? "Черновик изменился. Загрузите текущую версию и выберите, какие правки продолжить."
+    ? "Данные статьи изменились. Загрузите текущую версию и выберите, какие правки продолжить."
     : messages[error.code] ?? "Операция отклонена. Проверьте данные и загрузите текущее состояние.";
   return `${description} Код: ${error.code}. Запрос: ${error.requestId ?? "—"}.`;
 }

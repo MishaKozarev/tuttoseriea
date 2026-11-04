@@ -37,6 +37,7 @@
     "db:auth:check": "node --import tsx scripts/check-auth-foundation.ts",
     "db:identity:check": "node --conditions react-server --import tsx scripts/check-identity-rbac.ts",
     "db:writers:check": "node --import tsx scripts/check-writer-capabilities.ts",
+    "db:article-publications:check": "node --import tsx scripts/check-article-publications-db.ts",
     "db:articles-authors-ui:check": "node --import tsx scripts/check-articles-authors-ui.mts",
     "db:article-drafts-ui:check": "node --import tsx scripts/check-article-drafts-ui.mts",
     "test:media-container": "node --import tsx scripts/check-media-container.mts",

@@ -3,9 +3,14 @@ import { Fragment, type ReactNode } from "react";
 import type { ArticleImageDTO } from "@/src/articles/contract";
 import { parseArticleDocument, type ArticleDocument, type ArticleNode } from "@/src/articles/document";
 
-export function ArticleContent({ content, images }: { content: ArticleDocument; images: ArticleImageDTO[] }) {
+export function ArticleContent({ content, images, visibility = "private" }: {
+  content: ArticleDocument; images: ArticleImageDTO[]; visibility?: "private" | "public";
+}) {
   const document = parseArticleDocument(content);
   const attachments = new Map(images.map(image => [image.id, image]));
+  // Only trusted callers choose public rendering. JSON nodes and DTO URLs cannot
+  // choose a source or make an asset public; the Media route checks its relation.
+  const imageScope = visibility === "public" ? "public" : "private";
 
   function nodeView(node: ArticleNode, key: string): ReactNode {
     const children = node.content?.map((child, index) => nodeView(child, `${key}.${index}`));
@@ -42,11 +47,11 @@ export function ArticleContent({ content, images }: { content: ArticleDocument; 
       case "listItem": return <li key={key} className="space-y-2">{children}</li>;
       case "articleImage": {
         const image = attachments.get(node.attrs!.assetId!);
-        if (!image) return <p key={key} role="alert">Изображение недоступно для этого черновика.</p>;
+        if (!image) return <p key={key} role="alert">{imageScope === "private" ? "Изображение недоступно для этого черновика." : "Изображение недоступно."}</p>;
         return <figure key={key} className="space-y-2">
-          {/* Private Media bypasses the independent Next image optimizer cache. */}
+          {/* Controlled Media bypasses the independent Next image optimizer cache. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/media/private/${image.id}.webp`} alt={node.attrs?.alt ?? ""} width={image.width} height={image.height} className="h-auto max-w-full rounded" />
+          <img src={`/media/${imageScope}/${image.id}.webp`} alt={node.attrs?.alt ?? ""} width={image.width} height={image.height} className="h-auto max-w-full rounded" />
           {node.attrs?.caption && <figcaption className="text-sm text-muted-foreground">{node.attrs.caption}</figcaption>}
         </figure>;
       }

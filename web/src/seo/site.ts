@@ -170,6 +170,48 @@ export function buildMatchMetadata(match: {
   };
 }
 
+export function isArticleIndexingEnabled(env: RuntimeEnv = process.env): boolean {
+  return getPublicSiteOrigin(env).origin === "https://tuttoseriea.com";
+}
+
+function articleRobots(index: boolean, follow: boolean): NonNullable<Metadata["robots"]> {
+  return { index, follow, googleBot: { index, follow } };
+}
+
+export function buildArticlesMetadata(page = 1, env: RuntimeEnv = process.env): Metadata {
+  const production = isArticleIndexingEnabled(env);
+  const canonical = page === 1 ? "/articles" : `/articles?page=${page}`;
+  return {
+    title: page === 1 ? "Статьи" : `Статьи — страница ${page}`,
+    description: "Авторские и аналитические статьи о Серии А.",
+    alternates: { canonical },
+    robots: articleRobots(production && page === 1, production),
+  };
+}
+
+export function buildArticleMetadata(article: {
+  slug: string; h1: string; seoTitle: string; metaDescription: string;
+  firstPublishedAt: string; updatedAt: string;
+}, env: RuntimeEnv = process.env): Metadata {
+  const title = article.seoTitle.trim() || article.h1;
+  const description = article.metaDescription.trim();
+  const path = `/articles/${article.slug}` as const;
+  const index = isArticleIndexingEnabled(env);
+  return {
+    title,
+    // null explicitly removes the inherited global description.
+    description: description || null,
+    alternates: { canonical: path },
+    robots: articleRobots(index, index),
+    openGraph: {
+      type: "article", title, ...(description ? { description } : {}),
+      url: createSiteUrl(path, env), siteName: SITE_NAME, locale: "ru_RU",
+      publishedTime: article.firstPublishedAt, modifiedTime: article.updatedAt,
+    },
+    twitter: { card: "summary", title, ...(description ? { description } : {}) },
+  };
+}
+
 export const adminNoindexMetadata: Metadata = {
   robots: {
     index: false,
@@ -197,6 +239,7 @@ export function buildSitemap(
   clubSlugs: readonly string[] = [],
   playerSlugs: readonly string[] = [],
   matchSlugs: readonly string[] = [],
+  articleSlugs: readonly string[] = [],
 ): MetadataRoute.Sitemap {
   return [
     {
@@ -223,5 +266,9 @@ export function buildSitemap(
     ...matchSlugs.map((slug) => ({
       url: createSiteUrl(`/matches/${slug}`, env),
     })),
+    ...(isArticleIndexingEnabled(env) ? [
+      { url: createSiteUrl("/articles", env) },
+      ...articleSlugs.map(slug => ({ url: createSiteUrl(`/articles/${slug}`, env) })),
+    ] : []),
   ];
 }
