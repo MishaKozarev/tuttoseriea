@@ -21,6 +21,10 @@ const articleTablePrivileges = [
   ["draft_tags", ["SELECT", "INSERT", "DELETE"]],
   ["draft_images", ["SELECT", "INSERT"]],
   ["operation_receipts", ["SELECT", "INSERT"]],
+  ["publications", ["SELECT", "INSERT", "UPDATE"]],
+  ["publication_categories", ["SELECT", "INSERT", "DELETE"]],
+  ["publication_tags", ["SELECT", "INSERT", "DELETE"]],
+  ["publication_images", ["SELECT", "INSERT", "DELETE"]],
 ];
 const authTablePrivileges = [
   {

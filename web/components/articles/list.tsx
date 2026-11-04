@@ -13,6 +13,10 @@ export function ArticlesList({ data, scope, manageAll }: { data: ArticleListDTO;
     {data.items.length ? <ul className="divide-y rounded border">{data.items.map(draft => <li key={draft.id} className="space-y-2 p-4">
       <Link href={`/admin/articles/${draft.id}`} className="break-words text-lg font-medium underline underline-offset-4">{draft.h1 || "Без заголовка"}</Link>
       <p className="text-sm text-muted-foreground">Автор: {draft.authorName || "Автор"}. Ревизия {draft.revision}.</p>
+      {draft.publication ? <div className="space-y-1 text-sm">
+        <p>Опубликована · версия {draft.publication.revision}. {draft.publication.sourceRevision !== draft.revision ? "Есть сохранённые изменения, которые ещё не опубликованы." : "Сохранённая версия опубликована."}</p>
+        <Link href={`/articles/${encodeURIComponent(draft.publication.slug)}`} target="_blank" rel="noopener noreferrer" className="inline-block underline">Открыть опубликованную статью</Link>
+      </div> : <p className="text-sm text-muted-foreground">Не опубликована.</p>}
       <p className="text-sm text-muted-foreground">Изменён: <time dateTime={draft.updatedAt}>{new Date(draft.updatedAt).toLocaleString("ru-RU", { timeZone: "UTC" })} UTC</time></p>
     </li>)}</ul> : <p className="rounded border p-5">Черновиков пока нет.</p>}
     <nav aria-label="Страницы черновиков" className="flex flex-wrap gap-4 text-sm underline">

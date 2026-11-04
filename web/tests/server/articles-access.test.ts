@@ -13,7 +13,7 @@ vi.mock("@/src/auth/security-store", async importOriginal => ({
   AuthSecurityStore: class { lock = mocks.lock; user = mocks.user; },
 }));
 
-import { getArticlesAccess, requireArticleActor, requireArticleDraftAccess, revalidateArticleActor, type ArticleActor } from "@/src/articles/access";
+import { getArticlesAccess, requireArticleActor, requireArticleDraftAccess, requireArticlePublicationAccess, revalidateArticleActor, type ArticleActor } from "@/src/articles/access";
 const id = "5e03d92b-cf69-4288-8e43-6a02e9340497";
 const actor: ArticleActor = { sessionToken: "synthetic", accountId: "writer", authUserId: "user", manageAll: false };
 const identity = { accountId: "writer", authUserId: "user", status: "active", roles: ["writer"] };
@@ -30,6 +30,14 @@ beforeEach(() => {
 });
 
 describe("Article access uses current Identity permissions", () => {
+  it("admits publication only with an individual own grant or Super Admin permission", async () => {
+    mocks.query.mockResolvedValue({ rows: [{ id }] });
+    await expect(requireArticlePublicationAccess(id)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    mocks.identity.mockResolvedValue({ ...identity, permissions: ["article.publish.own"] });
+    expect(await requireArticlePublicationAccess(id)).toMatchObject({ publishOwn: true, publishAll: false });
+    mocks.identity.mockResolvedValue({ ...identity, roles: ["super_admin"] });
+    expect(await requireArticlePublicationAccess(id)).toMatchObject({ publishAll: true, manageAll: true });
+  });
   it.each([{ roles: ["writer"] }, { roles: ["writer", "admin"] }, { roles: ["super_admin"] }])("allows drafts independently of publish-own for %j", async ({ roles }) => {
     mocks.identity.mockResolvedValue({ ...identity, roles });
     expect(await requireArticleActor()).toMatchObject({ accountId: "writer", manageAll: roles.includes("super_admin") });
@@ -60,6 +68,15 @@ describe("Article access uses current Identity permissions", () => {
 });
 
 describe("Article transaction revalidation", () => {
+  it("reads the individual publication grant after the shared user lock and does not trust an old flag", async () => {
+    let grant = true;
+    mocks.lock.mockImplementation(async () => { grant = false; });
+    mocks.query.mockImplementation(async (sql: string) => ({ rows: sql.includes("account_permission_assignments") ? [{ granted: grant }] : [session] }));
+    expect(await revalidateArticleActor({ query: mocks.query }, { ...actor, publishOwn: true, publishAll: true })).toMatchObject({ publishOwn: false, publishAll: false });
+    grant = true; mocks.lock.mockResolvedValue(undefined);
+    expect(await revalidateArticleActor({ query: mocks.query }, actor)).toMatchObject({ publishOwn: true, publishAll: false });
+    expect(mocks.query.mock.calls.at(-1)?.[1]).toEqual([actor.accountId, "article.publish.own"]);
+  });
   it("waits on the shared canonical user lock before reading fresh authority", async () => {
     const order: string[] = [];
     mocks.lock.mockImplementation(async () => { order.push("lock"); user.roles = ["admin"]; });

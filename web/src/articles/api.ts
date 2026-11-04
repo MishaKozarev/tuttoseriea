@@ -3,9 +3,9 @@ import { ApplicationError, createApiErrorResponse, resolveRequestId, REQUEST_ID_
 import { assertAdminMutationOrigin } from "../admin/mutation";
 import { CategoryError } from "../categories/management";
 import { FootballTagError } from "../taxonomy/football-tags";
-import { requireArticleActor, requireArticleDraftAccess } from "./access";
+import { requireArticleActor, requireArticleDraftAccess, requireArticlePublicationAccess } from "./access";
 import { ARTICLE_MAX_BODY_BYTES, ArticleError, articleError, parseArticleListQuery } from "./contract";
-import { createArticleDraft, getArticleDraft, listArticleDrafts, lookupArticleCategories, lookupArticleTags, saveArticleDraft } from "./service";
+import { createArticleDraft, getArticleDraft, listArticleDrafts, lookupArticleCategories, lookupArticleTags, saveArticleDraft, publishArticleDraft } from "./service";
 
 export async function readArticleMutationJson(request: Request): Promise<unknown> {
   assertAdminMutationOrigin(request);
@@ -60,5 +60,12 @@ export function articleOptionsApi(request: Request, kind: "categories" | "tags")
     await requireArticleActor();
     const params = new URL(request.url).searchParams;
     return Response.json(kind === "categories" ? await lookupArticleCategories(params) : await lookupArticleTags(params));
+  });
+}
+export function articlePublicationApi(request: Request, articleId: string) {
+  return boundary(request, async () => {
+    await requireArticlePublicationAccess(articleId);
+    noQuery(request);
+    return Response.json({ draft: await publishArticleDraft(articleId, await readArticleMutationJson(request)) });
   });
 }

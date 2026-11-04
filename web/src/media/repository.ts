@@ -20,6 +20,21 @@ export async function findLinkedAvatar(id: string, ownerAccountId?: string): Pro
   return row ?? null;
 }
 
+export async function findPublicMediaAsset(id: string): Promise<StoredMediaAsset | null> {
+  // Public access follows a current relation, never an upload or a working draft.
+  // Disabled authors keep their public identity and published Article images.
+  const row = (await getDbPool().query<StoredMediaAsset>(`
+    select m.id,m.storage_key as "storageKey",m.mime_type as "mimeType",m.byte_size as "byteSize",
+      m.width,m.height,m.sha256,m.uploader_account_id as "uploaderAccountId"
+    from media.assets m where m.id=$1 and (
+      (m.kind='avatar' and exists(select 1 from identity.writer_profiles p where p.avatar_media_id=m.id))
+      or (m.kind='article_image' and exists(
+        select 1 from article.publication_images i join article.publications p on p.article_id=i.publication_id
+        where i.media_id=m.id))
+    ) limit 1`, [id])).rows[0];
+  return row ?? null;
+}
+
 export async function findArticleDraftImage(id: string, actor: ArticleActor): Promise<StoredMediaAsset | null> {
   // Uploading an image does not make it public. Access comes from the current
   // attachment and Article ACL, including images uploaded by a Super Admin.

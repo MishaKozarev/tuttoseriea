@@ -214,6 +214,7 @@ describe("site SEO configuration", () => {
       { url: "https://tuttoseriea.com/players/statistics-only-2" },
       { url: "https://tuttoseriea.com/matches/ac-milan-inter-12345" },
       { url: "https://tuttoseriea.com/matches/juventus-roma-12346" },
+      { url: "https://tuttoseriea.com/articles" },
     ]);
     expect(sitemap.map((entry) => entry.url)).not.toContain(
       "https://tuttoseriea.com/admin",

@@ -5,7 +5,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/src/db", () => ({ getDbPool: () => ({ query: mocks.query }) }));
 vi.mock("@/src/articles/service", () => ({ withArticleDraftWrite: mocks.write }));
 
-import { attachArticleDraftImage, findArticleDraftImage, findLinkedAvatar } from "@/src/media/repository";
+import { attachArticleDraftImage, findArticleDraftImage, findLinkedAvatar, findPublicMediaAsset } from "@/src/media/repository";
 import type { StoredPurposeMediaAsset } from "@/src/media/storage";
 
 const articleId = "bd996433-5bfa-41a7-883f-f55f4d9e9803";
@@ -24,6 +24,18 @@ describe("Media purposes and Article attachment access", () => {
     expect(await findLinkedAvatar(asset.id)).toBeNull();
     expect(mocks.query.mock.calls[0][0]).toContain("m.kind='avatar'");
     expect(mocks.query.mock.calls[0][0]).not.toContain("article.draft_images");
+  });
+  it("grants public access only through a current avatar or current published snapshot relation", async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [asset] }).mockResolvedValueOnce({ rows: [] });
+    expect(await findPublicMediaAsset(asset.id)).toEqual(asset);
+    const [sql, args] = mocks.query.mock.calls[0];
+    expect(args).toEqual([asset.id]);
+    expect(sql).toContain("m.kind='avatar' and exists"); expect(sql).toContain("identity.writer_profiles");
+    expect(sql).toContain("m.kind='article_image' and exists"); expect(sql).toContain("article.publication_images");
+    expect(sql).toContain("join article.publications p on p.article_id=i.publication_id");
+    expect(sql).not.toContain("article.drafts"); expect(sql).not.toContain("draft_images"); expect(sql).not.toContain("history");
+    expect(sql).not.toContain("identity.accounts"); expect(sql).not.toContain("status");
+    expect(await findPublicMediaAsset(asset.id)).toBeNull();
   });
   it("resolves private images only through an Article attachment and the trusted owner's or manager's ACL", async () => {
     mocks.query.mockResolvedValue({ rows: [asset] });

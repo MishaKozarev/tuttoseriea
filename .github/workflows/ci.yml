@@ -170,6 +170,13 @@ jobs:
           DATABASE_APP_PASSWORD: tuttoseriea_ci_web_password
         run: pnpm run db:provision-role
 
+      - name: Check Article publication database safeguards
+        working-directory: web
+        env:
+          DATABASE_URL: postgresql://tuttoseriea_ci_web:tuttoseriea_ci_web_password@127.0.0.1:5432/tuttoseriea_ci
+          MIGRATION_DATABASE_URL: postgresql://tuttoseriea_ci:tuttoseriea_ci_password@127.0.0.1:5432/tuttoseriea_ci
+        run: pnpm run db:article-publications:check
+
       - name: Smoke web with Playwright
         working-directory: web
         env:

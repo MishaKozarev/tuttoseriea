@@ -3,16 +3,20 @@ import { ARTICLE_FORMAT_VERSION, articleError, articleFields, articleMediaId, ar
 export { ArticleError, articleError } from "./document";
 export const ARTICLE_MAX_BODY_BYTES = 1024 * 1024;
 export type ArticleImageDTO = { id: string; url: string; width: number; height: number; byteSize: number };
-export type ArticleSummaryDTO = { id: string; authorAccountId: string; authorName: string; h1: string; revision: number; createdAt: string; updatedAt: string };
+export type ArticlePublicationDTO = { revision: number; sourceRevision: number; slug: string; firstPublishedAt: string; updatedAt: string };
+export type ArticleSummaryDTO = { id: string; authorAccountId: string; authorName: string; h1: string; revision: number; createdAt: string; updatedAt: string; publication: ArticlePublicationDTO | null };
 export type ArticleListDTO = { items: ArticleSummaryDTO[]; page: number; total: number; totalPages: number };
 export type ArticleDraftDTO = ArticleSummaryDTO & {
   formatVersion: typeof ARTICLE_FORMAT_VERSION; content: ArticleDocument;
-  seoTitle: string; metaDescription: string; slug: string;
+  seoTitle: string; metaDescription: string; slug: string; canPublish: boolean;
   categoryIds: string[]; tagIds: string[];
   categories: { id: string; name: string }[]; tags: FootballTag[]; images: ArticleImageDTO[];
 };
 export type ArticleListQuery = { page: number; scope?: "own" | "all" };
 export type ArticleCreateInput = { operationId: string };
+export type ArticlePublicationInput = {
+  action: "publish" | "update"; operationId: string; expectedRevision: number; expectedPublicationRevision: number;
+};
 export type ArticleSaveInput = {
   operationId: string; expectedRevision: number; formatVersion: typeof ARTICLE_FORMAT_VERSION;
   content: ArticleDocument; h1: string; seoTitle: string; metaDescription: string; slug: string;
@@ -40,6 +44,14 @@ function ids(value: unknown, max: number): string[] {
 export function parseArticleCreate(value: unknown): ArticleCreateInput {
   const input = articleRecord(value); articleFields(input, ["operationId"]);
   return { operationId: articleOperationId(input.operationId) };
+}
+export function parseArticlePublication(value: unknown): ArticlePublicationInput {
+  const input = articleRecord(value);
+  articleFields(input, ["action", "operationId", "expectedRevision", "expectedPublicationRevision"]);
+  if (input.action !== "publish" && input.action !== "update") articleError();
+  const expectedPublicationRevision = articleRevision(input.expectedPublicationRevision);
+  if (input.action === "publish" && expectedPublicationRevision !== 0 || input.action === "update" && expectedPublicationRevision === 0) articleError();
+  return { action: input.action, operationId: articleOperationId(input.operationId), expectedRevision: articleRevision(input.expectedRevision), expectedPublicationRevision };
 }
 export function parseArticleSave(value: unknown): ArticleSaveInput {
   const input = articleRecord(value);

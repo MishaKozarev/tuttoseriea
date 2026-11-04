@@ -307,15 +307,232 @@ async function main() {
       has_table_privilege(current_user,'media.assets','UPDATE') as media_update,
       has_table_privilege(current_user,'media.assets','DELETE') as media_delete`)).rows[0];
     assert.deepEqual(privileges, { author_update: false, article_delete: false, draft_delete: false, media_update: false, media_delete: false });
+
+    phase = "Super Admin first publication and Writer grant-controlled updates";
+    if (image) {
+      const attachInBody = await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: saveInput(draft, {
+        content: { type: "doc", content: [...rich.content, { type: "articleImage", attrs: { assetId: image.id, alt: "Тактическая схема", caption: "Публичная иллюстрация" } }] },
+      }) });
+      assert.equal(attachInBody.status(), 200); draft = await getDraft(author.context, draft.id);
+    }
+    const publicPath = `/articles/${draft.slug}`;
+    assert.equal((await anonymous.request.get(publicPath)).status(), 404, "An unpublished draft must have a real public 404");
+    const publicationBody = { action: "publish", operationId: randomUUID(), expectedRevision: draft.revision, expectedPublicationRevision: 0 };
+    assert.equal(draft.canPublish, false);
+    for (const [client, expected] of [[author.context, 403], [ordinaryAdmin.context, 403], [anonymous, 401], [stranger.context, 404]] as const) {
+      const denied = await client.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: publicationBody });
+      assert.equal(denied.status(), expected); noStore(denied.headers());
+    }
+    await staff.page.goto(`/admin/articles/${draft.id}`);
+    const publishing = staff.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${draft.id}/publication`) && response.request().method() === "POST");
+    await staff.page.getByRole("button", { name: "Опубликовать статью", exact: true }).click();
+    const publishedResponse = await publishing; assert.equal(publishedResponse.status(), 200); noStore(publishedResponse.headers());
+    const staffPublished = (await publishedResponse.json()).draft as ArticleDraftDTO;
+    assert.equal(staffPublished.revision, draft.revision, "Publication must not increment the draft revision");
+    assert.equal(staffPublished.authorAccountId, writer.accountId); assert(staffPublished.publication);
+    assert.equal(staffPublished.publication.revision, 1); assert.equal(staffPublished.publication.sourceRevision, draft.revision);
+    await expect(staff.page.getByLabel("Slug", { exact: true })).toBeDisabled();
+    await expect(staff.page.getByRole("link", { name: "Открыть опубликованную статью", exact: true })).toHaveAttribute("href", publicPath);
+    draft = await getDraft(author.context, draft.id);
+    const firstPublication = { ...draft.publication! };
+    async function publicationState() {
+      const publication = (await pool.query("select * from article.publications where article_id=$1", [draft.id])).rows[0];
+      const categories = (await pool.query("select category_id from article.publication_categories where publication_id=$1 order by category_id", [draft.id])).rows;
+      const tags = (await pool.query("select tag_id from article.publication_tags where publication_id=$1 order by tag_id", [draft.id])).rows;
+      const images = (await pool.query("select media_id from article.publication_images where publication_id=$1 order by media_id", [draft.id])).rows;
+      return { publication, categories, tags, images };
+    }
+    const firstState = await publicationState();
+    assert.equal(firstState.publication.h1, draft.h1); assert.deepEqual(firstState.publication.content, draft.content);
+    assert.deepEqual(firstState.categories.map(row => row.category_id), [...draft.categoryIds].sort());
+    assert.deepEqual(firstState.tags.map(row => row.tag_id), [...draft.tagIds].sort());
+    await anonymousPage.goto(publicPath); await expect(anonymousPage.getByRole("heading", { name: draft.h1, level: 1, exact: true })).toBeVisible();
+    if (image) {
+      const publicImage = await anonymous.request.get(`/media/public/${image.id}.webp`); assert.equal(publicImage.status(), 200);
+      assert(publicImage.headers()["cache-control"].includes("s-maxage=3600"));
+    }
+
+    const pendingH1 = `Неопубликованная правка ${runId}`;
+    const pendingText = `Новая сохранённая версия ${runId}`;
+    const nextContent: ArticleDocument = { type: "doc", content: [
+      { type: "paragraph", content: [{ type: "text", text: pendingText }] },
+      ...(image ? [{ type: "articleImage" as const, attrs: { assetId: image.id, alt: "Тактическая схема", caption: "Обновлённая подпись" } }] : []),
+    ] };
+    const pendingSave = await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: saveInput(draft, {
+      h1: pendingH1, content: nextContent, categoryIds: [categoryIds[1]], tagIds: [sources[3].tagId],
+    }) });
+    assert.equal(pendingSave.status(), 200); draft = await getDraft(author.context, draft.id);
+    assert.equal(draft.canPublish, false); assert.deepEqual(await publicationState(), firstState, "An ordinary save changed public content or relations");
+    await anonymousPage.reload(); await expect(anonymousPage.getByRole("heading", { name: firstState.publication.h1, level: 1, exact: true })).toBeVisible();
+    await expect(anonymousPage.getByText(pendingText, { exact: true })).toHaveCount(0);
+    const changedSlug = await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: saveInput(draft, { slug: `${draft.slug}-changed` }) });
+    assert.equal(changedSlug.status(), 409); assert.equal((await changedSlug.json()).error.code, "ARTICLE_SLUG_IMMUTABLE");
+    assert.deepEqual(await getDraft(author.context, draft.id), draft);
+    const writerProfile = (await (await author.context.request.get("/api/admin/profile")).json()).profile;
+    const grant = await staff.context.request.patch(`/api/admin/writers/${writer.accountId}/publication`, { headers: { origin }, data: {
+      enabled: true, expectedRevision: writerProfile.publicationRevision, operationId: randomUUID(),
+    } });
+    assert.equal(grant.status(), 200); const grantedProfile = (await grant.json()).profile;
+    draft = await getDraft(author.context, draft.id); assert.equal(draft.canPublish, true);
+    await author.page.goto(`/admin/articles/${draft.id}`); await expect(author.page.getByLabel("Slug", { exact: true })).toBeDisabled();
+    await expect(author.page.getByText(/Есть сохранённые изменения, которые ещё не опубликованы/)).toBeVisible();
+    const beforeUpdateRevision = draft.revision;
+    const updatingPublication = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${draft.id}/publication`) && response.request().method() === "POST");
+    await author.page.getByRole("button", { name: "Обновить публикацию", exact: true }).click();
+    const updatedResponse = await updatingPublication; assert.equal(updatedResponse.status(), 200);
+    const updatePayload = updatedResponse.request().postDataJSON();
+    draft = (await updatedResponse.json()).draft as ArticleDraftDTO; assert(draft.publication);
+    assert.equal(draft.revision, beforeUpdateRevision); assert.equal(draft.publication.revision, 2);
+    assert.equal(draft.publication.firstPublishedAt, firstPublication.firstPublishedAt); assert.equal(draft.publication.slug, firstPublication.slug);
+    assert(Date.parse(draft.publication.updatedAt) > Date.parse(firstPublication.updatedAt));
+    assert.equal(draft.authorAccountId, writer.accountId);
+    const updatedState = await publicationState();
+    assert.deepEqual(updatedState.publication.content, nextContent); assert.equal(updatedState.publication.h1, pendingH1);
+    assert.deepEqual(updatedState.categories.map(row => row.category_id), [categoryIds[1]]);
+    assert.deepEqual(updatedState.tags.map(row => row.tag_id), [sources[3].tagId]);
+    const replayPublication = await author.context.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: updatePayload });
+    assert.equal(replayPublication.status(), 200); assert.deepEqual(await publicationState(), updatedState, "Publication replay changed its revision or timestamps");
+    for (const stale of [{ expectedRevision: draft.revision - 1, expectedPublicationRevision: 2 }, { expectedRevision: draft.revision, expectedPublicationRevision: 1 }]) {
+      const response = await author.context.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: { action: "update", operationId: randomUUID(), ...stale } });
+      assert.equal(response.status(), 409); assert.equal((await response.json()).error.code, "ARTICLE_CONFLICT");
+      assert.deepEqual(await publicationState(), updatedState, "A stale publication changed the public aggregate");
+    }
+    await anonymousPage.reload(); await expect(anonymousPage.getByRole("heading", { name: pendingH1, level: 1, exact: true })).toBeVisible();
+    await expect(anonymousPage.getByText(pendingText, { exact: true })).toBeVisible();
+    const revoke = await staff.context.request.patch(`/api/admin/writers/${writer.accountId}/publication`, { headers: { origin }, data: {
+      enabled: false, expectedRevision: grantedProfile.publicationRevision, operationId: randomUUID(),
+    } });
+    assert.equal(revoke.status(), 200);
+    const afterRevoke = await author.context.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: {
+      action: "update", operationId: randomUUID(), expectedRevision: draft.revision, expectedPublicationRevision: draft.publication.revision,
+    } });
+    assert.equal(afterRevoke.status(), 403); assert.deepEqual(await publicationState(), updatedState);
+    await author.page.reload(); await expect(author.page.getByRole("button", { name: "Обновить публикацию", exact: true })).toHaveCount(0);
+
+    // Observe the actual PostgreSQL waits, rather than assuming request order
+    // from a sleep. All blockers and mutations belong to this run's fixtures.
+    const runtimeRole = (await runtime.query<{ role: string }>("select current_user as role")).rows[0].role;
+    async function waitForPg(description: string, predicate: () => Promise<boolean>) {
+      const deadline = Date.now() + 10_000;
+      do {
+        if (await predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      } while (Date.now() < deadline);
+      assert.fail(description);
+    }
+    function tracked<T>(request: Promise<T>) {
+      return request.then(result => ({ result, error: undefined }), (error: unknown) => ({ result: undefined, error }));
+    }
+    async function grantForRace() {
+      const profile = (await (await author.context.request.get("/api/admin/profile")).json()).profile;
+      const response = await staff.context.request.patch(`/api/admin/writers/${writer.accountId}/publication`, { headers: { origin }, data: {
+        enabled: true, expectedRevision: profile.publicationRevision, operationId: randomUUID(),
+      } });
+      assert.equal(response.status(), 200);
+      return (await response.json()).profile as { publicationRevision: number };
+    }
+    const updateForRace = () => ({ action: "update", operationId: randomUUID(), expectedRevision: draft.revision, expectedPublicationRevision: draft.publication!.revision });
+    const writerLockPredicate = `l.locktype='advisory' and l.classid=910230207::oid and l.objsubid=2
+      and l.objid=(hashtext($1)::bigint & 4294967295::bigint)::oid and a.usename=$2 and a.datname=current_database()`;
+
+    phase = "grant revoke commits before the waiting publication authorizes";
+    await grantForRace();
+    draft = await getDraft(author.context, draft.id); assert.equal(draft.canPublish, true);
+    const beforeRevokeFirst = await publicationState();
+    const revokeBlocker = await pool.connect();
+    let waitingPublication: ReturnType<typeof tracked<APIResponse>> | undefined;
+    try {
+      await revokeBlocker.query("begin");
+      const blockerPid = (await revokeBlocker.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+      await revokeBlocker.query("select pg_advisory_xact_lock(910230207,hashtext($1))", [writer.userId]);
+      assert.equal((await revokeBlocker.query(`update identity.account_permission_assignments set granted=false,revision=revision+1,updated_at=clock_timestamp()
+        where account_id=$1 and permission_id='article.publish.own'`, [writer.accountId])).rowCount, 1);
+      waitingPublication = tracked(author.context.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: updateForRace() }));
+      await waitForPg("Publication did not wait on the exact Writer canonical lock", async () => {
+        const row = (await pool.query<{ blocked: boolean }>(`select exists(select 1 from pg_locks l join pg_stat_activity a on a.pid=l.pid
+          where ${writerLockPredicate} and not l.granted and $3::int=any(pg_blocking_pids(l.pid))) as blocked`, [writer.userId, runtimeRole, blockerPid])).rows[0];
+        return row.blocked;
+      });
+      await revokeBlocker.query("commit");
+      const outcome = await waitingPublication;
+      if (outcome.error) throw outcome.error;
+      assert(outcome.result); assert.equal(outcome.result.status(), 403); noStore(outcome.result.headers());
+      assert.deepEqual(await publicationState(), beforeRevokeFirst, "Revoke-first race changed the public aggregate");
+      draft = await getDraft(author.context, draft.id); assert.equal(draft.canPublish, false);
+    } finally {
+      await revokeBlocker.query("rollback").catch(() => undefined); revokeBlocker.release();
+      if (waitingPublication) await waitingPublication;
+    }
+
+    phase = "publication owns the canonical lock before the waiting grant revoke";
+    const raceGrant = await grantForRace();
+    draft = await getDraft(author.context, draft.id); assert.equal(draft.canPublish, true); assert(draft.publication);
+    const beforePublishFirst = await publicationState();
+    const beforePublishFirstDraftRevision = draft.revision;
+    const draftBlocker = await pool.connect();
+    let firstPublicationRequest: ReturnType<typeof tracked<APIResponse>> | undefined;
+    let waitingRevoke: ReturnType<typeof tracked<APIResponse>> | undefined;
+    try {
+      await draftBlocker.query("begin");
+      const blockerPid = (await draftBlocker.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+      assert.equal((await draftBlocker.query("select article_id from article.drafts where article_id=$1 for update", [draft.id])).rows.length, 1);
+      firstPublicationRequest = tracked(author.context.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: updateForRace() }));
+      let publicationPid = 0;
+      await waitForPg("Publication did not hold the Writer lock while waiting on the exact draft blocker", async () => {
+        publicationPid = (await pool.query<{ pid: number }>(`select l.pid from pg_locks l join pg_stat_activity a on a.pid=l.pid
+          where ${writerLockPredicate} and l.granted
+            and $3::int=any(pg_blocking_pids(l.pid)) limit 1`, [writer.userId, runtimeRole, blockerPid])).rows[0]?.pid ?? 0;
+        return publicationPid > 0;
+      });
+      waitingRevoke = tracked(staff.context.request.patch(`/api/admin/writers/${writer.accountId}/publication`, { headers: { origin }, data: {
+        enabled: false, expectedRevision: raceGrant.publicationRevision, operationId: randomUUID(),
+      } }));
+      await waitForPg("Grant revoke did not wait behind the exact publication Writer lock", async () => {
+        return (await pool.query<{ blocked: boolean }>(`select exists(select 1 from pg_locks l join pg_stat_activity a on a.pid=l.pid
+          where ${writerLockPredicate} and not l.granted and l.pid<>$3::int
+            and $3::int=any(pg_blocking_pids(l.pid))) as blocked`, [writer.userId, runtimeRole, publicationPid])).rows[0].blocked;
+      });
+      await draftBlocker.query("commit");
+      const publicationOutcome = await firstPublicationRequest;
+      if (publicationOutcome.error) throw publicationOutcome.error;
+      assert(publicationOutcome.result); assert.equal(publicationOutcome.result.status(), 200); noStore(publicationOutcome.result.headers());
+      const publishedDraft = (await publicationOutcome.result.json()).draft as ArticleDraftDTO;
+      assert.equal(publishedDraft.revision, beforePublishFirstDraftRevision);
+      assert.equal(publishedDraft.publication!.revision, beforePublishFirst.publication.revision + 1);
+      assert.equal(publishedDraft.publication!.firstPublishedAt, firstPublication.firstPublishedAt);
+      assert.equal(publishedDraft.publication!.slug, firstPublication.slug); assert.equal(publishedDraft.authorAccountId, writer.accountId);
+      const revokeOutcome = await waitingRevoke;
+      if (revokeOutcome.error) throw revokeOutcome.error;
+      assert(revokeOutcome.result); assert.equal(revokeOutcome.result.status(), 200);
+      const afterPublishFirst = await publicationState();
+      assert.equal(afterPublishFirst.publication.revision, beforePublishFirst.publication.revision + 1);
+      assert(afterPublishFirst.publication.updated_at.getTime() > beforePublishFirst.publication.updated_at.getTime());
+      assert.equal(afterPublishFirst.publication.first_published_at.getTime(), beforePublishFirst.publication.first_published_at.getTime());
+      assert.deepEqual(afterPublishFirst.publication.content, beforePublishFirst.publication.content);
+      assert.deepEqual(afterPublishFirst.categories, beforePublishFirst.categories); assert.deepEqual(afterPublishFirst.tags, beforePublishFirst.tags);
+      assert.deepEqual(afterPublishFirst.images, beforePublishFirst.images);
+      draft = await getDraft(author.context, draft.id); assert.equal(draft.canPublish, false);
+      const denied = await author.context.request.post(`/api/admin/articles/${draft.id}/publication`, { headers: { origin }, data: updateForRace() });
+      assert.equal(denied.status(), 403); assert.deepEqual(await publicationState(), afterPublishFirst, "Post-race revoked Writer changed publication");
+    } finally {
+      await draftBlocker.query("rollback").catch(() => undefined); draftBlocker.release();
+      await Promise.all([firstPublicationRequest, waitingRevoke].filter(request => request !== undefined));
+    }
+    draft = await getDraft(author.context, draft.id);
+    assert.equal(draft.authorAccountId, writer.accountId); assert.equal(draft.publication!.firstPublishedAt, firstPublication.firstPublishedAt);
+    console.log("article_publication_lock_races=passed revoke_first=403-unchanged publish_first=200-then-revoke200-further403");
+
     phase = "disabled and revoked fixture sessions lose protected access";
     await pool.query("update identity.accounts set status='disabled' where id=$1", [writer.accountId]);
     assert.equal((await author.context.request.get(`/api/admin/articles/${draft.id}`)).status(), 401);
     assert.equal((await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: saveInput(draft) })).status(), 401);
     if (image) assert.equal((await author.context.request.get(image.url)).status(), 401);
+    assert.equal((await anonymous.request.get(publicPath)).status(), 200, "Disabling an author must retain the existing public Article");
+    if (image) assert.equal((await anonymous.request.get(`/media/public/${image.id}.webp`)).status(), 200);
     await pool.query("delete from auth.staff_sessions where user_id=$1", [other.userId]);
     assert.equal((await stranger.context.request.get("/api/admin/articles")).status(), 401);
     assert.equal(externalRequests, 0); assert.equal(Number((await pool.query("select count(*) from jobs.admin_requests")).rows[0].count), beforeJobs);
-    console.log(`article_drafts_ui_check=passed identity=fixture-only mfa=real editor=roundtrip taxonomy=2-categories-4-tag-kinds cas=real ownership=immutable references=atomic provider_requests=0 image=${process.platform === "win32" ? "real-upload-private-acl" : "no-bind-denied-positive-not-run"}`);
+    console.log(`article_drafts_ui_check=passed identity=fixture-only mfa=real editor=roundtrip taxonomy=2-categories-4-tag-kinds cas=real ownership=immutable references=atomic publication=sa-first-writer-grant-snapshot-update-replay-stale provider_requests=0 image=${process.platform === "win32" ? "real-upload-private-acl" : "no-bind-denied-positive-not-run"}`);
     console.log(`retained_fixture_media=${mediaRoot}`);
   } finally {
     await browser?.close().catch(() => undefined);
@@ -326,6 +543,8 @@ async function main() {
     try {
       const articleIds = (await pool.query("select id from article.articles where author_account_id=any($1::text[])", [accountIds])).rows.map(row => row.id);
       await pool.query("delete from article.operation_receipts where actor_account_id=any($1::text[])", [accountIds]);
+      for (const table of ["publication_categories", "publication_tags", "publication_images"] as const) await pool.query(`delete from article.${table} where publication_id=any($1::text[])`, [articleIds]);
+      await pool.query("delete from article.publications where article_id=any($1::text[])", [articleIds]);
       for (const table of ["draft_categories", "draft_tags", "draft_images"] as const) await pool.query(`delete from article.${table} where draft_id=any($1::text[])`, [articleIds]);
       await pool.query("delete from article.drafts where article_id=any($1::text[])", [articleIds]);
       await pool.query("delete from article.articles where id=any($1::text[])", [articleIds]);

@@ -28,6 +28,22 @@ describe("Protected article content renderer", () => {
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("недоступно");
   });
+  it("uses public URLs only for the trusted public renderer mode and still ignores arbitrary DTO sources", () => {
+    const content: ArticleDocument = { type: "doc", content: [{ type: "articleImage", attrs: { assetId, alt: "Опубликованная схема", caption: "Публичная подпись" } }] };
+    render(<ArticleContent content={content} images={[{ id: assetId, url: "https://external.invalid/untrusted", width: 2048, height: 1024, byteSize: 1000 }]} visibility="public" />);
+    expect(screen.getByRole("img").getAttribute("src")).toBe(`/media/public/${assetId}.webp`);
+    expect(screen.getByRole("img").getAttribute("alt")).toBe("Опубликованная схема");
+    expect(screen.getByText("Публичная подпись")).toBeTruthy();
+  });
+  it("keeps an image absent from the published snapshot allowlist hidden in public mode", () => {
+    render(<ArticleContent content={{ type: "doc", content: [{ type: "articleImage", attrs: { assetId, alt: "", caption: "" } }] }} images={[]} visibility="public" />);
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe("Изображение недоступно.");
+  });
+  it("does not accept an image source or visibility flag supplied in editorial JSON", () => {
+    const content = { type: "doc", content: [{ type: "articleImage", attrs: { assetId, alt: "", caption: "", src: "/media/public/forged.webp", visibility: "public" } }] } as unknown as ArticleDocument;
+    expect(() => render(<ArticleContent content={content} images={[]} visibility="public" />)).toThrow();
+  });
   it("uses the shared validator to reject arbitrary HTML nodes and unsafe links", () => {
     expect(() => render(<ArticleContent content={{ type: "doc", content: [{ type: "html", text: "unsafe" }] } as unknown as ArticleDocument} images={[]} />)).toThrow();
     expect(() => render(<ArticleContent content={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "unsafe", marks: [{ type: "link", attrs: { href: "javascript:unsafe()" } }] }] }] }} images={[]} />)).toThrow();

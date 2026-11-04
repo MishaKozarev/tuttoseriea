@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { hashPassword } from "better-auth/crypto";
 import type { Pool } from "pg";
 import { updateCookies } from "./auth-test-helpers";
@@ -25,10 +26,11 @@ export async function seedArticleStaff(pool: Pool, roles: readonly string[] = ["
 }
 
 /** Writer/Admin login only; no MFA bypass or synthesized session. */
-export async function loginArticleStaff(origin: string, fixture: Pick<ArticleStaffFixture, "email" | "password">): Promise<string> {
+export async function loginArticleStaff(origin: string, fixture: Pick<ArticleStaffFixture, "email" | "password">, fixtureIp?: string): Promise<string> {
   assert(["127.0.0.1", "localhost"].includes(new URL(origin).hostname), "Fixture login must stay on loopback");
+  if (fixtureIp) assert(isIP(fixtureIp), "An explicit fixture IP must be valid");
   const response = await fetch(`${origin}/api/auth/sign-in/email`, {
-    method: "POST", headers: { origin, "Content-Type": "application/json" }, body: JSON.stringify({ email: fixture.email, password: fixture.password }), redirect: "manual",
+    method: "POST", headers: { origin, "Content-Type": "application/json", ...(fixtureIp ? { "x-real-ip": fixtureIp } : {}) }, body: JSON.stringify({ email: fixture.email, password: fixture.password }), redirect: "manual",
   });
   assert.equal(response.status, 200, "Synthetic fixture password login failed");
   const result = await response.json() as { twoFactorRedirect?: boolean };

@@ -12,7 +12,7 @@ import { decideAdminAccess } from "../identity/admin-access";
 import { createAdminLoginPath } from "../identity/admin-return";
 import { hasIdentityPermission, hasPermissionForRoles, isStaffRoleId, PERMISSION_IDS } from "../identity/rbac";
 
-export type ArticleActor = { sessionToken: string; accountId: string; authUserId: string; manageAll: boolean };
+export type ArticleActor = { sessionToken: string; accountId: string; authUserId: string; manageAll: boolean; publishOwn?: boolean; publishAll?: boolean };
 
 export function articleNotFound(): never {
   throw new ApplicationError({ code: "ARTICLE_NOT_FOUND", status: 404, message: "Черновик не найден." });
@@ -23,7 +23,9 @@ export async function requireArticleActor(): Promise<ArticleActor> {
   if (!actor) throw createUnauthorizedError();
   const identity = await getIdentityAccessByAuthUserId(actor.authUserId);
   if (!identity || !hasIdentityPermission(identity, PERMISSION_IDS.articleDraftsOwn)) throw createForbiddenError();
-  return { ...actor, manageAll: hasIdentityPermission(identity, PERMISSION_IDS.articleDraftsManage) };
+  return { ...actor, manageAll: hasIdentityPermission(identity, PERMISSION_IDS.articleDraftsManage),
+    publishOwn: hasIdentityPermission(identity, PERMISSION_IDS.articlePublishOwn),
+    publishAll: hasIdentityPermission(identity, PERMISSION_IDS.articlePublicationsManage) };
 }
 
 export async function getArticlesAccess(returnTo = "/admin/articles") {
@@ -47,6 +49,12 @@ export async function requireArticleDraftAccess(articleId: string): Promise<Arti
   return actor;
 }
 
+export async function requireArticlePublicationAccess(articleId: string): Promise<ArticleActor> {
+  const actor = await requireArticleDraftAccess(articleId);
+  if (!actor.publishAll && !actor.publishOwn) throw createForbiddenError();
+  return actor;
+}
+
 // Auth/operator/Writer capability mutations use the same canonical user lock.
 // The fresh session read uses the wall clock after lock waiting, not transaction now().
 export async function revalidateArticleActor(client: Pick<PoolClient, "query">, actor: ArticleActor): Promise<ArticleActor> {
@@ -59,5 +67,12 @@ export async function revalidateArticleActor(client: Pick<PoolClient, "query">, 
   if (!fullStaffSession(user, session) || user!.accountId !== actor.accountId) throw createUnauthorizedError();
   const roles = user!.roles.filter(isStaffRoleId);
   if (!hasPermissionForRoles(roles, PERMISSION_IDS.articleDraftsOwn)) throw createForbiddenError();
-  return { ...actor, manageAll: hasPermissionForRoles(roles, PERMISSION_IDS.articleDraftsManage) };
+  // Read the individual grant through this transaction, after the canonical
+  // user lock shared with Writer grant/revoke. Never trust a page's old flag.
+  const publishOwn = roles.includes("writer") && (await client.query<{ granted: boolean }>(
+    "select granted from identity.account_permission_assignments where account_id=$1 and permission_id=$2",
+    [actor.accountId, PERMISSION_IDS.articlePublishOwn],
+  )).rows[0]?.granted === true;
+  return { ...actor, manageAll: hasPermissionForRoles(roles, PERMISSION_IDS.articleDraftsManage), publishOwn,
+    publishAll: hasPermissionForRoles(roles, PERMISSION_IDS.articlePublicationsManage) };
 }

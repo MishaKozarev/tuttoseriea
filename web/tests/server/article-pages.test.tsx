@@ -20,7 +20,7 @@ import ArticlePreviewPage from "@/app/admin/articles/[articleId]/preview/page";
 const id = "11111111-2222-4333-8444-555555555555";
 const draft: ArticleDraftDTO = { id, authorAccountId: id, authorName: "Автор", h1: "Частный черновик", seoTitle: "", metaDescription: "", slug: "",
   revision: 0, createdAt: "2026-11-02T10:00:00Z", updatedAt: "2026-11-02T10:00:00Z", formatVersion: 1,
-  content: EMPTY_ARTICLE_DOCUMENT, categoryIds: [], tagIds: [], categories: [], tags: [], images: [] };
+  content: EMPTY_ARTICLE_DOCUMENT, categoryIds: [], tagIds: [], categories: [], tags: [], images: [], publication: null, canPublish: false };
 const params = () => ({ params: Promise.resolve({ articleId: id }) });
 beforeEach(() => {
   vi.resetAllMocks(); mocks.access.mockResolvedValue({ type: "allowed", actor: { manageAll: false, sessionToken: "DO_NOT_SERIALIZE_SESSION" } });

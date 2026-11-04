@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ actor: vi.fn(), draftAccess: vi.fn(), list: vi.fn(), create: vi.fn(), get: vi.fn(), save: vi.fn(), categories: vi.fn(), tags: vi.fn() }));
+const mocks = vi.hoisted(() => ({ actor: vi.fn(), draftAccess: vi.fn(), list: vi.fn(), create: vi.fn(), get: vi.fn(), save: vi.fn(), categories: vi.fn(), tags: vi.fn(), publish: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/src/articles/access", () => ({ requireArticleActor: mocks.actor, requireArticleDraftAccess: mocks.draftAccess }));
+vi.mock("@/src/articles/access", () => ({ requireArticleActor: mocks.actor, requireArticleDraftAccess: mocks.draftAccess, requireArticlePublicationAccess: mocks.draftAccess }));
 vi.mock("@/src/articles/service", () => ({ listArticleDrafts: mocks.list, createArticleDraft: mocks.create,
-  getArticleDraft: mocks.get, saveArticleDraft: mocks.save, lookupArticleCategories: mocks.categories, lookupArticleTags: mocks.tags }));
+  getArticleDraft: mocks.get, saveArticleDraft: mocks.save, lookupArticleCategories: mocks.categories, lookupArticleTags: mocks.tags, publishArticleDraft: mocks.publish }));
 
 import { GET as list, POST as create } from "@/app/api/admin/articles/route";
 import { GET as get, PATCH as save } from "@/app/api/admin/articles/[articleId]/route";
 import { GET as categories } from "@/app/api/admin/articles/options/categories/route";
 import { GET as tags } from "@/app/api/admin/articles/options/tags/route";
+import { POST as publish } from "@/app/api/admin/articles/[articleId]/publication/route";
 import { ApplicationError } from "@/src/api/errors";
 import { ArticleError, ARTICLE_MAX_BODY_BYTES } from "@/src/articles/contract";
 
@@ -29,6 +30,27 @@ beforeEach(() => {
 });
 
 describe("Article HTTP boundaries", () => {
+  it("protects publication ownership, Origin and no-store error envelopes", async () => {
+    mocks.draftAccess.mockRejectedValueOnce(new ApplicationError({ code: "ARTICLE_NOT_FOUND", status: 404, message: "Missing" }));
+    const req = request("POST", "not JSON"), read = vi.spyOn(req.body!, "getReader");
+    expect((await publish(req, context)).status).toBe(404); expect(read).not.toHaveBeenCalled();
+    expect((await publish(request("POST", {}, { origin: "https://foreign.invalid" }), context)).status).toBe(403);
+    expect(mocks.publish).not.toHaveBeenCalled();
+    const input = { action: "publish", operationId: id, expectedRevision: 1, expectedPublicationRevision: 0 };
+    mocks.publish.mockResolvedValue({ id, revision: 1, publication: { revision: 1 } });
+    const response = await publish(request("POST", input), context);
+    expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(mocks.publish).toHaveBeenCalledWith(id, input);
+    mocks.publish.mockRejectedValue(new ArticleError("ARTICLE_CONFLICT", 409, "Conflict"));
+    const conflict = await publish(request("POST", input), context);
+    expect(conflict.status).toBe(409); expect((await conflict.json()).error).toMatchObject({ code: "ARTICLE_CONFLICT", requestId: expect.any(String) });
+  });
+  it("denies a Writer without publication permission before reading malformed publication JSON", async () => {
+    mocks.draftAccess.mockRejectedValue(new ApplicationError({ code: "FORBIDDEN", status: 403, message: "Denied" }));
+    const req = request("POST", "malformed JSON"), read = vi.spyOn(req.body!, "getReader");
+    const response = await publish(req, context);
+    expect(response.status).toBe(403); expect(read).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled();
+  });
   it.each([401, 403])("denies collection access before reading a body (%i)", async status => {
     mocks.actor.mockRejectedValue(new ApplicationError({ code: status === 401 ? "UNAUTHORIZED" : "FORBIDDEN", status, message: "Denied" }));
     const req = request("POST", "not JSON"), read = vi.spyOn(req.body!, "getReader");

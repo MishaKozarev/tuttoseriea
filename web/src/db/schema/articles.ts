@@ -48,6 +48,43 @@ export const articleDraftImages = articleSchema.table("draft_images", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [primaryKey({ columns: [t.draftId, t.mediaId] }), index("draft_images_media_idx").on(t.mediaId)]);
 
+// One current published snapshot. Draft writes never touch this aggregate.
+// Its slug and first publication time are immutable after INSERT.
+export const articlePublications = articleSchema.table("publications", {
+  articleId: text("article_id").primaryKey().references(() => articles.id, { onDelete: "restrict" }),
+  revision: integer("revision").notNull(),
+  sourceRevision: integer("source_revision").notNull(),
+  formatVersion: integer("format_version").notNull(),
+  content: jsonb("content").$type<Record<string, unknown>>().notNull(),
+  h1: text("h1").notNull(),
+  seoTitle: text("seo_title").notNull(),
+  metaDescription: text("meta_description").notNull(),
+  slug: text("slug").notNull(),
+  firstPublishedAt: timestamp("first_published_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  uniqueIndex("article_publications_slug_unique").on(t.slug),
+  index("article_publications_published_idx").on(t.firstPublishedAt, t.articleId),
+  check("article_publications_revision_check", sql`${t.revision} >= 1 and ${t.sourceRevision} >= 0`),
+  check("article_publications_format_check", sql`${t.formatVersion} = 1 and jsonb_typeof(${t.content}) = 'object'`),
+  check("article_publications_fields_check", sql`length(btrim(${t.h1})) between 1 and 300 and length(${t.seoTitle}) <= 300 and length(${t.metaDescription}) <= 500 and length(${t.slug}) between 1 and 160 and ${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+]);
+
+export const articlePublicationCategories = articleSchema.table("publication_categories", {
+  publicationId: text("publication_id").notNull().references(() => articlePublications.articleId, { onDelete: "restrict" }),
+  categoryId: text("category_id").notNull().references(() => articleCategories.id, { onDelete: "restrict" }),
+}, t => [primaryKey({ columns: [t.publicationId, t.categoryId] }), index("publication_categories_category_idx").on(t.categoryId)]);
+
+export const articlePublicationTags = articleSchema.table("publication_tags", {
+  publicationId: text("publication_id").notNull().references(() => articlePublications.articleId, { onDelete: "restrict" }),
+  tagId: text("tag_id").notNull().references(() => footballTags.id, { onDelete: "restrict" }),
+}, t => [primaryKey({ columns: [t.publicationId, t.tagId] }), index("publication_tags_tag_idx").on(t.tagId)]);
+
+export const articlePublicationImages = articleSchema.table("publication_images", {
+  publicationId: text("publication_id").notNull().references(() => articlePublications.articleId, { onDelete: "restrict" }),
+  mediaId: text("media_id").notNull().references(() => mediaAssets.id, { onDelete: "restrict" }),
+}, t => [primaryKey({ columns: [t.publicationId, t.mediaId] }), index("publication_images_media_idx").on(t.mediaId)]);
+
 export const articleOperationReceipts = articleSchema.table("operation_receipts", {
   operationId: text("operation_id").primaryKey(),
   actorAccountId: text("actor_account_id").notNull().references(() => identityAccounts.id, { onDelete: "restrict" }),
@@ -57,6 +94,6 @@ export const articleOperationReceipts = articleSchema.table("operation_receipts"
   result: jsonb("result").$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [
-  check("article_operation_receipts_action_check", sql`${t.action} in ('create','save','image')`),
+  check("article_operation_receipts_action_check", sql`${t.action} in ('create','save','image','publish','update_publication')`),
   check("article_operation_receipts_fingerprint_check", sql`${t.fingerprint} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.result}) = 'object'`),
 ]);

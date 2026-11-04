@@ -13,13 +13,14 @@ export const PERMISSION_IDS = {
   articlePublishOwn: "article.publish.own",
   articleDraftsOwn: "article.drafts.own",
   articleDraftsManage: "article.drafts.manage",
+  articlePublicationsManage: "article.publications.manage",
 } as const;
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
 
 const rolePermissions: Record<StaffRoleId, readonly PermissionId[]> = {
   admin: [PERMISSION_IDS.adminAccess],
-  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage, PERMISSION_IDS.articleDraftsOwn, PERMISSION_IDS.articleDraftsManage],
+  super_admin: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.footballAdmin, PERMISSION_IDS.articleCategoriesManage, PERMISSION_IDS.newsCategoriesManage, PERMISSION_IDS.writerAccountsManage, PERMISSION_IDS.writerPublicationManage, PERMISSION_IDS.articleDraftsOwn, PERMISSION_IDS.articleDraftsManage, PERMISSION_IDS.articlePublicationsManage],
   writer: [PERMISSION_IDS.adminAccess, PERMISSION_IDS.writerProfileManage, PERMISSION_IDS.articleDraftsOwn],
 };
 

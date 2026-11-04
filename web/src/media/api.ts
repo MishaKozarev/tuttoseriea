@@ -8,7 +8,7 @@ import { attachOwnAvatar, requireOwnWriterAccess } from "../identity/writer-serv
 import { requireArticleActor } from "../articles/access";
 import { AVATAR_MAX_BYTES, normalizeAvatar } from "./image";
 import { mediaError, preventMediaCaching, PUBLIC_MEDIA_CACHE } from "./errors";
-import { findArticleDraftImage, findLinkedAvatar } from "./repository";
+import { findArticleDraftImage, findLinkedAvatar, findPublicMediaAsset } from "./repository";
 import { MEDIA_ID_PATTERN, mediaRoot, readAvatarFile, saveAvatarFile } from "./storage";
 
 function assertAvatarMutation(request: Request): { expectedRevision: number; operationId: string; mime: string } {
@@ -88,7 +88,7 @@ export async function serveAvatar(request: Request, filename: string, visibility
     const url = new URL(request.url);
     if (!MEDIA_ID_PATTERN.test(id) || filename !== `${id}.webp` || url.pathname !== canonical || url.search ||
       !["GET", "HEAD"].includes(request.method) || request.headers.has("range")) throw mediaError("NOT_FOUND", 404, "Image not found");
-    const asset = visibility === "private" ? await findPrivateImage(id) : await findLinkedAvatar(id, undefined);
+    const asset = visibility === "private" ? await findPrivateImage(id) : await findPublicMediaAsset(id);
     if (!asset) throw mediaError("NOT_FOUND", 404, "Image not found");
     const bytes = await readAvatarFile(await mediaRoot(), asset);
     const headers = new Headers({ "Content-Type": "image/webp", "Content-Length": String(bytes.length),

@@ -6,10 +6,13 @@ import { currentSerieAClubSlugExists } from "@/src/football/club-page-repository
 import { currentSerieAMatchSlugExists } from "@/src/football/match-page-repository";
 import { currentSerieAPlayerSlugExists } from "@/src/football/player-page-repository";
 import { isMediaOptimizerTarget } from "@/src/media/optimizer";
+import { publicArticlePageExists, publicArticleSlugExists } from "@/src/articles/public-repository";
+import { parsePublicArticlePage } from "@/src/articles/public-contract";
 
 const CLUB_PATH_PREFIX = "/clubs/";
 const MATCH_PATH_PREFIX = "/matches/";
 const PLAYER_PATH_PREFIX = "/players/";
+const ARTICLE_PATH_PREFIX = "/articles/";
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const pathname = request.nextUrl.pathname;
@@ -24,7 +27,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const pool = getDbPool();
   let exists: boolean;
 
-  if (pathname.startsWith(CLUB_PATH_PREFIX)) {
+  if (pathname === "/articles") {
+    const page = parsePublicArticlePage(request.nextUrl.searchParams);
+    exists = page !== null && await publicArticlePageExists(pool, page);
+  } else if (pathname.startsWith(ARTICLE_PATH_PREFIX)) {
+    exists = await publicArticleSlugExists(pool, pathname.slice(ARTICLE_PATH_PREFIX.length));
+  } else if (pathname.startsWith(CLUB_PATH_PREFIX)) {
     exists = await currentSerieAClubSlugExists(
       pool,
       pathname.slice(CLUB_PATH_PREFIX.length),
@@ -45,5 +53,5 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/clubs/:slug", "/players/:slug", "/matches/:slug", "/_next/image(.*)"],
+  matcher: ["/articles", "/articles/:slug", "/clubs/:slug", "/players/:slug", "/matches/:slug", "/_next/image(.*)"],
 };
