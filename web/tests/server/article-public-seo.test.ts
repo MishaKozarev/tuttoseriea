@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildArticleMetadata, buildArticlesMetadata, buildRootMetadata, buildSitemap, isArticleIndexingEnabled } from "@/src/seo/site";
+import { buildArticleJsonLd, buildArticleMetadata, buildArticlesMetadata, buildRootMetadata, buildSitemap, isArticleIndexingEnabled, serializeArticleJsonLd } from "@/src/seo/site";
 import { parsePublicArticlePage } from "@/src/articles/public-contract";
 
 const article = { slug: "analysis-of-match", h1: "Заголовок для читателя", seoTitle: "Отдельный SEO title", metaDescription: "Ручное описание",
@@ -28,7 +28,7 @@ describe("Published Articles SEO", () => {
     expect(isArticleIndexingEnabled(env)).toBe(false);
     expect(buildArticleMetadata(article, env).robots).toMatchObject({ index: false, follow: false });
     expect(buildArticlesMetadata(1, env).robots).toMatchObject({ index: false, follow: false });
-    const urls = buildSitemap(env, ["milan"], [], [], [article.slug]).map(entry => entry.url);
+    const urls = buildSitemap(env, ["milan"], [], [], [{ slug: article.slug, updatedAt: article.updatedAt }]).map(entry => entry.url);
     expect(urls.some(url => url.includes("/articles"))).toBe(false);
     expect(urls).toContain(`${AUTH_URL}/clubs/milan`);
     expect(buildRootMetadata(env).robots).toEqual({ index: true, follow: true });
@@ -37,12 +37,43 @@ describe("Published Articles SEO", () => {
     expect(buildArticlesMetadata(1, production).alternates).toEqual({ canonical: "/articles" });
     expect(buildArticlesMetadata(2, production).alternates).toEqual({ canonical: "/articles?page=2" });
     expect(buildArticlesMetadata(2, production).robots).toMatchObject({ index: false });
-    const urls = buildSitemap(production, [], [], [], [article.slug]).map(entry => entry.url);
+    const entries = buildSitemap(production, [], [], [], [{ slug: article.slug, updatedAt: article.updatedAt }]);
+    const urls = entries.map(entry => entry.url);
     expect(urls).toContain("https://tuttoseriea.com/articles");
     expect(urls).toContain("https://tuttoseriea.com/articles/analysis-of-match");
     expect(urls.some(url => url.includes("?page="))).toBe(false);
+    expect(entries.find(entry => entry.url.endsWith(`/articles/${article.slug}`))?.lastModified).toBe(article.updatedAt);
   });
   it.each(["page=0", "page=-1", "page=01", "page=1&page=2", "page=1000000", "page=NaN"])("rejects ambiguous or invalid pagination %s", query => {
     expect(parsePublicArticlePage(new URLSearchParams(query))).toBeNull();
+  });
+
+  it("creates Article structured data from the published title/profile/media/timestamps", () => {
+    const imageId = "11111111-2222-4333-8444-555555555555";
+    const payload = { ...article, author: { nickname: "Публичный ник", avatarUrl: `/media/public/${imageId}.webp`, socialLinks: [{ label: "Канал", url: "https://example.com/author" }] },
+      images: [{ id: imageId, url: "/media/private/ignored.webp", width: 1000, height: 600, byteSize: 1000 }] };
+    const result = buildArticleJsonLd(payload, production);
+    expect(result).toMatchObject({ "@context": "https://schema.org", "@type": "Article", headline: article.h1,
+      url: "https://tuttoseriea.com/articles/analysis-of-match", mainEntityOfPage: { "@id": "https://tuttoseriea.com/articles/analysis-of-match" },
+      datePublished: article.firstPublishedAt, dateModified: article.updatedAt, description: article.metaDescription,
+      author: { "@type": "Person", name: "Публичный ник", image: `https://tuttoseriea.com/media/public/${imageId}.webp`, sameAs: ["https://example.com/author"] },
+      image: [`https://tuttoseriea.com/media/public/${imageId}.webp`] });
+    expect(JSON.stringify(result)).not.toContain(article.seoTitle);
+    expect(JSON.stringify(result)).not.toContain("/media/private/");
+  });
+
+  it("omits empty descriptions/images and excludes nonpublic author avatars from JSON-LD", () => {
+    const result = buildArticleJsonLd({ ...article, metaDescription: "", author: { nickname: "Автор", avatarUrl: "/media/private/private.webp", socialLinks: [] }, images: [] }, production);
+    expect(result).not.toHaveProperty("description"); expect(result).not.toHaveProperty("image");
+    expect(result.author).not.toHaveProperty("image"); expect(result.author).not.toHaveProperty("sameAs");
+  });
+
+  it("escapes script delimiters in every structured-data string while preserving JSON values", () => {
+    const attack = '</script><script src="https://unsafe.invalid/x.js"></script><img src=x onerror=alert(1)>';
+    const payload = { ...article, h1: attack, metaDescription: attack, author: { nickname: attack, avatarUrl: null, socialLinks: [] }, images: [] };
+    const serialized = serializeArticleJsonLd(payload, production);
+    expect(serialized).not.toContain("<");
+    expect(serialized).not.toMatch(/<\/script/i);
+    expect(JSON.parse(serialized)).toMatchObject({ headline: attack, description: attack, author: { name: attack } });
   });
 });

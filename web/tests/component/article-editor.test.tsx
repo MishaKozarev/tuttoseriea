@@ -18,7 +18,7 @@ import { ArticlesList } from "@/components/articles/list";
 const id = "11111111-2222-4333-8444-555555555555";
 const imageId = "22222222-2222-4333-8444-555555555555";
 function draft(overrides: Partial<ArticleDraftDTO> = {}): ArticleDraftDTO {
-  return { id, authorAccountId: id, authorName: "Автор", h1: "Исходный заголовок", seoTitle: "", metaDescription: "", slug: "",
+  return { id, authorAccountId: id, authorName: "Автор", h1: "Исходный заголовок", seoTitle: "", metaDescription: "", slug: "", slugMode: "auto",
     formatVersion: 1, content: EMPTY_ARTICLE_DOCUMENT, categoryIds: [], tagIds: [], categories: [], tags: [], images: [],
     revision: 0, publication: null, canPublish: false, createdAt: "2026-11-02T10:00:00Z", updatedAt: "2026-11-02T10:00:00Z", ...overrides };
 }
@@ -57,14 +57,14 @@ describe("Article publication controls", () => {
   it("requires saving dirty fields before publishing and uses fresh permissions from save", async () => {
     fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Сохранённый заголовок", revision: 1, canPublish: false }) }));
     render(<ArticleEditor initial={draft({ canPublish: true })} />);
-    fireEvent.change(screen.getByLabelText("Заголовок H1"), { target: { value: "Сохранённый заголовок" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Сохранённый заголовок" } });
     const publish = screen.getByRole("button", { name: "Опубликовать статью" });
     expect((publish as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(publish); expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
     await screen.findByText("Черновик сохранён.");
     expect(screen.queryByRole("button", { name: "Опубликовать статью" })).toBeNull();
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Сохранённый заголовок");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Сохранённый заголовок");
   });
 
   it("reveals newly granted publication after a successful save", async () => {
@@ -96,7 +96,7 @@ describe("Article publication controls", () => {
     await screen.findByText(/Недостаточно прав/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Опубликовать статью" })).toBeNull();
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Исходный заголовок");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Исходный заголовок");
     expect((screen.getByRole("button", { name: "Сохранить черновик" }) as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("draft-slug");
   });
@@ -110,13 +110,13 @@ describe("Article publication controls", () => {
     await screen.findByRole("alert");
     expect((screen.getByRole("button", { name: "Опубликовать статью" }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    fireEvent.change(screen.getByLabelText("Заголовок H1"), { target: { value: "Мои последующие правки" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Мои последующие правки" } });
     fireEvent.click(screen.getByRole("button", { name: "Загрузить текущую версию" }));
     await screen.findByRole("button", { name: "Продолжить с моими правками" });
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Мои последующие правки");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Мои последующие правки");
     expect((screen.getByRole("button", { name: "Опубликовать статью" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Продолжить с моими правками" }));
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Мои последующие правки");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Мои последующие правки");
     expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("published-slug");
     expect((screen.getByLabelText("Slug") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Обновить публикацию" }) as HTMLButtonElement).disabled).toBe(true);
@@ -139,9 +139,9 @@ describe("Article publication controls", () => {
     fetchMock.mockResolvedValueOnce(response({ error: { code: "ARTICLE_NOT_READY", requestId: "not-ready" } }, 400));
     render(<ArticleEditor initial={draft({ canPublish: true })} />);
     fireEvent.click(screen.getByRole("button", { name: "Опубликовать статью" }));
-    await screen.findByText(/Для публикации заполните H1, текст статьи и корректный slug/);
+    await screen.findByText(/Для публикации заполните название и текст статьи/);
     expect((screen.getByRole("button", { name: "Сохранить черновик" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Исходный заголовок");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Исходный заголовок");
   });
 
   it("shows publication status and pending saved changes in the Article list", () => {
@@ -170,14 +170,14 @@ describe("Article draft editor", () => {
     fetchMock.mockResolvedValue(response({ draft: draft({ h1: "Мой заголовок", seoTitle: "Мой SEO", revision: 1 }) }));
     render(<ArticleEditor initial={draft()} />);
     expect(fetchMock).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Заголовок H1"), { target: { value: "Мой заголовок" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Мой заголовок" } });
     fireEvent.change(screen.getByLabelText("SEO title"), { target: { value: "Мой SEO" } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
     await screen.findByText("Черновик сохранён.");
     const [path, init] = fetchMock.mock.calls[0];
     expect(path).toBe(`/api/admin/articles/${id}`);
     expect(init?.method).toBe("PATCH");
-    expect(JSON.parse(init?.body as string)).toEqual({ h1: "Мой заголовок", seoTitle: "Мой SEO", metaDescription: "", slug: "",
+    expect(JSON.parse(init?.body as string)).toEqual({ h1: "Мой заголовок", seoTitle: "Мой SEO", metaDescription: "", slugMode: "auto",
       categoryIds: [], tagIds: [], content: EMPTY_ARTICLE_DOCUMENT, formatVersion: 1, expectedRevision: 0, operationId: expect.any(String) });
     expect(screen.getByText(/Все правки сохранены/)).toBeTruthy();
   });
@@ -188,15 +188,15 @@ describe("Article draft editor", () => {
     fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Чужое изменение", revision: 3 }) }));
     fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Мой вариант", revision: 4 }) }));
     render(<ArticleEditor initial={draft()} />);
-    fireEvent.change(screen.getByLabelText("Заголовок H1"), { target: { value: "Мой вариант" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Мой вариант" } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
     await screen.findByRole("alert");
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Мой вариант");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Мой вариант");
     expect((screen.getByRole("button", { name: "Сохранить черновик" }) as HTMLButtonElement).disabled).toBe(true);
     expect(document.body.textContent).not.toContain("private network diagnostics");
     fireEvent.click(screen.getByRole("button", { name: "Загрузить текущую версию" }));
     await screen.findByRole("button", { name: "Продолжить с моими правками" });
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Мой вариант");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Мой вариант");
     fireEvent.click(screen.getByRole("button", { name: "Продолжить с моими правками" }));
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
     await screen.findByText("Черновик сохранён.");
@@ -207,12 +207,12 @@ describe("Article draft editor", () => {
     fetchMock.mockResolvedValueOnce(response({ image: { id: imageId, url: `/media/private/${imageId}.webp`, width: 800, height: 600, byteSize: 1234 }, revision: 2 }));
     fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Ещё не сохранён", revision: 3 }) }));
     render(<ArticleEditor initial={draft()} />);
-    fireEvent.change(screen.getByLabelText("Заголовок H1"), { target: { value: "Ещё не сохранён" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Ещё не сохранён" } });
     const file = new File(["fixture image"], "fixture.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Загрузить изображение"), { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: "Загрузить файл" }));
     await screen.findByText("Изображение загружено. Выберите его и вставьте в текст.");
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Ещё не сохранён");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Ещё не сохранён");
     expect(fetchMock.mock.calls[0][1]?.body).toBe(file);
     expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ "Content-Type": "image/png", "X-Article-Revision": "0" });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
@@ -234,28 +234,28 @@ describe("Article draft editor", () => {
 
   it("allows correcting a duplicate slug without treating it as a stale revision", async () => {
     fetchMock.mockResolvedValueOnce(response({ error: { code: "ARTICLE_SLUG_CONFLICT", requestId: "slug-one" } }, 409));
-    fetchMock.mockResolvedValueOnce(response({ draft: draft({ slug: "different-slug", revision: 1 }) }));
+    fetchMock.mockResolvedValueOnce(response({ draft: draft({ slug: "different-slug", slugMode: "manual", revision: 1 }) }));
     render(<ArticleEditor initial={draft()} />);
     fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "occupied-slug" } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
-    await screen.findByText(/Этот slug уже используется/);
+    await screen.findByText(/Этот адрес уже занят/);
     expect((screen.getByRole("button", { name: "Сохранить черновик" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "different-slug" } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
     await screen.findByText("Черновик сохранён.");
-    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string)).toMatchObject({ slug: "different-slug", expectedRevision: 0 });
+    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string)).toMatchObject({ slug: "different-slug", slugMode: "manual", expectedRevision: 0 });
   });
 
   it("loads the server version only after explicit replacement confirmation", async () => {
     fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Версия из базы", revision: 4 }) }));
     render(<ArticleEditor initial={draft()} />);
-    fireEvent.change(screen.getByLabelText("Заголовок H1"), { target: { value: "Локальные правки" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Локальные правки" } });
     fireEvent.click(screen.getByRole("button", { name: "Загрузить текущую версию" }));
     await screen.findByRole("button", { name: "Использовать текущую версию" });
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Локальные правки");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Локальные правки");
     fireEvent.click(screen.getByRole("button", { name: "Использовать текущую версию" }));
     expect(window.confirm).toHaveBeenCalled();
-    expect((screen.getByLabelText("Заголовок H1") as HTMLInputElement).value).toBe("Версия из базы");
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Версия из базы");
     expect(mocks.setContent).toHaveBeenCalledWith(EMPTY_ARTICLE_DOCUMENT, { emitUpdate: false });
   });
 
@@ -280,5 +280,123 @@ describe("Article draft editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Проверить создание черновика" }));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(`/admin/articles/${id}`));
     expect(fetchMock.mock.calls[0][1]?.body).toBe(fetchMock.mock.calls[1][1]?.body);
+  });
+});
+
+describe("Article title and automatic/manual addresses", () => {
+  const title = "Победа спустя три десятилетия";
+  const base = "pobeda-spustya-tri-desyatiletiya";
+
+  it("saves an unfinished automatic draft without requiring an explicit slug or SEO fields", async () => {
+    fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "", revision: 1 }) }));
+    render(<ArticleEditor initial={draft({ h1: "" })} />);
+    expect(screen.queryByLabelText("Заголовок H1")).toBeNull();
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+    await screen.findByText("Черновик сохранён.");
+    const input = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(input).toMatchObject({ h1: "", seoTitle: "", metaDescription: "", slugMode: "auto", expectedRevision: 0 });
+    expect(input).not.toHaveProperty("slug");
+  });
+
+  it("previews a Cyrillic title immediately and keeps SEO Title independent", () => {
+    render(<ArticleEditor initial={draft({ h1: "", seoTitle: "Независимый SEO title" })} />);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: title } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(base);
+    expect((screen.getByLabelText("SEO title") as HTMLInputElement).value).toBe("Независимый SEO title");
+    fireEvent.change(screen.getByLabelText("SEO title"), { target: { value: "Другой SEO title" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(base);
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe(title);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts the server-reserved collision suffix and retains it while the title base is unchanged", async () => {
+    fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: title, slug: `${base}-2`, slugMode: "auto", revision: 1 }) }));
+    render(<ArticleEditor initial={draft({ h1: "" })} />);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: title } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(base);
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+    await screen.findByText("Черновик сохранён.");
+    const input = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(input).toMatchObject({ slugMode: "auto", h1: title, seoTitle: "" }); expect(input).not.toHaveProperty("slug");
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(`${base}-2`);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: `${title}!` } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(`${base}-2`);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Новое название" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("novoe-nazvanie");
+    expect((screen.getByLabelText("SEO title") as HTMLInputElement).value).toBe("");
+  });
+
+  it("turns an edited suggestion into a manual slug and preserves it through title changes and reopening", async () => {
+    const saved = draft({ h1: "Новое название", slug: "my-editorial-address", slugMode: "manual", revision: 1 });
+    fetchMock.mockResolvedValueOnce(response({ draft: saved }));
+    const view = render(<ArticleEditor initial={draft({ h1: title })} />);
+    fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "my-editorial-address" } });
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Новое название" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("my-editorial-address");
+    expect(screen.getByText(/Адрес изменён вручную/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+    await screen.findByText("Черновик сохранён.");
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string)).toMatchObject({ h1: "Новое название", slugMode: "manual", slug: "my-editorial-address" });
+    view.unmount(); render(<ArticleEditor initial={saved} />);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Ещё одно название" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("my-editorial-address");
+  });
+
+  it("returns a legacy manual address to automatic mode only after the explicit action", async () => {
+    fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: title, seoTitle: "Мой SEO", slug: `${base}-3`, slugMode: "auto", revision: 1 }) }));
+    render(<ArticleEditor initial={draft({ h1: title, seoTitle: "Мой SEO", slug: "legacy-manual-address", slugMode: "manual" })} />);
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("legacy-manual-address");
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть автоматический адрес" }));
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(base);
+    expect((screen.getByLabelText("SEO title") as HTMLInputElement).value).toBe("Мой SEO");
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+    await screen.findByText("Черновик сохранён.");
+    const input = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(input).toMatchObject({ slugMode: "auto", seoTitle: "Мой SEO" }); expect(input).not.toHaveProperty("slug");
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(`${base}-3`);
+    expect((screen.getByLabelText("SEO title") as HTMLInputElement).value).toBe("Мой SEO");
+    expect((screen.getByRole("button", { name: "Вернуть автоматический адрес" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps a reserved automatic address on reopening and clears the suggestion for an empty title", () => {
+    render(<ArticleEditor initial={draft({ h1: title, slug: `${base}-4`, slugMode: "auto" })} />);
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(`${base}-4`);
+    fireEvent.change(screen.getByLabelText("SEO title"), { target: { value: "SEO меняется отдельно" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(`${base}-4`);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("");
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "⚽️" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(`article-${id}`);
+  });
+
+  it.each(["auto", "manual"] as const)("keeps a published %s address locked when title or SEO changes", slugMode => {
+    render(<ArticleEditor initial={draft({ h1: title, slug: "published-slug", slugMode, publication: publication() })} />);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Новое название" } });
+    fireEvent.change(screen.getByLabelText("SEO title"), { target: { value: "Другой SEO" } });
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("published-slug");
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Вернуть автоматический адрес" })).toBeNull();
+  });
+
+  it("preserves an unsaved manual slug and title across conflict refresh choices", async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: { code: "ARTICLE_CONFLICT", requestId: "mode-conflict" } }, 409));
+    fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Серверное название", slug: "server-title", slugMode: "auto", revision: 3 }) }));
+    fetchMock.mockResolvedValueOnce(response({ draft: draft({ h1: "Моё название", slug: "my-manual-address", slugMode: "manual", revision: 4 }) }));
+    render(<ArticleEditor initial={draft({ h1: title })} />);
+    fireEvent.change(screen.getByLabelText("Название статьи"), { target: { value: "Моё название" } });
+    fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "my-manual-address" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+    await screen.findByRole("alert");
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("my-manual-address");
+    fireEvent.click(screen.getByRole("button", { name: "Загрузить текущую версию" }));
+    await screen.findByRole("button", { name: "Продолжить с моими правками" });
+    fireEvent.click(screen.getByRole("button", { name: "Продолжить с моими правками" }));
+    expect((screen.getByLabelText("Название статьи") as HTMLInputElement).value).toBe("Моё название");
+    expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("my-manual-address");
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+    await screen.findByText("Черновик сохранён.");
+    expect(JSON.parse(fetchMock.mock.calls[2][1]?.body as string)).toMatchObject({ expectedRevision: 3, slug: "my-manual-address", slugMode: "manual" });
   });
 });

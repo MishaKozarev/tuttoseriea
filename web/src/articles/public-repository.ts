@@ -4,7 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import { getFootballTagsByIds } from "../taxonomy/football-tags-repository";
 import type { ArticleImageDTO } from "./contract";
 import { ARTICLE_FORMAT_VERSION, articleImageIds, parseArticleDocument, type ArticleDocument, type ArticleNode } from "./document";
-import { PUBLIC_ARTICLES_PAGE_SIZE, type PublicArticleAuthor, type PublicArticleDetail, type PublicArticlePage, type PublicArticleSummary } from "./public-contract";
+import { PUBLIC_ARTICLES_PAGE_SIZE, type PublicArticleAuthor, type PublicArticleDetail, type PublicArticlePage, type PublicArticleSummary, type PublicArticleSitemapEntry } from "./public-contract";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 type ReadPool = Pick<Pool, "connect">;
@@ -129,6 +129,9 @@ export async function publicArticlePageExists(db: Queryable, page: number): Prom
     order by first_published_at desc,article_id offset $1 limit 1) as exists`, [(page - 1) * PUBLIC_ARTICLES_PAGE_SIZE])).rows[0].exists;
 }
 
-export async function listPublishedArticleSlugs(db: Queryable): Promise<string[]> {
-  return (await db.query<{ slug: string }>("select slug from article.publications order by slug")).rows.map(row => row.slug);
+export async function listPublishedArticleSitemapEntries(db: Queryable): Promise<PublicArticleSitemapEntry[]> {
+  const rows = (await db.query<{ slug: string; updatedAt: Date | string }>(
+    'select slug,updated_at as "updatedAt" from article.publications order by slug',
+  )).rows;
+  return rows.map(row => ({ slug: row.slug, updatedAt: iso(row.updatedAt) }));
 }

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), revalidate: vi.fn(), query: vi.fn(), release: vi.fn(),
-  lockDraft: vi.fn(), receipt: vi.fn(), insertReceipt: vi.fn(), readDraft: vi.fn(), publication: vi.fn(), tags: vi.fn(), category: vi.fn() }));
+  lockDraft: vi.fn(), receipt: vi.fn(), insertReceipt: vi.fn(), readDraft: vi.fn(), publication: vi.fn(), tags: vi.fn(), category: vi.fn(), assignSlug: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/src/db", () => ({ getDbPool: () => ({ connect: async () => ({ query: mocks.query, release: mocks.release }) }) }));
 vi.mock("@/src/articles/access", () => ({ requireArticleActor: mocks.actor, revalidateArticleActor: mocks.revalidate,
   articleNotFound: () => { throw Object.assign(new Error("Missing"), { code: "ARTICLE_NOT_FOUND", status: 404 }); } }));
 vi.mock("@/src/articles/repository", () => ({ lockArticleDraft: mocks.lockDraft, readArticleReceipt: mocks.receipt,
-  insertArticleReceipt: mocks.insertReceipt, readArticleDraft: mocks.readDraft, readArticlePublication: mocks.publication }));
+  insertArticleReceipt: mocks.insertReceipt, readArticleDraft: mocks.readDraft, readArticlePublication: mocks.publication, assignArticleDraftSlug: mocks.assignSlug }));
 vi.mock("@/src/categories/repository", () => ({ ArticleCategoryRepository: class { get = mocks.category; } }));
 vi.mock("@/src/taxonomy/football-tags-repository", () => ({ getFootballTagsByIds: mocks.tags }));
 
@@ -26,8 +26,9 @@ beforeEach(() => {
   vi.resetAllMocks(); mocks.actor.mockResolvedValue(actor); mocks.revalidate.mockResolvedValue(actor);
   mocks.lockDraft.mockResolvedValue({ id, revision: 3 }); mocks.receipt.mockResolvedValue(null);
   mocks.query.mockResolvedValue({ rows: [{ revision: 2 }] }); mocks.tags.mockResolvedValue([]);
+  mocks.assignSlug.mockImplementation(async (_db, _id, base) => base);
   mocks.readDraft.mockResolvedValue({ id, authorAccountId: "writer", revision: 3, formatVersion: 1, content, h1: "Заголовок", seoTitle: "", metaDescription: "", slug: "stable-slug",
-    categoryIds: [], tagIds: [], images: [{ id: image }, { id: unusedImage }], publication: null, canPublish: true });
+    categoryIds: [], tagIds: [], images: [{ id: image }, { id: unusedImage }], publication: null, canPublish: true, slugMode: "manual" });
 });
 const sql = () => mocks.query.mock.calls.map(([query]) => String(query));
 
@@ -66,11 +67,19 @@ describe("Explicit Article publication", () => {
     expect(sql().some(query => query.startsWith("insert into article.publications"))).toBe(false);
   });
   it.each([
-    { h1: "" }, { slug: "" }, { content: { type: "doc", content: [{ type: "paragraph" }] } },
+    { h1: "" }, { content: { type: "doc", content: [{ type: "paragraph" }] } },
   ])("keeps incomplete drafts private: %j", async override => {
     mocks.readDraft.mockResolvedValue({ ...await mocks.readDraft(), ...override });
     await expect(publishArticleDraft(id, input)).rejects.toMatchObject({ code: "ARTICLE_NOT_READY" });
     expect(mocks.insertReceipt).not.toHaveBeenCalled();
+  });
+  it("prepares an empty legacy automatic address from the saved title, not SEO title", async () => {
+    mocks.readDraft.mockResolvedValueOnce({ ...await mocks.readDraft(), h1: "Победа спустя три десятилетия", seoTitle: "Другой SEO Title", slug: "", slugMode: "auto" });
+    await publishArticleDraft(id, input);
+    expect(mocks.assignSlug).toHaveBeenCalledWith(expect.anything(), id, "pobeda-spustya-tri-desyatiletiya", "auto");
+    const snapshot = mocks.query.mock.calls.find(([query]) => query.startsWith("insert into article.publications"));
+    expect(snapshot?.[1].at(-1)).toBe("pobeda-spustya-tri-desyatiletiya");
+    expect(snapshot?.[1][1]).toBe(3);
   });
   it("rejects a body image not attached to this saved draft", async () => {
     mocks.readDraft.mockResolvedValue({ ...await mocks.readDraft(), images: [{ id: unusedImage }] });

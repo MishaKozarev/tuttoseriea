@@ -5,7 +5,7 @@ import type { ArticleDocument } from "@/src/articles/document";
 vi.mock("server-only", () => ({}));
 const tags = vi.hoisted(() => vi.fn());
 vi.mock("@/src/taxonomy/football-tags-repository", () => ({ getFootballTagsByIds: tags }));
-import { getPublicArticleBySlug, listPublicArticles, listPublishedArticleSlugs, publicArticlePageExists, publicArticleSlugExists } from "@/src/articles/public-repository";
+import { getPublicArticleBySlug, listPublicArticles, listPublishedArticleSitemapEntries, publicArticlePageExists, publicArticleSlugExists } from "@/src/articles/public-repository";
 
 const articleId = "11111111-2222-4333-8444-555555555555";
 const firstId = "bbbbbbbb-2222-4333-8444-555555555555";
@@ -28,7 +28,7 @@ function fixture(options: { absent?: boolean; missingImage?: boolean; fail?: boo
     if (options.fail) throw new Error("fixture database failure");
     if (sql.includes("count(*)")) return { rows: [{ total: 21 }] };
     if (sql.includes("select exists")) return { rows: [{ exists: !options.absent }] };
-    if (sql.includes("select slug")) return { rows: [{ slug: "stable-slug" }] };
+    if (sql.includes("select slug")) return { rows: [{ slug: "stable-slug", updatedAt: new Date("2026-11-04T11:00:00Z") }] };
     if (sql.includes("from article.publication_images")) return { rows: (options.missingImage ? [secondId] : [secondId, firstId, unusedId]).map(id => ({ id, publicationId: articleId, width: 1200, height: 800, byteSize: 1000 })) };
     if (sql.includes("from article.publication_categories")) return { rows: [{ id: "category", name: "Аналитика" }] };
     if (sql.includes("from article.publication_tags")) return { rows: [{ id: "tag-one" }] };
@@ -87,7 +87,8 @@ describe("Public Article read model", () => {
     expect(await publicArticleSlugExists(f.db, "stable-slug")).toBe(true);
     expect(await publicArticlePageExists(f.db, 1)).toBe(true);
     expect(await publicArticlePageExists(f.db, 2)).toBe(true);
-    expect(await listPublishedArticleSlugs(f.db)).toEqual(["stable-slug"]);
+    expect(await listPublishedArticleSitemapEntries(f.db)).toEqual([{ slug: "stable-slug", updatedAt: "2026-11-04T11:00:00.000Z" }]);
+    expect(f.query.mock.calls.find(call => call[0].startsWith("select slug"))?.[0]).toContain("updated_at");
     expect(f.query.mock.calls.every(call => call[0].includes("article.publications"))).toBe(true);
   });
 });

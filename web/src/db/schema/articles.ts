@@ -22,10 +22,12 @@ export const articleDrafts = articleSchema.table("drafts", {
   seoTitle: text("seo_title").notNull().default(""),
   metaDescription: text("meta_description").notNull().default(""),
   slug: text("slug").notNull().default(""),
+  slugMode: text("slug_mode").$type<"auto" | "manual">().notNull().default("auto"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [
   uniqueIndex("article_drafts_slug_unique").on(t.slug).where(sql`${t.slug} <> ''`),
   check("article_drafts_revision_check", sql`${t.revision} >= 0`),
+  check("article_drafts_slug_mode_check", sql`${t.slugMode} in ('auto', 'manual')`),
   check("article_drafts_format_check", sql`${t.formatVersion} = 1 and jsonb_typeof(${t.content}) = 'object'`),
   check("article_drafts_fields_check", sql`length(${t.h1}) <= 300 and length(${t.seoTitle}) <= 300 and length(${t.metaDescription}) <= 500 and length(${t.slug}) <= 160 and (${t.slug} = '' or ${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$')`),
 ]);

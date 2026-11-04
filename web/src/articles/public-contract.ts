@@ -3,6 +3,7 @@ import type { ArticleImageDTO } from "./contract";
 import type { ArticleDocument } from "./document";
 
 export const PUBLIC_ARTICLES_PAGE_SIZE = 20;
+export type PublicArticleSitemapEntry = { slug: string; updatedAt: string };
 export type PublicArticleAuthor = {
   nickname: string;
   avatarUrl: string | null;

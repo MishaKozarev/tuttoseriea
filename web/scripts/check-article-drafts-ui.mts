@@ -30,9 +30,13 @@ const sources = [
 const categoryNames = categoryIds.map((_, index) => `Draft fixture ${runId} ${index + 1}`);
 
 function saveInput(draft: ArticleDraftDTO, override: Partial<ArticleSaveInput> = {}): ArticleSaveInput {
-  return { operationId: randomUUID(), expectedRevision: draft.revision, formatVersion: 1, content: draft.content,
-    h1: draft.h1, seoTitle: draft.seoTitle, metaDescription: draft.metaDescription, slug: draft.slug,
-    categoryIds: draft.categoryIds, tagIds: draft.tagIds, ...override };
+  const slugMode = override.slugMode ?? (override.slug !== undefined ? "manual" : draft.slugMode);
+  const input: ArticleSaveInput = { operationId: randomUUID(), expectedRevision: draft.revision, formatVersion: 1, content: draft.content,
+    h1: draft.h1, seoTitle: draft.seoTitle, metaDescription: draft.metaDescription,
+    categoryIds: draft.categoryIds, tagIds: draft.tagIds, ...override, slugMode };
+  if (slugMode === "manual") input.slug = override.slug ?? draft.slug;
+  else delete input.slug;
+  return input;
 }
 function noStore(headers: Record<string, string>) {
   assert(headers["cache-control"]?.includes("no-store"), "Protected response is missing no-store");
@@ -107,8 +111,35 @@ async function main() {
       const response = await client.request.post("/api/admin/articles", { headers: { origin }, data: { operationId: randomUUID() } });
       assert.equal(response.status(), 201); return (await response.json()).draft;
     }
+    async function saveDraft(client: BrowserContext, current: ArticleDraftDTO, override: Partial<ArticleSaveInput> = {}) {
+      const response = await client.request.patch(`/api/admin/articles/${current.id}`, { headers: { origin }, data: saveInput(current, override) });
+      assert.equal(response.status(), 200); noStore(response.headers());
+      return (await response.json()).draft as ArticleDraftDTO;
+    }
     phase = "anonymous, Admin and pre-MFA admission";
     const anonymous = await context(), anonymousPage = await anonymous.newPage();
+    async function assertPublicMetadata(published: ArticleDraftDTO) {
+      assert(published.publication);
+      const canonical = `${origin}/articles/${published.publication.slug}`;
+      const response = await anonymousPage.goto(canonical); assert.equal(response?.status(), 200);
+      await expect(anonymousPage.getByRole("heading", { level: 1 })).toHaveCount(1);
+      await expect(anonymousPage.getByRole("heading", { name: published.h1, level: 1, exact: true })).toBeVisible();
+      await expect(anonymousPage).toHaveTitle(`${published.seoTitle || published.h1} | tuttoseriea.com`);
+      const description = anonymousPage.locator('meta[name="description"]');
+      if (published.metaDescription) await expect(description).toHaveAttribute("content", published.metaDescription);
+      else await expect(description).toHaveCount(0);
+      await expect(anonymousPage.locator('link[rel="canonical"]')).toHaveAttribute("href", canonical);
+      await expect(anonymousPage.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex.*nofollow/);
+      const script = anonymousPage.locator('script[type="application/ld+json"]');
+      await expect(script).toHaveCount(1);
+      const jsonLd = JSON.parse((await script.textContent())!);
+      assert.equal(jsonLd["@type"], "Article"); assert.equal(jsonLd.headline, published.h1);
+      assert.equal(jsonLd.url, canonical); assert.equal(jsonLd.mainEntityOfPage["@id"], canonical);
+      assert.equal(jsonLd.datePublished, published.publication.firstPublishedAt);
+      assert.equal(jsonLd.dateModified, published.publication.updatedAt);
+      if (published.metaDescription) assert.equal(jsonLd.description, published.metaDescription);
+      else assert.equal(Object.hasOwn(jsonLd, "description"), false);
+    }
     await anonymousPage.goto("/admin/articles"); await expect(anonymousPage).toHaveURL(/\/admin\/login\?/);
     assert.equal((await anonymous.request.get("/api/admin/articles")).status(), 401);
     const ordinaryAdmin = await login(admin, "/admin/articles");
@@ -138,11 +169,22 @@ async function main() {
     let draft = (await createdResponse.json()).draft as ArticleDraftDTO;
     await expect(author.page.getByRole("heading", { name: "Редактор статьи", exact: true })).toBeVisible();
     assert.equal(draft.authorAccountId, writer.accountId);
+    assert.equal(draft.slugMode, "auto"); assert.equal(draft.slug, ""); assert.equal(draft.seoTitle, "");
+    const emptyInput = saveInput(draft); delete emptyInput.slugMode;
+    assert.equal(Object.hasOwn(emptyInput, "slug"), false);
+    const emptySaved = await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: emptyInput });
+    assert.equal(emptySaved.status(), 200); draft = await getDraft(author.context, draft.id);
+    assert.equal(draft.h1, ""); assert.equal(draft.slug, ""); assert.equal(draft.slugMode, "auto");
+    await author.page.reload();
     assert.equal(Number((await pool.query("select count(*) from identity.account_permission_assignments where account_id=$1 and granted", [writer.accountId])).rows[0].count), 0);
-    await author.page.getByLabel("Заголовок H1", { exact: true }).fill("Локальный редакционный черновик");
+    const exampleTitle = "Победа спустя три десятилетия", exampleSlug = "pobeda-spustya-tri-desyatiletiya";
+    const exampleAvailable = !(await pool.query("select 1 from article.drafts where slug=$1 union all select 1 from article.publications where slug=$1", [exampleSlug])).rows.length;
+    await author.page.getByLabel("Название статьи", { exact: true }).fill(exampleTitle);
+    await expect(author.page.getByLabel("Slug", { exact: true })).toHaveValue(exampleSlug);
+    await expect(author.page.getByLabel("SEO title", { exact: true })).toHaveValue("");
     await author.page.getByLabel("SEO title", { exact: true }).fill("Ручной SEO title");
     await author.page.getByLabel("Meta description", { exact: true }).fill("Ручное описание статьи");
-    await author.page.getByLabel("Slug", { exact: true }).fill(`draft-${runId}`);
+    await expect(author.page.getByLabel("Slug", { exact: true })).toHaveValue(exampleSlug);
     const editor = author.page.getByRole("textbox", { name: "Текст статьи", exact: true });
     await editor.fill("Первый абзац редактора");
     await author.page.getByRole("button", { name: "Жирный", exact: true }).click();
@@ -156,11 +198,15 @@ async function main() {
     for (const source of sources) await author.page.getByRole("checkbox", { name: new RegExp(source.label) }).check();
     const saving = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${draft.id}`) && response.request().method() === "PATCH");
     await author.page.getByRole("button", { name: "Сохранить черновик", exact: true }).click();
-    assert.equal((await saving).status(), 200);
+    const savedResponse = await saving; assert.equal(savedResponse.status(), 200);
+    assert.equal(savedResponse.request().postDataJSON().slugMode, "auto");
+    assert.equal(Object.hasOwn(savedResponse.request().postDataJSON(), "slug"), false);
     await expect(author.page.getByText("Черновик сохранён.", { exact: true })).toBeVisible();
     draft = await getDraft(author.context, draft.id);
-    assert.equal(draft.h1, "Локальный редакционный черновик"); assert.equal(draft.seoTitle, "Ручной SEO title");
-    assert.equal(draft.metaDescription, "Ручное описание статьи"); assert.equal(draft.slug, `draft-${runId}`);
+    assert.equal(draft.h1, exampleTitle); assert.equal(draft.seoTitle, "Ручной SEO title");
+    assert.equal(draft.metaDescription, "Ручное описание статьи"); assert.equal(draft.slugMode, "auto");
+    if (exampleAvailable) assert.equal(draft.slug, exampleSlug);
+    else assert.match(draft.slug, /^pobeda-spustya-tri-desyatiletiya(?:-[2-9][0-9]*|-[1-9][0-9]+)?$/);
     assert.deepEqual([...draft.categoryIds].sort(), [...categoryIds].sort()); assert.deepEqual([...draft.tagIds].sort(), sources.map(s => s.tagId).sort());
     assert(JSON.stringify(draft.content).includes("Выделенный текст")); assert(JSON.stringify(draft.content).includes('"bold"'));
     await author.page.reload(); await expect(editor).toContainText("Выделенный текст");
@@ -220,26 +266,151 @@ async function main() {
     }
     const duplicate = await createDraft(author.context);
     const duplicateSave = await author.context.request.patch(`/api/admin/articles/${duplicate.id}`, { headers: { origin }, data: saveInput(duplicate, { slug: draft.slug }) });
-    assert.equal(duplicateSave.status(), 409); assert.equal((await duplicateSave.json()).error.code, "ARTICLE_SLUG_CONFLICT");
-    assert.deepEqual(await getDraft(author.context, duplicate.id), duplicate);
+    assert.equal(duplicateSave.status(), 200);
+    const duplicateReserved = await getDraft(author.context, duplicate.id);
+    assert.equal(duplicateReserved.slugMode, "manual"); assert.notEqual(duplicateReserved.slug, draft.slug);
+    assert(duplicateReserved.slug.startsWith(`${draft.slug}-`));
+    assert.deepEqual(await getDraft(author.context, draft.id), draft);
 
     phase = "browser conflict preserves edits and requires an explicit choice";
-    await author.page.getByLabel("Заголовок H1", { exact: true }).fill("Несохранённый текст после конфликта");
+    await author.page.getByLabel("Название статьи", { exact: true }).fill("Несохранённый текст после конфликта");
     const conflicting = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${draft.id}`) && response.request().method() === "PATCH");
     await author.page.getByRole("button", { name: "Сохранить черновик", exact: true }).click();
     assert.equal((await conflicting).status(), 409);
-    await expect(author.page.getByLabel("Заголовок H1", { exact: true })).toHaveValue("Несохранённый текст после конфликта");
+    await expect(author.page.getByLabel("Название статьи", { exact: true })).toHaveValue("Несохранённый текст после конфликта");
     await expect(author.page.getByRole("button", { name: "Сохранить черновик", exact: true })).toBeDisabled();
     await author.page.getByRole("button", { name: "Загрузить текущую версию", exact: true }).click();
     await expect(author.page.getByRole("button", { name: "Использовать текущую версию", exact: true })).toBeVisible();
-    await expect(author.page.getByLabel("Заголовок H1", { exact: true })).toHaveValue("Несохранённый текст после конфликта");
+    await expect(author.page.getByLabel("Название статьи", { exact: true })).toHaveValue("Несохранённый текст после конфликта");
     author.page.once("dialog", dialog => dialog.accept());
     await author.page.getByRole("button", { name: "Использовать текущую версию", exact: true }).click();
-    await expect(author.page.getByLabel("Заголовок H1", { exact: true })).toHaveValue(draft.h1);
+    await expect(author.page.getByLabel("Название статьи", { exact: true })).toHaveValue(draft.h1);
+
+    phase = "manual address survives rename and reopen; automatic return is explicit";
+    let manualDraft = await createDraft(author.context);
+    await author.page.goto(`/admin/articles/${manualDraft.id}`);
+    await author.page.getByLabel("Название статьи", { exact: true }).fill(`Ручной адрес ${runId}`);
+    await expect(author.page.getByLabel("Slug", { exact: true })).toHaveValue(`ruchnoy-adres-${runId}`);
+    await author.page.getByLabel("Slug", { exact: true }).fill(`manual-${runId}`);
+    const manualSaving = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${manualDraft.id}`) && response.request().method() === "PATCH");
+    await author.page.getByRole("button", { name: "Сохранить черновик", exact: true }).click();
+    const manualResponse = await manualSaving; assert.equal(manualResponse.status(), 200);
+    assert.equal(manualResponse.request().postDataJSON().slugMode, "manual");
+    assert.equal(manualResponse.request().postDataJSON().slug, `manual-${runId}`);
+    manualDraft = await getDraft(author.context, manualDraft.id);
+    assert.equal(manualDraft.slugMode, "manual"); assert.equal(manualDraft.slug, `manual-${runId}`);
+    await author.page.getByLabel("Название статьи", { exact: true }).fill(`Новое название ${runId}`);
+    await expect(author.page.getByLabel("Slug", { exact: true })).toHaveValue(manualDraft.slug);
+    const renamedSaving = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${manualDraft.id}`) && response.request().method() === "PATCH");
+    await author.page.getByRole("button", { name: "Сохранить черновик", exact: true }).click();
+    assert.equal((await renamedSaving).status(), 200);
+    await author.page.reload(); await expect(author.page.getByLabel("Slug", { exact: true })).toHaveValue(`manual-${runId}`);
+    manualDraft = await getDraft(author.context, manualDraft.id); assert.equal(manualDraft.slugMode, "manual");
+    // A legacy client omitting the new fields must also retain a manual URL.
+    const legacyInput = saveInput(manualDraft, { h1: `Старый клиент ${runId}` }); delete legacyInput.slug; delete legacyInput.slugMode;
+    assert.equal((await author.context.request.patch(`/api/admin/articles/${manualDraft.id}`, { headers: { origin }, data: legacyInput })).status(), 200);
+    manualDraft = await getDraft(author.context, manualDraft.id);
+    assert.equal(manualDraft.slug, `manual-${runId}`); assert.equal(manualDraft.slugMode, "manual");
+    await author.page.reload(); await author.page.getByRole("button", { name: "Вернуть автоматический адрес", exact: true }).click();
+    await expect(author.page.getByLabel("Slug", { exact: true })).toHaveValue(`staryy-klient-${runId}`);
+    const automaticSaving = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${manualDraft.id}`) && response.request().method() === "PATCH");
+    await author.page.getByRole("button", { name: "Сохранить черновик", exact: true }).click();
+    const automaticResponse = await automaticSaving; assert.equal(automaticResponse.status(), 200);
+    assert.equal(automaticResponse.request().postDataJSON().slugMode, "auto");
+    assert.equal(Object.hasOwn(automaticResponse.request().postDataJSON(), "slug"), false);
+    manualDraft = await getDraft(author.context, manualDraft.id);
+    assert.equal(manualDraft.slugMode, "auto"); assert.equal(manualDraft.slug, `staryy-klient-${runId}`);
+
+    phase = "automatic edge cases and concurrent reservation without explicit slug";
+    const unsupported = await saveDraft(author.context, await createDraft(author.context), { h1: "⚽ !!!", seoTitle: "Different SEO heading" });
+    assert.equal(unsupported.slugMode, "auto"); assert.equal(unsupported.slug, `article-${unsupported.id}`);
+    const collisionTitle = `Совпадение ${runId}`, collisionBase = `sovpadenie-${runId}`;
+    const emptyCollisions = [await createDraft(author.context), await createDraft(stranger.context)];
+    const collisionDrafts = await Promise.all(emptyCollisions.map((current, index) => saveDraft(index ? stranger.context : author.context, current, {
+      h1: collisionTitle, seoTitle: index ? "Независимый SEO title" : "", metaDescription: "", content: rich,
+    })));
+    assert.deepEqual(collisionDrafts.map(current => current.slug).sort(), [collisionBase, `${collisionBase}-2`].sort());
+    for (const [index, current] of collisionDrafts.entries()) {
+      const kept = await saveDraft(index ? stranger.context : author.context, current, { seoTitle: `Только SEO ${index}` });
+      assert.equal(kept.slug, current.slug); assert.equal(kept.slugMode, "auto"); collisionDrafts[index] = kept;
+    }
+    // Put the per-run marker before the long suffix: truncation cannot collide
+    // with canonical data or another test run.
+    const longTitle = `${runId} ${"Очень ".repeat(40)}`;
+    const longBase = `${runId}-${"ochen-".repeat(40)}`.slice(0, 160).replace(/-+$/, "");
+    const longDrafts = await Promise.all([author.context, stranger.context].map(async client => saveDraft(client, await createDraft(client), { h1: longTitle })));
+    assert.deepEqual(longDrafts.map(current => current.slug).sort(), [longBase, `${longBase.slice(0, 158).replace(/-+$/, "")}-2`].sort());
+    for (const current of longDrafts) { assert(current.slug.length <= 160); assert.match(current.slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/); }
+
+    phase = "legacy empty auto drafts publish concurrently across two real actors";
+    // Emulate only old empty-address state on these generated drafts. Saved
+    // content/revision and normally issued authorization remain untouched.
+    assert.equal((await pool.query("update article.drafts set slug='' where article_id=any($1::text[]) and slug_mode='auto'", [collisionDrafts.map(current => current.id)])).rowCount, 2);
+    const otherProfile = (await (await stranger.context.request.get("/api/admin/profile")).json()).profile;
+    const otherGrant = await staff.context.request.patch(`/api/admin/writers/${other.accountId}/publication`, { headers: { origin }, data: {
+      enabled: true, expectedRevision: otherProfile.publicationRevision, operationId: randomUUID(),
+    } });
+    assert.equal(otherGrant.status(), 200); const otherGrantedProfile = (await otherGrant.json()).profile;
+    try {
+      const bodies = collisionDrafts.map(current => ({ action: "publish", operationId: randomUUID(), expectedRevision: current.revision, expectedPublicationRevision: 0 }));
+      const clients = [staff.context, stranger.context];
+      const allocationRole = (await runtime.query<{ role: string }>("select current_user as role")).rows[0].role;
+      const allocationBlocker = await pool.connect();
+      let pendingPublications: ReturnType<typeof tracked<APIResponse[]>> | undefined;
+      let concurrent: APIResponse[];
+      try {
+        await allocationBlocker.query("begin");
+        const blockerPid = (await allocationBlocker.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+        await allocationBlocker.query("select pg_advisory_xact_lock(910230212,1)");
+        pendingPublications = tracked(Promise.all(collisionDrafts.map((current, index) => clients[index].request.post(`/api/admin/articles/${current.id}/publication`, { headers: { origin }, data: bodies[index] }))));
+        await waitForPg("Both publications did not overlap on the exact address allocator lock", async () => {
+          return (await pool.query<{ count: number }>(`select count(distinct l.pid)::int as count from pg_locks l join pg_stat_activity a on a.pid=l.pid
+            where l.locktype='advisory' and l.classid=910230212::oid and l.objid=1::oid and l.objsubid=2 and not l.granted
+              and a.usename=$1 and a.datname=current_database() and $2::int=any(pg_blocking_pids(l.pid))`, [allocationRole, blockerPid])).rows[0].count === 2;
+        });
+        await allocationBlocker.query("commit");
+        const outcome = await pendingPublications;
+        if (outcome.error) throw outcome.error;
+        assert(outcome.result); concurrent = outcome.result;
+      } finally {
+        await allocationBlocker.query("rollback").catch(() => undefined); allocationBlocker.release();
+        if (pendingPublications) await pendingPublications;
+      }
+      assert.deepEqual(concurrent.map(response => response.status()), [200, 200]);
+      const published = await Promise.all(concurrent.map(async response => (await response.json()).draft as ArticleDraftDTO));
+      assert.deepEqual(published.map(current => current.slug).sort(), [collisionBase, `${collisionBase}-2`].sort());
+      for (const [index, current] of published.entries()) {
+        assert.equal(current.revision, collisionDrafts[index].revision); assert.equal(current.publication!.sourceRevision, collisionDrafts[index].revision);
+        assert.equal(current.publication!.slug, current.slug); assert.equal(current.slugMode, "auto");
+        assert.equal(current.metaDescription, ""); assert.deepEqual(current.content, rich);
+        const replay = await clients[index].request.post(`/api/admin/articles/${current.id}/publication`, { headers: { origin }, data: bodies[index] });
+        assert.equal(replay.status(), 200); assert.deepEqual((await replay.json()).draft, current);
+      }
+      // An explicitly blank SEO Title falls back only in public metadata; its
+      // stored field stays blank. Blank description produces no fake metadata.
+      let fallback = await saveDraft(author.context, published[0], { seoTitle: "" });
+      const updatedFallback = await staff.context.request.post(`/api/admin/articles/${fallback.id}/publication`, { headers: { origin }, data: {
+        action: "update", operationId: randomUUID(), expectedRevision: fallback.revision, expectedPublicationRevision: fallback.publication!.revision,
+      } });
+      assert.equal(updatedFallback.status(), 200); fallback = (await updatedFallback.json()).draft;
+      assert.equal(fallback.seoTitle, ""); assert.equal(fallback.slug, published[0].slug);
+      await assertPublicMetadata(fallback);
+      await anonymousPage.goto("/articles");
+      const card = anonymousPage.getByRole("heading", { level: 2, name: fallback.h1, exact: true }).filter({ has: anonymousPage.locator(`a[href="/articles/${fallback.slug}"]`) }).locator("..");
+      await expect(card.getByRole("img", { name: "Изображение статьи отсутствует", exact: true })).toBeVisible();
+      const sitemap = await anonymous.request.get("/sitemap.xml"); assert.equal(sitemap.status(), 200);
+      assert.equal((await sitemap.text()).includes(`<loc>${origin}/articles`), false, "LOCAL Articles must stay outside the sitemap");
+    } finally {
+      const otherRevoke = await staff.context.request.patch(`/api/admin/writers/${other.accountId}/publication`, { headers: { origin }, data: {
+        enabled: false, expectedRevision: otherGrantedProfile.publicationRevision, operationId: randomUUID(),
+      } });
+      assert.equal(otherRevoke.status(), 200);
+    }
+    await author.page.goto(`/admin/articles/${draft.id}`);
 
     phase = "actual Article image upload and protected delivery";
     const png = await sharp({ create: { width: 3000, height: 1200, channels: 3, background: "#2468ac" } }).png().withMetadata().toBuffer();
-    await author.page.reload(); await author.page.getByLabel("Заголовок H1", { exact: true }).fill("Несохранённый заголовок перед upload");
+    await author.page.reload(); await author.page.getByLabel("Название статьи", { exact: true }).fill("Несохранённый заголовок перед upload");
     await author.page.getByLabel("Загрузить изображение", { exact: true }).setInputFiles({ name: "editorial.png", mimeType: "image/png", buffer: png });
     const uploading = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${draft.id}/images`) && response.request().method() === "POST");
     await author.page.getByRole("button", { name: "Загрузить файл", exact: true }).click();
@@ -250,7 +421,7 @@ async function main() {
       const uploaded = await upload.json() as { image: ArticleImageDTO; revision: number }; image = uploaded.image;
       assert.equal(uploaded.revision, draft.revision + 1); assert.equal(image.width, 2048); assert(image.height > 512);
       assert.equal(image.url, `/media/private/${image.id}.webp`);
-      await expect(author.page.getByLabel("Заголовок H1", { exact: true })).toHaveValue("Несохранённый заголовок перед upload");
+      await expect(author.page.getByLabel("Название статьи", { exact: true })).toHaveValue("Несохранённый заголовок перед upload");
       const asset = (await pool.query("select * from media.assets where id=$1", [image.id])).rows[0];
       assert.equal(asset.kind, "article_image");
       const bytes = await readFile(resolve(mediaRoot, asset.storage_key));
@@ -332,8 +503,10 @@ async function main() {
     assert.equal(staffPublished.authorAccountId, writer.accountId); assert(staffPublished.publication);
     assert.equal(staffPublished.publication.revision, 1); assert.equal(staffPublished.publication.sourceRevision, draft.revision);
     await expect(staff.page.getByLabel("Slug", { exact: true })).toBeDisabled();
+    await expect(staff.page.getByRole("button", { name: "Вернуть автоматический адрес", exact: true })).toHaveCount(0);
     await expect(staff.page.getByRole("link", { name: "Открыть опубликованную статью", exact: true })).toHaveAttribute("href", publicPath);
     draft = await getDraft(author.context, draft.id);
+    const firstPublishedDraft = draft;
     const firstPublication = { ...draft.publication! };
     async function publicationState() {
       const publication = (await pool.query("select * from article.publications where article_id=$1", [draft.id])).rows[0];
@@ -346,7 +519,7 @@ async function main() {
     assert.equal(firstState.publication.h1, draft.h1); assert.deepEqual(firstState.publication.content, draft.content);
     assert.deepEqual(firstState.categories.map(row => row.category_id), [...draft.categoryIds].sort());
     assert.deepEqual(firstState.tags.map(row => row.tag_id), [...draft.tagIds].sort());
-    await anonymousPage.goto(publicPath); await expect(anonymousPage.getByRole("heading", { name: draft.h1, level: 1, exact: true })).toBeVisible();
+    await assertPublicMetadata(draft);
     if (image) {
       const publicImage = await anonymous.request.get(`/media/public/${image.id}.webp`); assert.equal(publicImage.status(), 200);
       assert(publicImage.headers()["cache-control"].includes("s-maxage=3600"));
@@ -359,11 +532,13 @@ async function main() {
       ...(image ? [{ type: "articleImage" as const, attrs: { assetId: image.id, alt: "Тактическая схема", caption: "Обновлённая подпись" } }] : []),
     ] };
     const pendingSave = await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: saveInput(draft, {
-      h1: pendingH1, content: nextContent, categoryIds: [categoryIds[1]], tagIds: [sources[3].tagId],
+      h1: pendingH1, seoTitle: `Независимый обновлённый SEO title ${runId}`, metaDescription: "",
+      content: nextContent, categoryIds: [categoryIds[1]], tagIds: [sources[3].tagId],
     }) });
     assert.equal(pendingSave.status(), 200); draft = await getDraft(author.context, draft.id);
+    assert.equal(draft.slug, firstPublication.slug); assert.equal(draft.slugMode, firstPublishedDraft.slugMode);
     assert.equal(draft.canPublish, false); assert.deepEqual(await publicationState(), firstState, "An ordinary save changed public content or relations");
-    await anonymousPage.reload(); await expect(anonymousPage.getByRole("heading", { name: firstState.publication.h1, level: 1, exact: true })).toBeVisible();
+    await assertPublicMetadata(firstPublishedDraft);
     await expect(anonymousPage.getByText(pendingText, { exact: true })).toHaveCount(0);
     const changedSlug = await author.context.request.patch(`/api/admin/articles/${draft.id}`, { headers: { origin }, data: saveInput(draft, { slug: `${draft.slug}-changed` }) });
     assert.equal(changedSlug.status(), 409); assert.equal((await changedSlug.json()).error.code, "ARTICLE_SLUG_IMMUTABLE");
@@ -375,6 +550,7 @@ async function main() {
     assert.equal(grant.status(), 200); const grantedProfile = (await grant.json()).profile;
     draft = await getDraft(author.context, draft.id); assert.equal(draft.canPublish, true);
     await author.page.goto(`/admin/articles/${draft.id}`); await expect(author.page.getByLabel("Slug", { exact: true })).toBeDisabled();
+    await expect(author.page.getByRole("button", { name: "Вернуть автоматический адрес", exact: true })).toHaveCount(0);
     await expect(author.page.getByText(/Есть сохранённые изменения, которые ещё не опубликованы/)).toBeVisible();
     const beforeUpdateRevision = draft.revision;
     const updatingPublication = author.page.waitForResponse(response => response.url().endsWith(`/api/admin/articles/${draft.id}/publication`) && response.request().method() === "POST");
@@ -384,6 +560,7 @@ async function main() {
     draft = (await updatedResponse.json()).draft as ArticleDraftDTO; assert(draft.publication);
     assert.equal(draft.revision, beforeUpdateRevision); assert.equal(draft.publication.revision, 2);
     assert.equal(draft.publication.firstPublishedAt, firstPublication.firstPublishedAt); assert.equal(draft.publication.slug, firstPublication.slug);
+    assert.equal(draft.slug, firstPublication.slug);
     assert(Date.parse(draft.publication.updatedAt) > Date.parse(firstPublication.updatedAt));
     assert.equal(draft.authorAccountId, writer.accountId);
     const updatedState = await publicationState();
@@ -397,7 +574,7 @@ async function main() {
       assert.equal(response.status(), 409); assert.equal((await response.json()).error.code, "ARTICLE_CONFLICT");
       assert.deepEqual(await publicationState(), updatedState, "A stale publication changed the public aggregate");
     }
-    await anonymousPage.reload(); await expect(anonymousPage.getByRole("heading", { name: pendingH1, level: 1, exact: true })).toBeVisible();
+    await assertPublicMetadata(draft);
     await expect(anonymousPage.getByText(pendingText, { exact: true })).toBeVisible();
     const revoke = await staff.context.request.patch(`/api/admin/writers/${writer.accountId}/publication`, { headers: { origin }, data: {
       enabled: false, expectedRevision: grantedProfile.publicationRevision, operationId: randomUUID(),
@@ -532,7 +709,7 @@ async function main() {
     await pool.query("delete from auth.staff_sessions where user_id=$1", [other.userId]);
     assert.equal((await stranger.context.request.get("/api/admin/articles")).status(), 401);
     assert.equal(externalRequests, 0); assert.equal(Number((await pool.query("select count(*) from jobs.admin_requests")).rows[0].count), beforeJobs);
-    console.log(`article_drafts_ui_check=passed identity=fixture-only mfa=real editor=roundtrip taxonomy=2-categories-4-tag-kinds cas=real ownership=immutable references=atomic publication=sa-first-writer-grant-snapshot-update-replay-stale provider_requests=0 image=${process.platform === "win32" ? "real-upload-private-acl" : "no-bind-denied-positive-not-run"}`);
+    console.log(`article_drafts_ui_check=passed identity=fixture-only mfa=real editor=roundtrip taxonomy=2-categories-4-tag-kinds cas=real ownership=immutable references=atomic slug=auto-manual-concurrent-publication-legacy-empty-stable metadata=actual-h1-title-description-canonical-jsonld publication=sa-first-writer-grant-snapshot-update-replay-stale provider_requests=0 image=${process.platform === "win32" ? "real-upload-private-acl" : "no-bind-denied-positive-not-run"}`);
     console.log(`retained_fixture_media=${mediaRoot}`);
   } finally {
     await browser?.close().catch(() => undefined);

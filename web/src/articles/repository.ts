@@ -4,16 +4,17 @@ import type { ArticleActor } from "./access";
 import type { ArticleDraftDTO, ArticleListDTO, ArticleSummaryDTO, ArticlePublicationDTO } from "./contract";
 import type { ArticleDocument } from "./document";
 import { getFootballTagsByIds } from "../taxonomy/football-tags-repository";
+import { articleSlugCandidate, type ArticleSlugMode } from "./slug";
 
 type Db = Pick<PoolClient, "query">;
 type DraftRow = QueryResultRow & {
   id: string; authorAccountId: string; authorName: string; createdAt: Date | string;
   updatedAt: Date | string; revision: number; formatVersion: 1; content: ArticleDocument;
-  h1: string; seoTitle: string; metaDescription: string; slug: string;
+  h1: string; seoTitle: string; metaDescription: string; slug: string; slugMode: ArticleSlugMode;
 };
 const draftProjection = `a.id,a.author_account_id as "authorAccountId",coalesce(nullif(p.nickname,''),'Автор') as "authorName",
   a.created_at as "createdAt",d.updated_at as "updatedAt",d.revision,d.format_version as "formatVersion",d.content,
-  d.h1,d.seo_title as "seoTitle",d.meta_description as "metaDescription",d.slug`;
+  d.h1,d.seo_title as "seoTitle",d.meta_description as "metaDescription",d.slug,d.slug_mode as "slugMode"`;
 const draftFrom = `article.articles a join article.drafts d on d.article_id=a.id
   left join identity.writer_profiles p on p.account_id=a.author_account_id`;
 const iso = (date: Date | string) => new Date(date).toISOString();
@@ -66,6 +67,39 @@ export async function insertArticleDraft(db: Db, accountId: string, content: Art
   await db.query(`insert into article.articles(id,author_account_id) values($1,$2)`, [id, accountId]);
   await db.query(`insert into article.drafts(article_id,content) values($1,$2::jsonb)`, [id, JSON.stringify(content)]);
   return id;
+}
+
+/** Reserve a final address in the same transaction as save/first publication. */
+export async function assignArticleDraftSlug(db: Db, id: string, base: string, mode: ArticleSlugMode): Promise<string> {
+  // All application allocators share this lock, including overlapping suffix
+  // families such as "name" -> "name-2" and a manual base of "name-2".
+  await db.query("select pg_advisory_xact_lock(910230212,1)");
+  if (!base) {
+    await db.query("update article.drafts set slug='',slug_mode=$2 where article_id=$1", [id, mode]);
+    return "";
+  }
+  for (let start = 0; Number.isSafeInteger(start); start += 128) {
+    const candidates = Array.from({ length: 128 }, (_, index) => articleSlugCandidate(base, start + index));
+    const occupied = new Set((await db.query<{ slug: string }>(`select slug from article.drafts where article_id<>$1 and slug=any($2::text[])
+      union select slug from article.publications where article_id<>$1 and slug=any($2::text[])`, [id, candidates])).rows.map(row => row.slug));
+    for (const slug of candidates) {
+      if (occupied.has(slug)) continue;
+      await db.query("savepoint article_slug_candidate");
+      try {
+        await db.query("update article.drafts set slug=$2,slug_mode=$3 where article_id=$1", [id, slug, mode]);
+        await db.query("release savepoint article_slug_candidate");
+        return slug;
+      } catch (error) {
+        await db.query("rollback to savepoint article_slug_candidate");
+        await db.query("release savepoint article_slug_candidate");
+        const failure = error as { code?: string; constraint?: string };
+        if (failure.code !== "23505" || failure.constraint !== "article_drafts_slug_unique") throw error;
+        // A writer outside the application lock still cannot defeat the unique
+        // index. Try the next candidate, rather than asking the author for one.
+      }
+    }
+  }
+  throw new Error("Article address allocation exhausted");
 }
 
 export type ArticleReceipt = { actorAccountId: string; articleId: string; action: string; fingerprint: string; result: { revision: number; result?: unknown } };
